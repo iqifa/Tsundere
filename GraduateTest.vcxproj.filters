@@ -496,6 +496,5 @@
     <None Include="src\vender\glm\gtx\vector_query.inl" />
     <None Include="src\vender\glm\gtx\wrap.inl" />
     <None Include="freeglut.dll" />
-    <None Include="Dependence\assimp\dll\assimp-vc142-mtd.dll" />
   </ItemGroup>
 </Project>
