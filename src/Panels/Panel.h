@@ -41,7 +41,7 @@ public:
 		if (ImGui::IsMouseDown(0) && ImGui::IsWindowHovered())
 			m_SelectedContext = {};
 
-		if (ImGui::BeginPopupContextWindow(0, 1, false))
+		if (ImGui::BeginPopupContextWindow(0, 1))
 		{
 			if (ImGui::MenuItem("Create Empty Entity"))
 			{
