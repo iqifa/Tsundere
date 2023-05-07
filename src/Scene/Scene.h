@@ -16,11 +16,11 @@ public:
 		//m_EntityMap.erase(entity.GetUUID());
 		m_Registry.destroy(entity);
 	}
-	Entity CreateEntity(const string& name)
+	Entity& CreateEntity(const string& name)
 	{
 		return CreateEntityWithUID(UUID(), name);
 	}
-	Entity CreateEntityWithUID(UUID uuid, const string& name)
+	Entity& CreateEntityWithUID(UUID uuid, const string& name)
 	{
 		Entity entity = { this,m_Registry.create() };
 		entity.AddComponent<ID>(uuid);
