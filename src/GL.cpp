@@ -41,29 +41,14 @@ int main(void)
 	{
 		cout << "Error!" << endl;
 	}
-
+	ImGuiLayer iml;
 	cout << glGetString(GL_VERSION) << endl;
 
-	IMGUI_CHECKVERSION();
-	ImGui::CreateContext();
-	ImGuiIO& io = ImGui::GetIO(); (void)io;
-	io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
-	io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
-	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;         // Enable Docking
-	io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
-
-	ImGui::StyleColorsDark();
-
-
-	ImGuiStyle& style = ImGui::GetStyle();
-	if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
-	{
-		style.WindowRounding = 0.0f;
-		style.Colors[ImGuiCol_WindowBg].w = 1.0f;
-	}
+	iml.OnAttach();
 
 	glBlendFunc(GL_SRC0_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	//glEnable(GL_CULL_FACE);
+	glEnable(GL_STENCIL_TEST);
 	glEnable(GL_BLEND);
 	glEnable(GL_DEPTH_TEST);
 	glfwSetCursorPosCallback(window, mouse_callback);
@@ -71,7 +56,9 @@ int main(void)
 
 
 	Renderer renderer;
-
+	FrameBufferSpecification specific;
+	Ref<FrameBuffer>fb;
+	fb = CreateRef<FrameBuffer>(specific);
 	const char* glsl_version = "#version 130";
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
@@ -105,6 +92,7 @@ int main(void)
 		
 		/* Render here */
 		/*glClear(GL_COLOR_BUFFER_BIT);*/
+		fb->Bind();
 		renderer.Clear();
 		//test.OnUpdate(0.0f);
 		//test.OnRender();
@@ -128,24 +116,20 @@ int main(void)
 				delete current;
 				current = menu;
 			}
+			unsigned int textureid = fb->GetClolorAttachmentRenderID();
+			ImGui::Image((void*)textureid, ImVec2{ 64.0f,64.0f });
 			current->OnImGuiRender();
 			ImGui::End();
 		}
 		//test.OnImGuiRender();
-		
 		ImGui::Render();
 		int display_w, display_h;
 		glfwGetFramebufferSize(window, &display_w, &display_h);
 		glViewport(0, 0, display_w, display_h);
 		ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
-		if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
-		{
-			GLFWwindow* backup_current_context = glfwGetCurrentContext();
-			ImGui::UpdatePlatformWindows();
-			ImGui::RenderPlatformWindowsDefault();
-			glfwMakeContextCurrent(backup_current_context);
-		}
+		fb->UnBind();
+		iml.End();
 
 		/* Swap front and back buffers */
 		glfwSwapBuffers(window);
