@@ -8,6 +8,7 @@ FrameBuffer::FrameBuffer()
 void FrameBuffer::Bind()
 {
 	glBindFramebuffer(GL_FRAMEBUFFER, m_RenderID);
+	glViewport(0, 0, m_Specfication.Width, m_Specfication.Height);
 }
 void FrameBuffer::UnBind()
 {
@@ -23,11 +24,18 @@ void FrameBuffer::BindTexture(Texture& tex)
 void FrameBuffer::BindRenderBuffer(RenderBufferObject& rbo)
 {
 	rbo.Bind();
-	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, 800, 600);
+	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, m_Specfication.Width, m_Specfication.Height);
 	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, rbo.GetRenderBufferID());
 	if (!IsComplete())
 		debugerror("Error:FrameBuffer isn't Complete!");
 	rbo.UnBind();
+}
+
+void FrameBuffer::Rsetsize(const vec2& size)
+{
+	m_Specfication.Width = size.x;
+	m_Specfication.Height = size.y;
+	InValidate();
 }
 
 bool FrameBuffer::IsComplete()

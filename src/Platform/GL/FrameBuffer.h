@@ -38,6 +38,7 @@ public:
 	void BindTexture(Texture& tex);
 
 	void BindRenderBuffer(RenderBufferObject& rbo);
+	void Rsetsize(const vec2& size);
 	
 	bool IsComplete();
 

@@ -26,6 +26,7 @@ namespace test
 		unique_ptr<VertexBuffer>m_VertexBuffer;
 		unique_ptr<Texture>m_Texture;
 		unique_ptr<Shader>ModleShader;
+		unique_ptr<Shader>SingleShader;
 
 		mat4 proj, view, model, mvp;
 		float screenWidth, screenHeight;

@@ -12,16 +12,16 @@ static std::mt19937_64 s_Engine(s_RandomDevice());
 static std::uniform_int_distribution<uint64_t> s_UniformDistribution;
 
 class Entity;
-class UUID {
+class UID {
 public:
-	UUID() : m_UUID(s_UniformDistribution(s_Engine)) {}
-	UUID(uint64_t uuid) :m_UUID(uuid) {}
-	UUID(const UUID&) = default;
+	UID() : m_UID(s_UniformDistribution(s_Engine)) {}
+	UID(uint64_t UID) :m_UID(UID) {}
+	UID(const UID&) = default;
 
-	operator uint64_t() { return m_UUID; }
+	operator uint64_t() { return m_UID; }
 
 private:
-	uint64_t m_UUID;
+	uint64_t m_UID;
 };
 namespace Component
 {
@@ -31,7 +31,7 @@ namespace Component
 		ID() = default;
 		ID(const ID&) = default;
 
-		UUID id;
+		UID id;
 	};
 
 	struct Transform
@@ -73,6 +73,7 @@ namespace Component
 	struct Material
 	{
 		Ref<Shader> shader;
+		int shaderindex=-1;
 		Texture texture;
 		Material(const Material&) = default;
 		Material(const Ref<Shader>& shader):shader(shader){}
@@ -85,7 +86,7 @@ namespace Component
 
 	struct Camera
 	{
-
+		vec3 Target;
 	};
 	struct MeshFile
 	{

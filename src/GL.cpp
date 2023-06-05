@@ -17,6 +17,9 @@ void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 
 void mouse_scrollback(GLFWwindow* window, double xpos, double ypos);
 
+void ShowDockSpace();
+
+
 int main(void)
 {
 	GLFWwindow* window;
@@ -76,15 +79,15 @@ int main(void)
 	};
 	currentcamera->skybox = CreateRef<SkyBox>(texpaths);
 
-
 	Test* current = nullptr;
 	TestMenu* menu = new TestMenu(current);
 	current = menu;
 	menu->RegisterTest<TestClearColor>("Clear Color");
 	menu->RegisterTest<TestTexture2D>("Texture2D");
 	menu->RegisterTest<TestCube>("TestCube", 1080.0f, 960.0f);
-	menu->RegisterTest<TestScene>("TestScene");
+	menu->RegisterTest<TestScene>("TestScene",true);
 	menu->RegisterTest<NewTest>("NewTest");
+	glClearColor(0.5f, 0.5f, 1.0f, 1.0f);
 	//TestClearColor test;
 	/* Loop until the user closes the window */
 	while (!glfwWindowShouldClose(window))
@@ -92,22 +95,24 @@ int main(void)
 		
 		/* Render here */
 		/*glClear(GL_COLOR_BUFFER_BIT);*/
-		fb->Bind();
+		
 		renderer.Clear();
 		//test.OnUpdate(0.0f);
 		//test.OnRender();
-
+		
 
 		ImGui_ImplOpenGL3_NewFrame();
 		ImGui_ImplGlfw_NewFrame();
 		ImGui::NewFrame();
-		if(currentcamera)
-		GLCall(currentcamera->RenderSkyBox());
+		//if(currentcamera)
+		//GLCall(currentcamera->RenderSkyBox());
 		currentcamera->GLPrecessInput(window, 0.05f);
 		ImGui::ShowDemoWindow();
-		
+		ShowDockSpace();
+		//fb->Bind();
 		if (current)
 		{
+			fb = current->getfb();
 			current->OnUpdate(0.0f);
 			current->OnRender();
 			ImGui::Begin("Test");
@@ -116,19 +121,13 @@ int main(void)
 				delete current;
 				current = menu;
 			}
-			unsigned int textureid = fb->GetClolorAttachmentRenderID();
-			ImGui::Image((void*)textureid, ImVec2{ 64.0f,64.0f });
 			current->OnImGuiRender();
 			ImGui::End();
 		}
-		//test.OnImGuiRender();
 		ImGui::Render();
-		int display_w, display_h;
-		glfwGetFramebufferSize(window, &display_w, &display_h);
-		glViewport(0, 0, display_w, display_h);
 		ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
-		fb->UnBind();
+		
 		iml.End();
 
 		/* Swap front and back buffers */
@@ -166,4 +165,46 @@ void mouse_callback(GLFWwindow* window, double Xpos, double Ypos)
 void mouse_scrollback(GLFWwindow* window, double xpos, double ypos)
 {
 	currentcamera->GLScrollInput(xpos, ypos);
+}
+
+void ShowDockSpace()
+{
+	static bool opt_fullscreen = true;
+	static ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_None;
+
+
+	ImGuiWindowFlags window_flags = ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoDocking;
+	if (opt_fullscreen)
+	{
+		const ImGuiViewport* viewport = ImGui::GetMainViewport();
+		ImGui::SetNextWindowPos(viewport->WorkPos);
+		ImGui::SetNextWindowSize(viewport->WorkSize);
+		ImGui::SetNextWindowViewport(viewport->ID);
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+		window_flags |= ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
+		window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
+	}
+	else
+	{
+		dockspace_flags &= ~ImGuiDockNodeFlags_PassthruCentralNode;
+	}
+
+	if (dockspace_flags & ImGuiDockNodeFlags_PassthruCentralNode)
+		window_flags |= ImGuiWindowFlags_NoBackground;
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+	ImGui::Begin("DockSpace Demo", 0, window_flags);
+	ImGui::PopStyleVar();
+	if (opt_fullscreen)
+		ImGui::PopStyleVar(2);
+
+	// Submit the DockSpace
+	ImGuiIO& io = ImGui::GetIO();
+	if (io.ConfigFlags & ImGuiConfigFlags_DockingEnable)
+	{
+		ImGuiID dockspace_id = ImGui::GetID("MyDockSpace");
+		ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), dockspace_flags);
+	}
+	ImGui::End();
+
 }

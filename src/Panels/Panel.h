@@ -71,13 +71,16 @@ public:
 					m_SelectedContext.AddComponent<Material>("res/shaders/default.shader");
 					ImGui::CloseCurrentPopup();
 				}
-
+				if (ImGui::MenuItem("Camera"))
+				{
+					m_SelectedContext.AddComponent<Camera>(m_SelectedContext.GetComponent<Transform>().Position);
+					ImGui::CloseCurrentPopup();
+				}
 				ImGui::EndPopup();
 			}
 		}
 		ImGui::End();
 	}
-
 private:
 	Ref<Scene> m_Context;
 
@@ -93,9 +96,9 @@ private:
 			m_SelectedContext = entity;
 		}
 		bool Deleted = false;
-		if (ImGui::BeginPopupContextItem())
+		if (ImGui::BeginPopupContextWindow(0,1))
 		{
-			if (ImGui::MenuItem("Delete Empty"))
+			if (m_SelectedContext==entity&&ImGui::MenuItem("Delete Empty"))
 				Deleted = true;
 			ImGui::EndPopup();
 		}
@@ -212,35 +215,44 @@ private:
 
 		if (entity.HasComponent<MeshFile>())
 		{
-			if (ImGui::TreeNode("Mesh"))
+			if (ImGui::TreeNode((void*)typeid(MeshFile).hash_code(),"Mesh"))
 			{
 				auto& component = entity.GetComponent<MeshFile>();
 
-				static int selected = component.m_ModleFile;
+				int selected = component.m_ModleFile;
 				for (int n = 0; n < ModlePaths.size(); n++)
 				{
 					if (ImGui::Selectable(ModlePaths[n].c_str(), selected == n))
 					{
-						if (ModleMap::m_ModleMap.find(ModlePaths[n]) != ModleMap::m_ModleMap.end())
+						auto& map = My_map::m_ModleMap;
+						if (map.find(ModlePaths[n]) != map.end())
 						{
-							component.m_modle = ModleMap::m_ModleMap[ModlePaths[n]];
+							component.m_modle = map[ModlePaths[n]];
 						}
 						else
 						{
 							component.m_modle = CreateRef<Model>(ModlePaths[n]);
-							ModleMap::m_ModleMap[ModlePaths[n]] = component.m_modle;
+							map[ModlePaths[n]] = component.m_modle;
 						}
 						selected = n;
 					}
 				}
 				component.m_ModleFile = selected;
+
+				//if (ImGui::Button("Add Model"))
+				//	ImGui::OpenPopup("AddModel");
+				//if (ImGui::BeginPopup("AddModel"))
+				//{
+				//	 ImGui::InputText("")
+				//}
 				ImGui::TreePop();
 			}
 		}
 
 		if (entity.HasComponent<Material>())
 		{
-			static int item_current = 0;
+			auto& material = entity.GetComponent<Material>();
+			int item_current = material.shaderindex;
 			using str = char*;
 			str* a = new str[ShaderPaths.size()];
 			for (int i = 0; i < ShaderPaths.size(); i++)
@@ -248,6 +260,20 @@ private:
 				a[i] = (str)ShaderPaths[i].c_str();
 			}
 			ImGui::Combo("shader", &item_current, a, ShaderPaths.size());
+			if (item_current != material.shaderindex)
+			{
+				auto& map = My_map::m_ShaderMap;
+				if (map.find(ShaderPaths[item_current]) != map.end())
+				{
+					material.shader = map[ShaderPaths[item_current]];
+				}
+				else
+				{
+					material.shader = CreateRef<Shader>(ShaderPaths[item_current]);
+					map[ShaderPaths[item_current]] = material.shader;
+				}
+				material.shaderindex = item_current;
+			}
 		}
 	}
 	friend class Scene;

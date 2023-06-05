@@ -57,22 +57,21 @@ public:
 
 	void Draw()
 	{
-		if (HasComponent<MeshFile>()&&HasComponent<Material>())
-		{
 			auto& component = GetComponent<MeshFile>();
 			if (component.m_ModleFile != -1)
 			{
 				Ref<Shader> shader = GetComponent<Material>().shader;
 				shader->Bind();
 				mat4 mvp = GetComponent<Transform>().GetMVP();
+				mat4 model = GetComponent<Transform>().GetTransform();
 				shader->SetUniformMat4f("u_MVP", mvp);
+				shader->SetUniformMat4f("model", model);
 				component.m_modle->Draw(*shader);
 			}
-		}
 	}
 
 
-	UUID& GetUUID() { return GetComponent<ID>().id; }
+	UID& GetUID() { return GetComponent<ID>().id; }
 	bool operator== (const Entity& other)const { return m_EntityHandle == other.m_EntityHandle && m_Scene == other.m_Scene; }
 	bool operator!=(const Entity& other)const { return !(*this == other); }
 	operator bool() { return m_EntityHandle != entt::null; }

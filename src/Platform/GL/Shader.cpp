@@ -122,6 +122,7 @@ ShaderProgramSource Shader::ParseShader(const string& filepath)
 			}
 		}
 	}
+	cout << m_Name << endl;
 	cout << ss[0].str() << ss[1].str();
 	return { ss[0].str(),ss[1].str() };
 }

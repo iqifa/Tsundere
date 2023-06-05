@@ -5,7 +5,7 @@
 class Entity;
 class Scene {
 private:
-	//unordered_map<UUID, entity>m_EntityMap;
+	//unordered_map<UID, entity>m_EntityMap;
 
 public:
 	entt::registry m_Registry;
@@ -13,22 +13,22 @@ public:
 	void OnaddComponent(Entity& entity, T& Component) {}
 	void DestoryEntity(Entity entity)
 	{
-		//m_EntityMap.erase(entity.GetUUID());
+		//m_EntityMap.erase(entity.GetUID());
 		m_Registry.destroy(entity);
 	}
 	Entity& CreateEntity(const string& name)
 	{
-		return CreateEntityWithUID(UUID(), name);
+		return CreateEntityWithUID(UID(), name);
 	}
-	Entity& CreateEntityWithUID(UUID uuid, const string& name)
+	Entity& CreateEntityWithUID(UID UID, const string& name)
 	{
 		Entity entity = { this,m_Registry.create() };
-		entity.AddComponent<ID>(uuid);
+		entity.AddComponent<ID>(UID);
 		entity.AddComponent<Transform>();
 		auto& tag = entity.AddComponent<Tag>();
 		tag.tag = name.empty() ? "Entity" : name;
 
-		//m_EntityMap[uuid] = entity;
+		//m_EntityMap[UID] = entity;
 
 		return entity;
 	}

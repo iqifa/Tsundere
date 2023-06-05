@@ -1,5 +1,6 @@
 #pragma once
-
+#ifndef CAMERA
+#define CAMERA
 
 #include"ExternalFiles.h"
 #include"HeadLine.h"
@@ -48,3 +49,4 @@ public:
 	Ref<SkyBox>skybox;
 };
 extern SceneCamera* currentcamera;
+#endif // !CAMERA

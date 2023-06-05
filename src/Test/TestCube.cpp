@@ -12,27 +12,36 @@ void test::TestCube::OnRender()
 	//glClear(GL_COLOR_BUFFER_BIT);
 
 	//SceneCamera::currentcamera->GLPrecessInput(currentwin, 0.05f);
-
 	view = currentcamera->GetViewFront();
-	//view = translate(view, vec3(0.0f, 3.0f, 0.0f));
 	proj = currentcamera->GetProj();
 	model = scale(model, vec3(1.0f, 1.0f, 1.0f));
+	mat4 modle2 = scale(model, vec3(1.1f, 1.1f, 1.1f));
+
+	glClear(GL_STENCIL_BUFFER_BIT);
+	glEnable(GL_DEPTH_TEST);
+	glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+
+	glStencilFunc(GL_ALWAYS, 1, 0xFF);
+	glStencilMask(0xFF);
+
 	mvp = proj * view * model;
-	
-
-	Renderer renderer;
 	m_Shader->Bind();
-	m_Shader->SetUniform1i("u_Texture", 1);
 	m_Shader->SetUniformMat4f("u_MVP", mvp);
-	renderer.DrawArray(*m_vao, *m_Shader);
+	
+	modle.Draw(*m_Shader);
 
-	m_Shader->UnBind();
+	glStencilFunc(GL_NOTEQUAL, 1, 0xFF);
+	glStencilMask(0x00);
+	glDisable(GL_DEPTH_TEST);
+	
+	mvp = proj * view * modle2;
+	SingleShader->Bind();
+	SingleShader->SetUniformMat4f("u_MVP", mvp);
+	modle.Draw(*SingleShader);
 
-	//ModleShader->SetUniformMat4f("projection", proj);
-	//ModleShader->SetUniformMat4f("view", view);
-	//ModleShader->SetUniformMat4f("model", model);
-
-	//modle.Draw(*m_Shader);
+	glStencilMask(0xFF);
+	glStencilFunc(GL_ALWAYS, 0, 0xFF);
+	glEnable(GL_DEPTH_TEST);
 }
 
 void test::TestCube::OnImGuiRender()
@@ -41,7 +50,7 @@ void test::TestCube::OnImGuiRender()
 
 test::TestCube::TestCube(float screenWidth, float screenHeight)
 	:screenWidth(screenWidth), screenHeight(screenHeight),
-	model(mat4(1.0f)), proj( mat4(1.0f)),view(mat4(1.0f)),modle(Model("res/cube/cube.obj"))/*,mesh(Mesh())*/
+	model(mat4(1.0f)), proj( mat4(1.0f)),view(mat4(1.0f)),modle(Model("res/defaultmodle/default.obj"))/*,mesh(Mesh())*/
 {
 	float position[] =
 	{
@@ -89,8 +98,9 @@ test::TestCube::TestCube(float screenWidth, float screenHeight)
 	};
 
 
-	m_Shader = make_unique<Shader>("res/shaders/Basic.shader","Basic");
+	m_Shader = make_unique<Shader>("res/shaders/default.shader", "default");
 	m_Shader->Bind();
+	SingleShader = CreatePtr<Shader>("res/shaders/Test.shader", "Test");
 
 	m_vao = make_unique<VertexArray>(36);
 	m_VertexBuffer = make_unique<VertexBuffer>(position, 36 * 5 * sizeof(float));

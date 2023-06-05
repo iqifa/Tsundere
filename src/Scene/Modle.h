@@ -35,7 +35,7 @@ private:
     {
         // read file via ASSIMP
         Assimp::Importer importer;
-        const aiScene* scene = importer.ReadFile(path, aiProcess_Triangulate | aiProcess_GenSmoothNormals | aiProcess_FlipUVs | aiProcess_CalcTangentSpace);
+        const aiScene* scene = importer.ReadFile(path, aiProcess_Triangulate | aiProcess_GenSmoothNormals | aiProcess_FlipUVs | aiProcess_CalcTangentSpace| aiProcess_ConvertToLeftHanded| aiProcess_FixInfacingNormals);
         // check for errors
         if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode) // if is Not Zero
         {
@@ -196,10 +196,11 @@ inline unsigned int TextureFromFile(const char* path, const string& directory, b
     glGenTextures(1, &textureID);
 
     int width, height, nrComponents;
+    stbi_set_flip_vertically_on_load(1);
     unsigned char* data = stbi_load(filename.c_str(), &width, &height, &nrComponents, 0);
     if (data)
     {
-        GLenum format;
+        GLenum format = GL_RGBA;
         if (nrComponents == 1)
             format = GL_RED;
         else if (nrComponents == 3)
@@ -220,7 +221,7 @@ inline unsigned int TextureFromFile(const char* path, const string& directory, b
     }
     else
     {
-        std::cout << "Texture_Struct failed to load at path: " << path << std::endl;
+        std::cout << "Texture_Struct failed to load at path: " << filename << std::endl;
         stbi_image_free(data);
     }
 

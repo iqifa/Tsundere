@@ -19,17 +19,18 @@ public:
 		m_Context = Scene;
 	}
 	void OnRender() {
+		if(m_Context)
 		m_Context->m_Registry.each([&](auto entityID)
 			{
 				Entity entity{ m_Context.get(),entityID };
-				entity.Draw();
+				if(entity.HasComponent<MeshFile>()&&entity.HasComponent<Material>())
+					entity.Draw();
 			});
 	}
 
 private:
 
 	Ref<Scene> m_Context;
-
 	friend class Scene;
 };
 
