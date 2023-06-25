@@ -1,10 +1,9 @@
 #include "Texture.h"
 #include"vender/stb_image/stb_image.h"
-
+#include"Panels/MeshFilePath.h"
 Texture::Texture(const string& path)
 	:m_FilePath(path), m_LocalBuffer(nullptr), m_Height(0), m_Width(0)
 {
-	
 	//·´×ªÎÆÀí
 	stbi_set_flip_vertically_on_load(1);
 	m_LocalBuffer = stbi_load(path.c_str(), &m_Width, &m_Height, &m_BPP, 0);
@@ -61,3 +60,6 @@ unsigned int Texture::GetTextureID()
 {
 	return this->m_RendererID;
 }
+
+unordered_map<string, Ref<Texture>> TextureLibiary::m_TextureMap;
+

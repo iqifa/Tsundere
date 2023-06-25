@@ -110,7 +110,7 @@ ShaderProgramSource Shader::ParseShader(const string& filepath)
 				while (line[endpos] != ' ')
 					endpos++;
 				string type[2];
-				type[0] = line.substr(index, endpos - index);
+				type[0] = line.substr(index+1, endpos - index-1);
 
 
 				index = endpos;
@@ -179,6 +179,13 @@ void Shader::SetUniformMat4f(const string& name, const mat4& mat4)const
 	glUniformMatrix4fv(GetUniformLocation(name), 1, false, &mat4[0][0]);
 }
 
+void Shader::SetUniformVec3(const string& name, const vec3& value) const
+{
+	glUniform3fv(GetUniformLocation(name), 1, &value[0]);
+}
+
+
+
 int Shader::GetUniformLocation(const string& name)  const
 {
 	if (m_UniformLocationCache.find(name) != m_UniformLocationCache.end())
@@ -193,8 +200,8 @@ int Shader::GetUniformLocation(const string& name)  const
 
 void ShaderLibiray::Add(const Ref<Shader>& shader)
 {
-	auto& name = shader->GetName();
-	m_Shaders[name] = shader;
+	auto& path = shader->GetPath();
+	m_Shaders[path] = shader;
 }
 
 Ref<Shader> ShaderLibiray::Load(const string& FilePath)
@@ -211,7 +218,12 @@ Ref<Shader> ShaderLibiray::Load(const string& name, const string& FilePath)
 	return shader;
 }
 
-Ref<Shader> ShaderLibiray::Get(const string& name)
+Ref<Shader> ShaderLibiray::Get(const string& path) 
 {
-	return m_Shaders[name];
+	if(m_Shaders.find(path)!=m_Shaders.end())
+		return m_Shaders[path];
+	else
+		return Load(path);
 }
+
+unordered_map<string, Ref<Shader>> ShaderLibiray::m_Shaders;

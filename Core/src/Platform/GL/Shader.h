@@ -20,6 +20,7 @@ private:
 	unsigned int m_RendererID; 
 	string m_FilePath;
 	mutable unordered_map<string, int> m_UniformLocationCache;
+public:
 	vector<Uniform> uniform;
 public:
 	Shader(const string& filepath, const string& name );
@@ -31,11 +32,13 @@ public:
 	void UnBind() const;
 
 	const string& GetName() { return m_Name; }
+	const string& GetPath() { return m_FilePath; }
 
 	//Set Uniforms
 	void SetUniform4f(const string& name, float v0, float v1, float v2, float v3) const;
 	void SetUniform1i(const string& name, int value) const;
 	void SetUniformMat4f(const string& name, const  mat4& mat4)const;
+	void SetUniformVec3(const string& name, const vec3& value)const;
 
 	static Ref<Shader>Create(const string& filepath, const string& name);
 	static Ref<Shader>Create(const string& filepath);
@@ -52,13 +55,13 @@ private:
 class ShaderLibiray {
 public:
 
-	void Add(const Ref<Shader>& shader);
-	Ref<Shader> Load(const string& FilePath);
-	Ref<Shader> Load(const string& name,const string& FilePath);
+	static void Add(const Ref<Shader>& shader);
+	static Ref<Shader> Load(const string& FilePath);
+	static Ref<Shader> Load(const string& name,const string& FilePath);
 
-	Ref<Shader> Get(const string& name);
+	static Ref<Shader> Get(const string& path);
 private:
-	unordered_map<string, Ref<Shader>>m_Shaders;
+	static unordered_map<string, Ref<Shader>>m_Shaders;
 	
 };
 

@@ -70,19 +70,19 @@ namespace Component
 		Tag(const string& tag) :tag(tag) {}
 	};
 
-	struct Material
-	{
-		Ref<Shader> shader;
-		int shaderindex=-1;
-		Texture texture;
-		Material(const Material&) = default;
-		Material(const Ref<Shader>& shader):shader(shader){}
-		Material(const Ref<Shader>& shader,const Texture& texture) :shader(shader),texture(texture) {}
-		Material(const string& path="res/shaders/default.sahder")
-		{
-			shader = CreateRef<Shader>(path);
-		}
-	};
+	//struct Material
+	//{
+	//	Ref<Shader> shader;
+	//	int shaderindex=-1;
+	//	Texture texture;
+	//	Material(const Material&) = default;
+	//	Material(const Ref<Shader>& shader):shader(shader){}
+	//	Material(const Ref<Shader>& shader,const Texture& texture) :shader(shader),texture(texture) {}
+	//	Material(const string& path="res/shaders/default.sahder")
+	//	{
+	//		shader = CreateRef<Shader>(path);
+	//	}
+	//};
 
 	struct Camera
 	{

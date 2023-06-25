@@ -1,6 +1,7 @@
 #pragma once
 #include"entt/include/entt.hpp"
 #include"Scene/Component.h"
+#include"Panels/Material.h"
 using namespace Component;
 using namespace entt;
 
@@ -60,12 +61,15 @@ public:
 			auto& component = GetComponent<MeshFile>();
 			if (component.m_ModleFile != -1)
 			{
-				Ref<Shader> shader = GetComponent<Material>().shader;
+				Material material = GetComponent<Material>();
+				Ref<Shader> shader =material.shader;
 				shader->Bind();
+				material.Render(shader);
 				mat4 mvp = GetComponent<Transform>().GetMVP();
 				mat4 model = GetComponent<Transform>().GetTransform();
 				shader->SetUniformMat4f("u_MVP", mvp);
 				shader->SetUniformMat4f("model", model);
+				//shader->SetUniform1i("texturesize", 6);
 				component.m_modle->Draw(*shader);
 			}
 	}

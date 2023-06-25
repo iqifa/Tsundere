@@ -2,16 +2,80 @@
 #ifndef PANEL
 #define PANEL
 
+
+
 #include"ExternalFiles.h"
 #include"HeadLine.h"
 #include"Scene/Scene.h"
 #include"Scene/Entity.h"
 #include"Scene/Component.h"
 #include"MeshFilePath.h"
+#include"Material.h"
+#include"Widget.h"
 
+#include<stdio.h>
 using namespace Component;
 
-class Panel
+
+class BasePanel {
+public:
+	vector<Widget::Widget*> widgets;
+
+	virtual void _Draw_Wdigets()
+	{
+		for (auto& widget : widgets)
+		{
+			widget->_Draw();
+		}
+	}
+	template<typename T>
+void ValueGUI(string name, unsigned int a)
+{
+	/*debugerror("Error!:don't set value type");*/
+}
+template<>
+void ValueGUI<int>(string name, unsigned int a)
+{
+	int* value = (int*)a;
+	ImGui::InputInt(name.c_str(), value);
+}
+template<>
+void ValueGUI<float>(string name, unsigned int a)
+{
+	float* value = (float*)a;
+	ImGui::InputFloat(name.c_str(), value);
+}
+template<>
+void ValueGUI<string>(string name, unsigned int a)
+{
+	string* value = (string*)a;
+	char* str = value->data();
+	ImGui::InputText(name.c_str(), str, 100);
+	*value = str;
+}
+template<>
+void ValueGUI<vec2>(string name, unsigned int a)
+{
+	vec2* value = (vec2*)a;
+	float* aa = (float*)value;
+	ImGui::InputFloat2(name.c_str(), aa);
+}
+template<>
+void ValueGUI<vec3>(string name, unsigned int a)
+{
+	vec3* value = (vec3*)a;
+	float* aa = (float*)value;
+	ImGui::InputFloat3(name.c_str(), aa);
+}
+template<>
+void ValueGUI<double>(string name, unsigned int a)
+{
+	double* value = (double*)a;
+	ImGui::InputDouble(name.c_str(), value);
+}
+};
+
+class Panel:public BasePanel
 {
 public:
 	Panel() = default;
@@ -28,6 +92,8 @@ public:
 	{
 		headtitle = str;
 	}
+	Entity& GetSelected() { return m_SelectedContext; }
+	void SetSelected(Entity& entity) { m_SelectedContext = entity; }
 	string headtitle;
 	virtual void OnImGUIRender() {
 
@@ -277,8 +343,101 @@ private:
 		}
 	}
 	friend class Scene;
+protected:
 	Entity m_SelectedContext;
 };
+class MaterialPanel :public Panel
+{
+public:
+	MaterialPanel() {
+		mat = {};
+		Ref<Texture>tex = TextureLibiary::Get("res/texture/Sekiro.jpg");
+		Widget::ImageRadioButton* img_button=new Widget::ImageRadioButton((void*)tex->GetTextureID(), ImVec2{ 100,100 });
+		img_button->ClickEvents += ([]() {
+			cout << "wtf" << endl;
+			});
+		widgets.push_back(img_button);
+	}
+	Material mat;
+public:
 
+
+	void OnImGUIRender() override {
+
+		if (m_SelectedContext&&m_SelectedContext.HasComponent<Material>())
+		{
+			mat = m_SelectedContext.GetComponent<Material>();
+		}
+		else {
+			mat = {};
+		}
+		ImGui::Begin("Material");
+
+		_Draw_Wdigets();
+		for (auto value : mat.varies)
+		{
+			switch (std::get<1>(value))
+			{
+			case ValueType::INT:ValueGUI<int>(std::get<2>(value), std::get<0>(value));		  break;
+			case ValueType::FLOAT:ValueGUI<float>(std::get<2>(value), std::get<0>(value));	  break;
+			case ValueType::DOUBLE:ValueGUI<double>(std::get<2>(value), std::get<0>(value));	  break;
+			case ValueType::VEC2:ValueGUI<vec2>(std::get<2>(value), std::get<0>(value));		  break;
+			case ValueType::VEC3:ValueGUI<vec3>(std::get<2>(value), std::get<0>(value));		  break;
+			case ValueType::TEXTURE:
+			{
+				auto fun = [&]() {
+					int* a = (int*)std::get<0>(value);
+					int select = *a;
+
+					ImGui::Columns(2);
+
+					ImGui::SetColumnWidth(0, 100.0f);
+
+					ImGui::Columns(1);
+					ImGui::Text("Texture");
+					ImGui::SameLine();
+					ImGui::Text(to_string(*a).c_str());
+					ImGui::SameLine();
+					if (ImGui::Button("+", ImVec2{ 20,20 }))
+						ImGui::OpenPopup("Textures");
+					if (ImGui::BeginPopupModal("Textures"))
+					{
+						auto map = TextureLibiary::m_TextureMap;
+						for (auto a : map)
+						{
+							auto path = a.first;
+							auto name = path.substr(path.find_last_of("/"), path.length() - path.find_last_of("/"));
+
+							static bool select = false;
+							float width = a.second->GetWidth()*0.3;
+							float height = a.second->GetHeight()*0.3;
+							if (Widget::SelectButton((void*)a.second->GetTextureID(), ImVec2{ width,height }, select))
+							{
+								select = !select;
+							}
+						}
+
+						
+
+						if (ImGui::Button("Close"))
+							ImGui::CloseCurrentPopup();
+						ImGui::EndPopup();
+					}
+				}; 
+				fun(); break;
+			}
+			break;
+			default:
+				break;
+			}
+		}
+		ImGui::End();
+	}
+
+	void InitWidget()
+	{
+
+	}
+};
 #endif // !PANEL
 

@@ -7,9 +7,11 @@
 extern vector<string> ModlePaths;
 extern vector<string> ShaderPaths;
 extern SceneRender sr;
-class ModleMap
+class My_map
 {
 public:
 	static unordered_map<string, Ref<Model>> m_ModleMap;
+	static unordered_map<string, Ref<Shader>> m_ShaderMap;
 };
+
 #endif // !MFP

@@ -16,6 +16,8 @@ public:
 		sence = CreateRef<Scene>();
 		panel.SetContext(sence);
 		panel.SetHeadTitle("Hierarchy");
+		matpanel.SetContext(sence);
+		matpanel.SetHeadTitle("Hierarchy");
 
 		Entity entity = sence->CreateEntity("Entity");
 		sr.SetContext(sence);
@@ -40,6 +42,8 @@ public:
 	}
 	void OnImGuiRender()override {
 		panel.OnImGUIRender();
+		matpanel.SetSelected(panel.GetSelected());
+		matpanel.OnImGUIRender();
 
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{ 0,0 });
 
@@ -58,6 +62,7 @@ public:
 	Ref<FrameBuffer>& getfb() override  { return fb; }
 private:
 	Panel panel;
+	MaterialPanel matpanel;
 	Panel viewport;
 	Ref<Scene> sence;
 	bool enable_fb = true;

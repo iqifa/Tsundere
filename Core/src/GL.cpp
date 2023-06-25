@@ -19,7 +19,6 @@ void mouse_scrollback(GLFWwindow* window, double xpos, double ypos);
 
 void ShowDockSpace();
 
-
 int main(void)
 {
 	GLFWwindow* window;
@@ -27,6 +26,7 @@ int main(void)
 	/* Initialize the library */
 	if (!glfwInit())
 		return -1;
+
 
 	/* Create a windowed mode window and its OpenGL context */
 	window = glfwCreateWindow(1080, 960, "Hello World", NULL, NULL);
@@ -86,7 +86,6 @@ int main(void)
 	menu->RegisterTest<TestTexture2D>("Texture2D");
 	menu->RegisterTest<TestCube>("TestCube", 1080.0f, 960.0f);
 	menu->RegisterTest<TestScene>("TestScene",true);
-	menu->RegisterTest<NewTest>("NewTest");
 	glClearColor(0.5f, 0.5f, 1.0f, 1.0f);
 	//TestClearColor test;
 	/* Loop until the user closes the window */

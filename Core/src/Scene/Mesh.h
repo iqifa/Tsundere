@@ -88,7 +88,7 @@ public:
             // and finally bind the texture
             glBindTexture(GL_TEXTURE_2D, textures[i].id);
         }
-        shader.SetUniform1i("texturesize", textures.size());
+        //shader.SetUniform1i("texturesize", textures.size());
         // draw mesh
         Renderer renderer;
         renderer.DrawElement(*vao, *ibo, shader);
