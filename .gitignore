@@ -13,3 +13,5 @@
 /Core/src/vender
 /Core/res
 *.ini
+/T_Tool/Debug
+/T_UI/Debug
