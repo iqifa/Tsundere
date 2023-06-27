@@ -1,7 +1,6 @@
 #include "Shader.h"
 #include"Debug/Debug.h"
-
-
+using namespace glm;
 Shader::Shader(const string& filepath, const string& name) :m_FilePath(filepath), m_RendererID(0), m_Name(name)
 {
 	ShaderProgramSource source = ParseShader(filepath);
@@ -96,6 +95,15 @@ ShaderProgramSource Shader::ParseShader(const string& filepath)
 			{
 				type = ShaderType::FRAGMENT;
 			}
+		}
+		else if (line.find("[Header") != string::npos)
+		{
+			string type[2];
+			type[0] = "Head";
+			int index = line.find("[Header") + 8;
+			type[1] = line.substr(index, line.length() - index-2);
+
+			uniform.push_back({ type[1],type[0] });
 		}
 		else
 		{
