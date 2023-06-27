@@ -4,6 +4,7 @@
 #include"Renderer.h"
 #include"ExternalFiles.h"
 using namespace std;
+using namespace glm;
 struct  VertexBufferElement
 {
 	int count;

@@ -3,7 +3,7 @@
 #include"ExternalFiles.h"
 #include"GLHead.h"
 #include"Test.h"
-
+using namespace glm;
 namespace test
 {
 	class TestTexture2D :public Test

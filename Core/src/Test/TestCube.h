@@ -6,6 +6,7 @@
 #include"Debug/Debug.h"
 #include"Trans/SceneCamera.h"
 #include"Scene/Modle.h"
+using namespace glm;
 
 class SceneCamera;
 namespace test

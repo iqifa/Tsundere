@@ -6,6 +6,8 @@
 #include"HeadLine.h"
 #include"Scene/SkyBox.h"
 
+using namespace glm;
+
 class SceneCamera {
 public:
 	SceneCamera();
