@@ -12,6 +12,8 @@
 #include"MeshFilePath.h"
 #include"Material.h"
 #include"Widget.h"
+#include"Input/Input.h"
+#include"Select/Select.h"
 
 #include<stdio.h>
 using namespace Component;
@@ -28,51 +30,6 @@ public:
 			widget->_Draw();
 		}
 	}
-	template<typename T>
-void ValueGUI(string name, unsigned int a)
-{
-	/*debugerror("Error!:don't set value type");*/
-}
-template<>
-void ValueGUI<int>(string name, unsigned int a)
-{
-	int* value = (int*)a;
-	ImGui::InputInt(name.c_str(), value);
-}
-template<>
-void ValueGUI<float>(string name, unsigned int a)
-{
-	float* value = (float*)a;
-	ImGui::InputFloat(name.c_str(), value);
-}
-template<>
-void ValueGUI<string>(string name, unsigned int a)
-{
-	string* value = (string*)a;
-	char* str = value->data();
-	ImGui::InputText(name.c_str(), str, 100);
-	*value = str;
-}
-template<>
-void ValueGUI<vec2>(string name, unsigned int a)
-{
-	vec2* value = (vec2*)a;
-	float* aa = (float*)value;
-	ImGui::InputFloat2(name.c_str(), aa);
-}
-template<>
-void ValueGUI<vec3>(string name, unsigned int a)
-{
-	vec3* value = (vec3*)a;
-	float* aa = (float*)value;
-	ImGui::InputFloat3(name.c_str(), aa);
-}
-template<>
-void ValueGUI<double>(string name, unsigned int a)
-{
-	double* value = (double*)a;
-	ImGui::InputDouble(name.c_str(), value);
-}
 };
 
 class Panel:public BasePanel
@@ -325,7 +282,7 @@ private:
 			{
 				a[i] = (str)ShaderPaths[i].c_str();
 			}
-			ImGui::Combo("shader", &item_current, a, ShaderPaths.size());
+			ImGui::Combo("shader2", &material.shaderindex, a, ShaderPaths.size());
 			if (item_current != material.shaderindex)
 			{
 				auto& map = My_map::m_ShaderMap;
@@ -338,7 +295,6 @@ private:
 					material.shader = CreateRef<Shader>(ShaderPaths[item_current]);
 					map[ShaderPaths[item_current]] = material.shader;
 				}
-				material.shaderindex = item_current;
 			}
 		}
 	}
@@ -357,6 +313,14 @@ public:
 			cout << "wtf" << endl;
 			});
 		widgets.push_back(img_button);
+
+		Eventing::Event<> Events;
+		Events += []() {
+			cout << "Add Event!!!" << endl;
+		};
+		Events.Invoke();
+
+		
 	}
 	Material mat;
 public:
@@ -364,80 +328,122 @@ public:
 
 	void OnImGUIRender() override {
 
-		if (m_SelectedContext&&m_SelectedContext.HasComponent<Material>())
+		if (m_SelectedContext != m_LastSelect)
 		{
-			mat = m_SelectedContext.GetComponent<Material>();
+			for (auto& widget : PanelWiget)
+			{
+				free(widget);
+			}
+			PanelWiget.clear();
+			m_LastSelect = m_SelectedContext;
+
+			if (m_SelectedContext && m_SelectedContext.HasComponent<Material>())
+			{
+				
+				Material& material = m_SelectedContext.GetComponent<Material>();
+				PanelWiget.push_back(new Widget::TCombo("Shader", &material.shaderindex, ShaderPaths, [&]() {
+					material.shader = ShaderLibiray::Get(ShaderPaths[material.shaderindex]);
+					material.InitVaires();
+					this->mat = material;
+					ClearWidgets();
+					InitWidget();
+					}));
+				mat = m_SelectedContext.GetComponent<Material>();
+			}
+			else {
+				mat = {};
+			}
+			ClearWidgets();
+			InitWidget();
 		}
-		else {
-			mat = {};
-		}
+
 		ImGui::Begin("Material");
 
-		_Draw_Wdigets();
-		for (auto value : mat.varies)
+		for (auto& widget : PanelWiget)
 		{
-			switch (std::get<1>(value))
-			{
-			case ValueType::INT:ValueGUI<int>(std::get<2>(value), std::get<0>(value));		  break;
-			case ValueType::FLOAT:ValueGUI<float>(std::get<2>(value), std::get<0>(value));	  break;
-			case ValueType::DOUBLE:ValueGUI<double>(std::get<2>(value), std::get<0>(value));	  break;
-			case ValueType::VEC2:ValueGUI<vec2>(std::get<2>(value), std::get<0>(value));		  break;
-			case ValueType::VEC3:ValueGUI<vec3>(std::get<2>(value), std::get<0>(value));		  break;
-			case ValueType::TEXTURE:
-			{
-				auto fun = [&]() {
-					int* a = (int*)std::get<0>(value);
-					int select = *a;
-
-					ImGui::Columns(2);
-
-					ImGui::SetColumnWidth(0, 100.0f);
-
-					ImGui::Columns(1);
-					ImGui::Text("Texture");
-					ImGui::SameLine();
-					ImGui::Text(to_string(*a).c_str());
-					ImGui::SameLine();
-					if (ImGui::Button("+", ImVec2{ 20,20 }))
-						ImGui::OpenPopup("Textures");
-					if (ImGui::BeginPopupModal("Textures"))
-					{
-						auto map = TextureLibiary::m_TextureMap;
-						for (auto a : map)
-						{
-							auto path = a.first;
-							auto name = path.substr(path.find_last_of("/"), path.length() - path.find_last_of("/"));
-
-							static bool select = false;
-							float width = a.second->GetWidth()*0.3;
-							float height = a.second->GetHeight()*0.3;
-							if (Widget::SelectButton((void*)a.second->GetTextureID(), ImVec2{ width,height }, select))
-							{
-								select = !select;
-							}
-						}
-
-						
-
-						if (ImGui::Button("Close"))
-							ImGui::CloseCurrentPopup();
-						ImGui::EndPopup();
-					}
-				}; 
-				fun(); break;
-			}
-			break;
-			default:
-				break;
-			}
+			widget->_Draw();
 		}
+		_Draw_Wdigets();
+		
 		ImGui::End();
 	}
 
 	void InitWidget()
 	{
+		for (auto& var : mat.varies)
+		{
+			unsigned int value = std::get<0>(var);
+			string lable = std::get<2>(var);
+			switch (std::get<1>(var))
+			{
+			case ValueType::INT: 	  widgets.push_back(new Widget::Input<int>(lable, value));    break;
+			case ValueType::FLOAT:	  widgets.push_back(new Widget::Input<float>(lable,value));   break;
+			case ValueType::DOUBLE:	  widgets.push_back(new Widget::Input<double>(lable, value)); break;
+			case ValueType::VEC2:	  widgets.push_back(new Widget::Input<vec2>(lable, value));   break;
+			case ValueType::VEC3:	  widgets.push_back(new Widget::Input<double>(lable, value)); break;
+			case ValueType::TEXTURE:  widgets.push_back(new Widget::DiyWidget([&]() {
+				int* a = (int*)std::get<0>(var);
+				string name = std::get<2>(var);
+				cout << lable << endl;
+				ImGui::Columns(2);
+				ImGui::SetColumnWidth(0, 100.0f);
+				ImVec2 Pos = ImGui::GetCursorScreenPos();
+				float Height = ImGui::GetTextLineHeight();
+				ImVec2 strsize=ImGui::CalcTextSize(name.c_str());
+				Pos.y += (50 - Height) * 0.5;
+				Pos.x += (100 - strsize.x) * 0.5;
+				ImGui::RenderText(Pos, name.c_str());
+				//ImGui::Text("Texture");
+				ImGui::NextColumn();
 
+				//ImGui::RenderText(Pos, "Test");W
+				ImGui::Image((void*)*a, { 50,50 }, { 0,1 }, { 1,0 });
+				ImGui::SameLine();
+				
+				Pos= ImGui::GetCursorScreenPos();
+				Pos.y += 15;
+				ImGui::SetCursorScreenPos(Pos);
+				if (ImGui::Button("+", ImVec2{ 20,20 }))
+					ImGui::OpenPopup("Textures");
+				ImGui::Columns(1);
+				if (ImGui::BeginPopupModal("Textures"))
+				{
+					auto map = TextureLibiary::m_TextureMap;
+					for (auto a : map)
+					{
+						auto path = a.first;
+						auto name = path.substr(path.find_last_of("/"), path.length() - path.find_last_of("/"));
+
+						static bool select = false;
+						float width = a.second->GetWidth() * 0.3;
+						float height = a.second->GetHeight() * 0.3;
+					}
+
+
+
+					if (ImGui::Button("Close"))
+						ImGui::CloseCurrentPopup();
+					if (ImGui::Button("add"))
+						*a = TextureLibiary::Get("res/texture/Sekiro.jpg")->GetTextureID();
+					ImGui::EndPopup();
+				}
+				}	));	  break;
+			case ValueType::HEADER:	  widgets.push_back(new Widget::Separator(lable));
+			default:
+				break;
+			}
+		}
 	}
+
+	void ClearWidgets() {
+		for (auto value : widgets)
+		{
+			free(value);
+		}
+		widgets.clear();
+	}
+private:
+	Entity m_LastSelect;
+	vector<Widget::Widget*> PanelWiget;
 };
 #endif // !PANEL
-

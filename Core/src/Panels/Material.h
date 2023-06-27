@@ -8,7 +8,7 @@
 #include"ExternalFiles.h"
 #include <any>
 enum class ValueType {
-	NONE=-1,INT=0,FLOAT=1,DOUBLE=2,CHAR=3,STR=4,VEC3=5,VEC2=6,TEXTURE=7
+	NONE=-1,INT=0,FLOAT=1,DOUBLE=2,CHAR=3,STR=4,VEC3=5,VEC2=6,TEXTURE=7,HEADER=8
 };
 
 //template<>
@@ -57,15 +57,27 @@ public:
 	{
 		//shader = CreateRef<Shader>(path);
 		shader = ShaderLibiray::Get(path);
-		vector<Uniform> uniforms = shader->uniform;
-		for (auto uniform : uniforms)
-		{
-			InitVaries(uniform);
-		}
+		InitVaires();
+		
 	}
 	//vector<unsigned int> varies;
 	vector<tuple<unsigned int,ValueType,string>> varies;
-	void InitVaries(Uniform uniform) {
+
+	void InitVaires()
+	{
+		for (auto var : varies)
+		{
+			free((void*)std::get<0>(var));
+		}
+		varies.clear();
+		vector<Uniform> uniforms = shader->uniform;
+		for (auto uniform : uniforms)
+		{
+			InitVarie(uniform);
+		}
+	}
+
+	void InitVarie(Uniform uniform) {
 		if (uniform.Type == "int")
 		{
 			int* value = new int;
@@ -100,6 +112,10 @@ public:
 		{
 			int* value = new int;
 			varies.push_back(tuple<unsigned int, ValueType, string>((unsigned int)value, ValueType::TEXTURE, uniform.Name));
+		}
+		else if (uniform.Type == "Head")
+		{
+			varies.push_back(tuple<unsigned int, ValueType, string>(0, ValueType::HEADER, uniform.Name));
 		}
 	}
 	void Render(Ref<Shader> shader);
