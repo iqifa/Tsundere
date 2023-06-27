@@ -15,6 +15,12 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="include\Select\Select.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="include\Input\Input.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
     <ClInclude Include="include\Widget.h">
       <Filter>头文件</Filter>
     </ClInclude>
