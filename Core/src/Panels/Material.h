@@ -110,7 +110,7 @@ public:
 		}
 		else if (uniform.Type == "sampler2D")
 		{
-			int* value = new int;
+			Texture* value = new Texture;
 			varies.push_back(tuple<unsigned int, ValueType, string>((unsigned int)value, ValueType::TEXTURE, uniform.Name));
 		}
 		else if (uniform.Type == "Head")
@@ -119,6 +119,7 @@ public:
 		}
 	}
 	void Render(Ref<Shader> shader);
+	void Save();
 };
 
 

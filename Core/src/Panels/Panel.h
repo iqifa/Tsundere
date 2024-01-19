@@ -283,7 +283,9 @@ private:
 				a[i] = (str)ShaderPaths[i].c_str();
 			}
 			ImGui::Combo("shader2", &material.shaderindex, a, ShaderPaths.size());
-			if (item_current != material.shaderindex)
+
+			//TODO: ShaderPath---->a
+			if (item_current != material.shaderindex && item_current >= 0)
 			{
 				auto& map = My_map::m_ShaderMap;
 				if (map.find(ShaderPaths[item_current]) != map.end())
@@ -319,8 +321,17 @@ public:
 			cout << "Add Event!!!" << endl;
 		};
 		Events.Invoke();
+		Eventing::Event<int,float>Events2;
 
-		
+		Events2 += [](int a, float b) {
+			cout << "Events2 a+b" << endl;
+			cout << a + b << endl;
+		};
+		Events2 += [](int a, float b) {
+			cout << "Events2 a-b" << endl;
+			cout << a - b << endl;
+		};
+		Events2.Invoke(2, 3);
 	}
 	Material mat;
 public:
@@ -382,7 +393,7 @@ public:
 			case ValueType::VEC2:	  widgets.push_back(new Widget::Input<vec2>(lable, value));   break;
 			case ValueType::VEC3:	  widgets.push_back(new Widget::Input<double>(lable, value)); break;
 			case ValueType::TEXTURE:  widgets.push_back(new Widget::DiyWidget([&]() {
-				int* a = (int*)std::get<0>(var);
+				Texture* tex = (Texture*)std::get<0>(var);
 				string name = std::get<2>(var);
 				cout << lable << endl;
 				ImGui::Columns(2);
@@ -397,7 +408,7 @@ public:
 				ImGui::NextColumn();
 
 				//ImGui::RenderText(Pos, "Test");W
-				ImGui::Image((void*)*a, { 50,50 }, { 0,1 }, { 1,0 });
+				ImGui::Image((void*)tex->GetTextureID(), { 50,50 }, { 0,1 }, { 1,0 });
 				ImGui::SameLine();
 				
 				Pos= ImGui::GetCursorScreenPos();
@@ -424,7 +435,7 @@ public:
 					if (ImGui::Button("Close"))
 						ImGui::CloseCurrentPopup();
 					if (ImGui::Button("add"))
-						*a = TextureLibiary::Get("res/texture/Sekiro.jpg")->GetTextureID();
+						*tex = *TextureLibiary::Get("res/texture/Sekiro.jpg");
 					ImGui::EndPopup();
 				}
 				}	));	  break;

@@ -3,6 +3,8 @@
 #include"HeadLine.h"
 #include"ExternalFiles.h"
 
+using namespace glm;
+
 struct Uniform
 {
 	string Name;
