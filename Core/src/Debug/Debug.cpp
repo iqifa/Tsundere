@@ -1,4 +1,4 @@
-#include "Debug.h"
+#include"Debug.h"
 void log(const std::string str, std::string name, const char* file, int line)
 {
 	std::cout << name << str;
@@ -28,7 +28,7 @@ void log(float num, const char* file, int line)
 	std::cout << "\tFile:" << file << "\tLine:" << line << std::endl;
 }
 
-void log(mat4 mat,std::string name, const char* file, int line)
+void log(mat4 mat, std::string name, const char* file, int line)
 {
 	std::cout << " " << mat[0].x << "\t" << mat[0].y << "\t" << mat[0].z << "\t" << mat[0].w << std::endl;
 	std::cout << " " << mat[1].x << "\t" << mat[1].y << "\t" << mat[1].z << "\t" << mat[1].w << std::endl;
@@ -39,11 +39,13 @@ void log(mat4 mat,std::string name, const char* file, int line)
 
 void error(std::string msg, const char* file, int line)
 {
+	std::cout << "\033[1;31mError:";
 	std::cout << msg;
 	std::cout << "\tFile:" << file << "\tLine:" << line << std::endl;
+	std::cout << "\033[0m";
 	__debugbreak();
 }
 void warring(const std::string str, const char* file, int line)
 {
-	cout << "warring" << endl;
+	std::cout << "\033[1;33mWarring:" << str << "\tFile:" << file << "\tLine:" << line << "\033[0m" << std::endl;
 }

@@ -17,7 +17,7 @@ public:
 		panel.SetContext(sence);
 		panel.SetHeadTitle("Hierarchy");
 		matpanel.SetContext(sence);
-		matpanel.SetHeadTitle("Hierarchy");
+		matpanel.SetHeadTitle("Material");
 
 		Entity entity = sence->CreateEntity("Entity");
 		sr.SetContext(sence);

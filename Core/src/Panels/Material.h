@@ -61,6 +61,8 @@ public:
 		
 	}
 	//vector<unsigned int> varies;
+
+	//id,Type,Name
 	vector<tuple<unsigned int,ValueType,string>> varies;
 
 	void InitVaires()
@@ -77,52 +79,19 @@ public:
 		}
 	}
 
-	void InitVarie(Uniform uniform) {
-		if (uniform.Type == "int")
-		{
-			int* value = new int;
-			varies.push_back(tuple<unsigned int, ValueType, string>((unsigned int)value, ValueType::INT,uniform.Name));
-		}
-		else if (uniform.Type == "float")
-		{
-			float* value = new float;
-			varies.push_back(tuple<unsigned int, ValueType, string>((unsigned int)value, ValueType::FLOAT, uniform.Name));
-		}
-		else if (uniform.Type == "double")
-		{
-			double* value = new double;
-			varies.push_back(tuple<unsigned int, ValueType, string>((unsigned int)value, ValueType::DOUBLE, uniform.Name));
-		}
-		else if (uniform.Type == "char")
-		{
-			char* value = new char;
-			varies.push_back(tuple<unsigned int, ValueType, string>((unsigned int)value, ValueType::CHAR, uniform.Name));
-		}
-		else if (uniform.Type == "vec2")
-		{
-			vec2* value = new vec2;
-			varies.push_back(tuple<unsigned int, ValueType, string>((unsigned int)value, ValueType::VEC2, uniform.Name));
-		}
-		else if (uniform.Type == "vec3")
-		{
-			vec3* value = new vec3;
-			varies.push_back(tuple<unsigned int, ValueType, string>((unsigned int)value, ValueType::VEC3, uniform.Name));
-		}
-		else if (uniform.Type == "sampler2D")
-		{
-			Texture* value = new Texture;
-			varies.push_back(tuple<unsigned int, ValueType, string>((unsigned int)value, ValueType::TEXTURE, uniform.Name));
-		}
-		else if (uniform.Type == "Head")
-		{
-			varies.push_back(tuple<unsigned int, ValueType, string>(0, ValueType::HEADER, uniform.Name));
-		}
-	}
-	void Render(Ref<Shader> shader);
+	void InitVarie(Uniform uniform);
+	void Render();
 	void Save();
 };
 
+class MaterialLibiary {
+	static unordered_map<string, Ref<Material>> mat_map;
+
+	Ref<Material> Load(string path)
+	{
 
 
-
+		return CreateRef<Material>();
+	}
+};
 #endif // !MATERIAL

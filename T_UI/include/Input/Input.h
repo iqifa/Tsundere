@@ -6,7 +6,7 @@
 using namespace glm;
 namespace Widget {
 	template<class T>
-	class Input :public Widget
+	class __declspec(dllexport) Input :public Widget
 	{
 	public:
 		Input(string lable, unsigned int value) :Name(lable), value(value),Lable("##"+ lable) {
@@ -20,6 +20,8 @@ namespace Widget {
 			Draw<T>();
 			ImGui::Columns();
 		}
+		void fun();
+		void fun2();
 	private:
 		string Name;
 		string Lable;

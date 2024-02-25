@@ -5,6 +5,7 @@
 #include"Trans/SceneCamera.h"
 #include"GLHead.h"
 #include"CubeMap.h"
+#include"Panels/Material.h"
 #include<random>
 
 static std::random_device s_RandomDevice;
@@ -95,6 +96,10 @@ namespace Component
 		MeshFile() = default; 
 		//MeshComponent(const MeshComponent&) = default;
 		//MeshComponent(const Model& modle):m_Modle(modle){}
+	};
+
+	struct MeshRender {
+		vector<Ref<Material>> materials;
 	};
 }
 #endif // !COMPONENT

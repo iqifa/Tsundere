@@ -4,7 +4,7 @@
 
 #include"GLHead.h"
 #include"ExternalFiles.h"
-
+#include"Panels/Material.h"
 #define MAX_BONE_INFLUENCE 4
 
 struct Vertex {
@@ -59,6 +59,18 @@ public:
     }
 
     // render the mesh
+    void Draw(Material& mat)
+    {
+        mat.Render();
+
+        // draw mesh
+        Renderer renderer;
+        renderer.DrawElement(*vao, *ibo, *mat.shader);
+        glBindVertexArray(0);
+        // always good practice to set everything back to defaults once configured.
+        mat.shader->UnBind();
+        glActiveTexture(GL_TEXTURE0);
+    }
     void Draw(Shader& shader)
     {
         // bind appropriate textures

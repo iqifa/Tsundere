@@ -8,15 +8,16 @@ Shader::Shader(const string& filepath, const string& name) :m_FilePath(filepath)
 
 Shader::Shader(const string& filepath) :m_FilePath(filepath), m_RendererID(0)
 {
-	ShaderProgramSource source = ParseShader(filepath);
-	m_RendererID = CreateShader(source.VertexSource, source.FragmentSource);
-
 	auto LastSlash = filepath.find_last_of("/");
 	LastSlash = LastSlash == string::npos ? 0 : LastSlash + 1;
 	auto LastDot = filepath.find_last_of(".");
-	LastDot =LastSlash== string::npos ? filepath.length() : LastDot;
+	LastDot = LastSlash == string::npos ? filepath.length() : LastDot;
 	auto count = LastDot - LastSlash;
 	m_Name = filepath.substr(LastSlash, count);
+
+
+	ShaderProgramSource source = ParseShader(filepath);
+	m_RendererID = CreateShader(source.VertexSource, source.FragmentSource);
 }
 
 
@@ -52,7 +53,9 @@ unsigned int  Shader::CompileShader(unsigned int type, const string& source)
 		glGetShaderiv(id, GL_INFO_LOG_LENGTH, &lenth);
 		char* message = new char[lenth];
 		glGetShaderInfoLog(id, lenth, &lenth, message);
-		cout << "Failed to Compile " << (type == GL_VERTEX_SHADER ? "vertex" : "fragment") << "Shader!" << endl;
+		//cout << "Failed to Compile " << (type == GL_VERTEX_SHADER ? "vertex" : "fragment") << "Shader!" << endl;
+		string info = "Failed to Compile " + (string)(type == GL_VERTEX_SHADER ? "vertex" : "fragment") + "Shader!";
+		debugerror(info)
 		cout << message << endl;
 		glDeleteShader(id);
 		return 0;
@@ -129,7 +132,7 @@ ShaderProgramSource Shader::ParseShader(const string& filepath)
 			}
 		}
 	}
-	cout << m_Name << endl;
+	cout << "\033[1;32mSuccessful Parse Shader:" + m_Name + "!\033[0m" << endl;
 	cout << ss[0].str() << ss[1].str();
 	return { ss[0].str(),ss[1].str() };
 }

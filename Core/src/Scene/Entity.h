@@ -22,6 +22,14 @@ public:
 	template<typename T, typename...Args>
 	T& AddComponent(Args&&...args)
 	{
+		if (HasComponent<T>())
+		{
+
+			//TODO:
+			debugerror("Component Has Exist!!!");
+			T& component = m_Scene->m_Registry.get<T>(m_EntityHandle);
+			return component;
+		}
 		T& component = m_Scene->m_Registry.emplace<T>(m_EntityHandle, std::forward<Args>(args)...);
 		m_Scene->OnaddComponent(*this, component);
 		return component;
@@ -59,19 +67,12 @@ public:
 
 	void Draw()
 	{
-			auto& component = GetComponent<MeshFile>();
-			if (component.m_ModleFile != -1)
+			auto& meshFile = GetComponent<MeshFile>();
+			if (meshFile.m_ModleFile != -1)
 			{
-				Material material = GetComponent<Material>();
-				Ref<Shader> shader =material.shader;
-				shader->Bind();
-				material.Render(shader);
-				mat4 mvp = GetComponent<Transform>().GetMVP();
-				mat4 model = GetComponent<Transform>().GetTransform();
-				shader->SetUniformMat4f("u_MVP", mvp);
-				shader->SetUniformMat4f("model", model);
-				//shader->SetUniform1i("texturesize", 6);
-				component.m_modle->Draw(*shader);
+				auto& meshRender = GetComponent<MeshRender>();
+				
+				meshFile.m_modle->Draw(meshRender.materials);
 			}
 	}
 

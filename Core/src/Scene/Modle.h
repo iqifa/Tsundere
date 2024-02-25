@@ -3,7 +3,7 @@
 #define MODEL_H
 
 #include"Mesh.h"
-
+#include"Panels/Material.h"
 inline unsigned int TextureFromFile(const char* path, const string& directory, bool gamma = false);
 
 class Model
@@ -23,6 +23,14 @@ public:
     Model() = default;
     Model(const Model&) = default;
     // draws the model, and thus all its meshes
+
+    void Draw(vector<Ref<Material>>& mats)
+    {
+        for (unsigned int i = 0; i < meshes.size(); i++)
+        {
+            meshes[i].Draw(*mats[i]);
+        }
+    }
     void Draw( Shader& shader)
     {
         for (unsigned int i = 0; i < meshes.size(); i++)

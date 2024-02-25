@@ -75,7 +75,7 @@ public:
 
 		ImGui::End();
 
-		ImGui::Begin("Proporitise");
+		ImGui::Begin("Inspect");
 		if (m_SelectedContext)
 		{
 			DrawComponent(m_SelectedContext);
@@ -97,6 +97,11 @@ public:
 				if (ImGui::MenuItem("Camera"))
 				{
 					m_SelectedContext.AddComponent<Camera>(m_SelectedContext.GetComponent<Transform>().Position);
+					ImGui::CloseCurrentPopup();
+				}
+				if (ImGui::MenuItem("MeshRender"))
+				{
+					m_SelectedContext.AddComponent<MeshRender>();
 					ImGui::CloseCurrentPopup();
 				}
 				ImGui::EndPopup();
@@ -299,6 +304,33 @@ private:
 				}
 			}
 		}
+		if (entity.HasComponent<MeshRender>())
+		{
+			auto& meshrender = entity.GetComponent<MeshRender>();
+			if (ImGui::TreeNodeEx((void*)typeid(MeshRender).hash_code(), ImGuiTreeNodeFlags_DefaultOpen, "MeshRender"))
+			{
+				string Lable="aaa"; 
+				static bool Selected;
+				ImVec2 size = ImVec2(200, 200);
+				ImGuiWindow* window = ImGui::GetCurrentWindow();
+				ImVec2 pos = window->DC.CursorPos;
+				Ref<Texture>tex = TextureLibiary::Get("res/texture/Sekiro.jpg");
+				ImGuiContext& g = *GImGui;
+				const ImVec2 padding = g.Style.FramePadding;
+				const ImRect bb(window->DC.CursorPos, window->DC.CursorPos + size /*+ padding * 2.0f*/);
+				ImGui::Selectable(("##Select_" + Lable).c_str(), &Selected, ImGuiSelectableFlags_None, size);
+				window->DrawList->AddImage((void*)tex->GetTextureID(), bb.Min /*+ padding*/, bb.Max /*- padding*/);
+				
+				//ImGui::LabelText(("##lable_" + Lable).c_str(), Lable.c_str());
+				ImGui::SetItemAllowOverlap();
+				ImGui::RenderText(pos, Lable.c_str());
+				
+				//window->DrawList->AddImage((void*)tex->GetTextureID(), bb.Min + padding, bb.Max - padding);
+				//ImGui::Image((void*)tex->GetTextureID(),size);
+				ImGui::TreePop();
+			}
+			
+		}
 	}
 	friend class Scene;
 protected:
@@ -308,13 +340,16 @@ class MaterialPanel :public Panel
 {
 public:
 	MaterialPanel() {
+		show = new bool;
 		mat = {};
 		Ref<Texture>tex = TextureLibiary::Get("res/texture/Sekiro.jpg");
 		Widget::ImageRadioButton* img_button=new Widget::ImageRadioButton((void*)tex->GetTextureID(), ImVec2{ 100,100 });
+		Widget::Image_Select* img_select = new Widget::Image_Select("##Sekiro", ImVec2{ 200,200 }, tex);
 		img_button->ClickEvents += ([]() {
 			cout << "wtf" << endl;
 			});
 		widgets.push_back(img_button);
+		widgets.push_back(img_select);
 
 		Eventing::Event<> Events;
 		Events += []() {
@@ -334,6 +369,7 @@ public:
 		Events2.Invoke(2, 3);
 	}
 	Material mat;
+	bool* show;
 public:
 
 
@@ -341,9 +377,10 @@ public:
 
 		if (m_SelectedContext != m_LastSelect)
 		{
+			debugwarring("Change Selected");
 			for (auto& widget : PanelWiget)
 			{
-				free(widget);
+					free(widget);
 			}
 			PanelWiget.clear();
 			m_LastSelect = m_SelectedContext;
@@ -363,20 +400,23 @@ public:
 			}
 			else {
 				mat = {};
+				//*show = false;
 			}
 			ClearWidgets();
 			InitWidget();
 		}
-
-		ImGui::Begin("Material");
-
-		for (auto& widget : PanelWiget)
+		if (*show)
 		{
-			widget->_Draw();
+			ImGui::Begin("Material", show);
+
+			for (auto& widget : PanelWiget)
+			{
+				widget->_Draw();
+			}
+			_Draw_Wdigets();
+
+			ImGui::End();
 		}
-		_Draw_Wdigets();
-		
-		ImGui::End();
 	}
 
 	void InitWidget()
@@ -392,18 +432,16 @@ public:
 			case ValueType::DOUBLE:	  widgets.push_back(new Widget::Input<double>(lable, value)); break;
 			case ValueType::VEC2:	  widgets.push_back(new Widget::Input<vec2>(lable, value));   break;
 			case ValueType::VEC3:	  widgets.push_back(new Widget::Input<double>(lable, value)); break;
-			case ValueType::TEXTURE:  widgets.push_back(new Widget::DiyWidget([&]() {
+			case ValueType::TEXTURE:  widgets.push_back(new Widget::DiyWidget([&, lable]() {
 				Texture* tex = (Texture*)std::get<0>(var);
-				string name = std::get<2>(var);
-				cout << lable << endl;
 				ImGui::Columns(2);
 				ImGui::SetColumnWidth(0, 100.0f);
 				ImVec2 Pos = ImGui::GetCursorScreenPos();
 				float Height = ImGui::GetTextLineHeight();
-				ImVec2 strsize=ImGui::CalcTextSize(name.c_str());
+				ImVec2 strsize=ImGui::CalcTextSize(lable.c_str());
 				Pos.y += (50 - Height) * 0.5;
 				Pos.x += (100 - strsize.x) * 0.5;
-				ImGui::RenderText(Pos, name.c_str());
+				ImGui::RenderText(Pos, lable.c_str());
 				//ImGui::Text("Texture");
 				ImGui::NextColumn();
 
