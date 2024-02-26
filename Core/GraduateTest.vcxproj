@@ -28,7 +28,7 @@
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
-    <ConfigurationType>Application</ConfigurationType>
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <PlatformToolset>v142</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
@@ -79,6 +79,7 @@
     <LinkIncremental>true</LinkIncremental>
     <ExecutablePath>$(SolutionDir)\dll;$(ExecutablePath)</ExecutablePath>
     <IncludePath>$(SolutionDir)T_Tool\include;$(IncludePath)</IncludePath>
+    <OutDir>$(SolutionDir)$(Configuration)\Core\</OutDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <LinkIncremental>false</LinkIncremental>
@@ -101,7 +102,7 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>T_PLATFORM_WINDOWS;T_BUILD_DLL;WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>false</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <AdditionalIncludeDirectories>$(SolutionDir)Dependence\GLFW\include;$(SolutionDir)Dependence\GLEW\include;src\vender;src;src\Platform\GL;$(SolutionDir)Dependence\assimp\include;$(SolutionDir)T_UI\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
@@ -174,6 +175,146 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <None Include="freeglut.dll" />
+    <None Include="src\vender\glm\detail\func_common.inl" />
+    <None Include="src\vender\glm\detail\func_common_simd.inl" />
+    <None Include="src\vender\glm\detail\func_exponential.inl" />
+    <None Include="src\vender\glm\detail\func_exponential_simd.inl" />
+    <None Include="src\vender\glm\detail\func_geometric.inl" />
+    <None Include="src\vender\glm\detail\func_geometric_simd.inl" />
+    <None Include="src\vender\glm\detail\func_integer.inl" />
+    <None Include="src\vender\glm\detail\func_integer_simd.inl" />
+    <None Include="src\vender\glm\detail\func_matrix.inl" />
+    <None Include="src\vender\glm\detail\func_matrix_simd.inl" />
+    <None Include="src\vender\glm\detail\func_packing.inl" />
+    <None Include="src\vender\glm\detail\func_packing_simd.inl" />
+    <None Include="src\vender\glm\detail\func_trigonometric.inl" />
+    <None Include="src\vender\glm\detail\func_trigonometric_simd.inl" />
+    <None Include="src\vender\glm\detail\func_vector_relational.inl" />
+    <None Include="src\vender\glm\detail\func_vector_relational_simd.inl" />
+    <None Include="src\vender\glm\detail\type_half.inl" />
+    <None Include="src\vender\glm\detail\type_mat2x2.inl" />
+    <None Include="src\vender\glm\detail\type_mat2x3.inl" />
+    <None Include="src\vender\glm\detail\type_mat2x4.inl" />
+    <None Include="src\vender\glm\detail\type_mat3x2.inl" />
+    <None Include="src\vender\glm\detail\type_mat3x3.inl" />
+    <None Include="src\vender\glm\detail\type_mat3x4.inl" />
+    <None Include="src\vender\glm\detail\type_mat4x2.inl" />
+    <None Include="src\vender\glm\detail\type_mat4x3.inl" />
+    <None Include="src\vender\glm\detail\type_mat4x4.inl" />
+    <None Include="src\vender\glm\detail\type_mat4x4_simd.inl" />
+    <None Include="src\vender\glm\detail\type_quat.inl" />
+    <None Include="src\vender\glm\detail\type_quat_simd.inl" />
+    <None Include="src\vender\glm\detail\type_vec1.inl" />
+    <None Include="src\vender\glm\detail\type_vec2.inl" />
+    <None Include="src\vender\glm\detail\type_vec3.inl" />
+    <None Include="src\vender\glm\detail\type_vec4.inl" />
+    <None Include="src\vender\glm\detail\type_vec4_simd.inl" />
+    <None Include="src\vender\glm\ext\matrix_clip_space.inl" />
+    <None Include="src\vender\glm\ext\matrix_common.inl" />
+    <None Include="src\vender\glm\ext\matrix_projection.inl" />
+    <None Include="src\vender\glm\ext\matrix_relational.inl" />
+    <None Include="src\vender\glm\ext\matrix_transform.inl" />
+    <None Include="src\vender\glm\ext\quaternion_common.inl" />
+    <None Include="src\vender\glm\ext\quaternion_common_simd.inl" />
+    <None Include="src\vender\glm\ext\quaternion_exponential.inl" />
+    <None Include="src\vender\glm\ext\quaternion_geometric.inl" />
+    <None Include="src\vender\glm\ext\quaternion_relational.inl" />
+    <None Include="src\vender\glm\ext\quaternion_transform.inl" />
+    <None Include="src\vender\glm\ext\quaternion_trigonometric.inl" />
+    <None Include="src\vender\glm\ext\scalar_common.inl" />
+    <None Include="src\vender\glm\ext\scalar_constants.inl" />
+    <None Include="src\vender\glm\ext\scalar_integer.inl" />
+    <None Include="src\vender\glm\ext\scalar_packing.inl" />
+    <None Include="src\vender\glm\ext\scalar_relational.inl" />
+    <None Include="src\vender\glm\ext\scalar_ulp.inl" />
+    <None Include="src\vender\glm\ext\vector_common.inl" />
+    <None Include="src\vender\glm\ext\vector_integer.inl" />
+    <None Include="src\vender\glm\ext\vector_packing.inl" />
+    <None Include="src\vender\glm\ext\vector_relational.inl" />
+    <None Include="src\vender\glm\ext\vector_ulp.inl" />
+    <None Include="src\vender\glm\gtc\bitfield.inl" />
+    <None Include="src\vender\glm\gtc\color_space.inl" />
+    <None Include="src\vender\glm\gtc\constants.inl" />
+    <None Include="src\vender\glm\gtc\epsilon.inl" />
+    <None Include="src\vender\glm\gtc\integer.inl" />
+    <None Include="src\vender\glm\gtc\matrix_access.inl" />
+    <None Include="src\vender\glm\gtc\matrix_inverse.inl" />
+    <None Include="src\vender\glm\gtc\matrix_transform.inl" />
+    <None Include="src\vender\glm\gtc\noise.inl" />
+    <None Include="src\vender\glm\gtc\packing.inl" />
+    <None Include="src\vender\glm\gtc\quaternion.inl" />
+    <None Include="src\vender\glm\gtc\quaternion_simd.inl" />
+    <None Include="src\vender\glm\gtc\random.inl" />
+    <None Include="src\vender\glm\gtc\reciprocal.inl" />
+    <None Include="src\vender\glm\gtc\round.inl" />
+    <None Include="src\vender\glm\gtc\type_precision.inl" />
+    <None Include="src\vender\glm\gtc\type_ptr.inl" />
+    <None Include="src\vender\glm\gtc\ulp.inl" />
+    <None Include="src\vender\glm\gtx\associated_min_max.inl" />
+    <None Include="src\vender\glm\gtx\bit.inl" />
+    <None Include="src\vender\glm\gtx\closest_point.inl" />
+    <None Include="src\vender\glm\gtx\color_encoding.inl" />
+    <None Include="src\vender\glm\gtx\color_space.inl" />
+    <None Include="src\vender\glm\gtx\color_space_YCoCg.inl" />
+    <None Include="src\vender\glm\gtx\common.inl" />
+    <None Include="src\vender\glm\gtx\compatibility.inl" />
+    <None Include="src\vender\glm\gtx\component_wise.inl" />
+    <None Include="src\vender\glm\gtx\dual_quaternion.inl" />
+    <None Include="src\vender\glm\gtx\easing.inl" />
+    <None Include="src\vender\glm\gtx\euler_angles.inl" />
+    <None Include="src\vender\glm\gtx\extend.inl" />
+    <None Include="src\vender\glm\gtx\extended_min_max.inl" />
+    <None Include="src\vender\glm\gtx\exterior_product.inl" />
+    <None Include="src\vender\glm\gtx\fast_exponential.inl" />
+    <None Include="src\vender\glm\gtx\fast_square_root.inl" />
+    <None Include="src\vender\glm\gtx\fast_trigonometry.inl" />
+    <None Include="src\vender\glm\gtx\float_notmalize.inl" />
+    <None Include="src\vender\glm\gtx\functions.inl" />
+    <None Include="src\vender\glm\gtx\gradient_paint.inl" />
+    <None Include="src\vender\glm\gtx\handed_coordinate_space.inl" />
+    <None Include="src\vender\glm\gtx\hash.inl" />
+    <None Include="src\vender\glm\gtx\integer.inl" />
+    <None Include="src\vender\glm\gtx\intersect.inl" />
+    <None Include="src\vender\glm\gtx\io.inl" />
+    <None Include="src\vender\glm\gtx\log_base.inl" />
+    <None Include="src\vender\glm\gtx\matrix_cross_product.inl" />
+    <None Include="src\vender\glm\gtx\matrix_decompose.inl" />
+    <None Include="src\vender\glm\gtx\matrix_factorisation.inl" />
+    <None Include="src\vender\glm\gtx\matrix_interpolation.inl" />
+    <None Include="src\vender\glm\gtx\matrix_major_storage.inl" />
+    <None Include="src\vender\glm\gtx\matrix_operation.inl" />
+    <None Include="src\vender\glm\gtx\matrix_query.inl" />
+    <None Include="src\vender\glm\gtx\matrix_transform_2d.inl" />
+    <None Include="src\vender\glm\gtx\mixed_product.inl" />
+    <None Include="src\vender\glm\gtx\norm.inl" />
+    <None Include="src\vender\glm\gtx\normal.inl" />
+    <None Include="src\vender\glm\gtx\normalize_dot.inl" />
+    <None Include="src\vender\glm\gtx\number_precision.inl" />
+    <None Include="src\vender\glm\gtx\optimum_pow.inl" />
+    <None Include="src\vender\glm\gtx\orthonormalize.inl" />
+    <None Include="src\vender\glm\gtx\perpendicular.inl" />
+    <None Include="src\vender\glm\gtx\polar_coordinates.inl" />
+    <None Include="src\vender\glm\gtx\projection.inl" />
+    <None Include="src\vender\glm\gtx\quaternion.inl" />
+    <None Include="src\vender\glm\gtx\raw_data.inl" />
+    <None Include="src\vender\glm\gtx\rotate_normalized_axis.inl" />
+    <None Include="src\vender\glm\gtx\rotate_vector.inl" />
+    <None Include="src\vender\glm\gtx\scalar_relational.inl" />
+    <None Include="src\vender\glm\gtx\spline.inl" />
+    <None Include="src\vender\glm\gtx\std_based_type.inl" />
+    <None Include="src\vender\glm\gtx\string_cast.inl" />
+    <None Include="src\vender\glm\gtx\texture.inl" />
+    <None Include="src\vender\glm\gtx\transform.inl" />
+    <None Include="src\vender\glm\gtx\transform2.inl" />
+    <None Include="src\vender\glm\gtx\type_aligned.inl" />
+    <None Include="src\vender\glm\gtx\type_trait.inl" />
+    <None Include="src\vender\glm\gtx\vector_angle.inl" />
+    <None Include="src\vender\glm\gtx\vector_query.inl" />
+    <None Include="src\vender\glm\gtx\wrap.inl" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\Core\Application.cpp" />
     <ClCompile Include="src\Debug\Debug.cpp" />
     <ClCompile Include="src\GL.cpp" />
     <ClCompile Include="src\Panels\ImGuiLayer.cpp" />
@@ -203,6 +344,10 @@
     <ClCompile Include="src\vender\stb_image\stb_image.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\Core\Application.h" />
+    <ClInclude Include="src\Core\Core.h" />
+    <ClInclude Include="src\Core\EntryPoint.h" />
+    <ClInclude Include="src\Core\Tsunder.h" />
     <ClInclude Include="src\Debug\Debug.h" />
     <ClInclude Include="src\ExternalFiles.h" />
     <ClInclude Include="src\GLHead.h" />
@@ -527,145 +672,6 @@
     <ClInclude Include="src\vender\imgui\imstb_textedit.h" />
     <ClInclude Include="src\vender\imgui\imstb_truetype.h" />
     <ClInclude Include="src\vender\stb_image\stb_image.h" />
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="freeglut.dll" />
-    <None Include="src\vender\glm\detail\func_common.inl" />
-    <None Include="src\vender\glm\detail\func_common_simd.inl" />
-    <None Include="src\vender\glm\detail\func_exponential.inl" />
-    <None Include="src\vender\glm\detail\func_exponential_simd.inl" />
-    <None Include="src\vender\glm\detail\func_geometric.inl" />
-    <None Include="src\vender\glm\detail\func_geometric_simd.inl" />
-    <None Include="src\vender\glm\detail\func_integer.inl" />
-    <None Include="src\vender\glm\detail\func_integer_simd.inl" />
-    <None Include="src\vender\glm\detail\func_matrix.inl" />
-    <None Include="src\vender\glm\detail\func_matrix_simd.inl" />
-    <None Include="src\vender\glm\detail\func_packing.inl" />
-    <None Include="src\vender\glm\detail\func_packing_simd.inl" />
-    <None Include="src\vender\glm\detail\func_trigonometric.inl" />
-    <None Include="src\vender\glm\detail\func_trigonometric_simd.inl" />
-    <None Include="src\vender\glm\detail\func_vector_relational.inl" />
-    <None Include="src\vender\glm\detail\func_vector_relational_simd.inl" />
-    <None Include="src\vender\glm\detail\type_half.inl" />
-    <None Include="src\vender\glm\detail\type_mat2x2.inl" />
-    <None Include="src\vender\glm\detail\type_mat2x3.inl" />
-    <None Include="src\vender\glm\detail\type_mat2x4.inl" />
-    <None Include="src\vender\glm\detail\type_mat3x2.inl" />
-    <None Include="src\vender\glm\detail\type_mat3x3.inl" />
-    <None Include="src\vender\glm\detail\type_mat3x4.inl" />
-    <None Include="src\vender\glm\detail\type_mat4x2.inl" />
-    <None Include="src\vender\glm\detail\type_mat4x3.inl" />
-    <None Include="src\vender\glm\detail\type_mat4x4.inl" />
-    <None Include="src\vender\glm\detail\type_mat4x4_simd.inl" />
-    <None Include="src\vender\glm\detail\type_quat.inl" />
-    <None Include="src\vender\glm\detail\type_quat_simd.inl" />
-    <None Include="src\vender\glm\detail\type_vec1.inl" />
-    <None Include="src\vender\glm\detail\type_vec2.inl" />
-    <None Include="src\vender\glm\detail\type_vec3.inl" />
-    <None Include="src\vender\glm\detail\type_vec4.inl" />
-    <None Include="src\vender\glm\detail\type_vec4_simd.inl" />
-    <None Include="src\vender\glm\ext\matrix_clip_space.inl" />
-    <None Include="src\vender\glm\ext\matrix_common.inl" />
-    <None Include="src\vender\glm\ext\matrix_projection.inl" />
-    <None Include="src\vender\glm\ext\matrix_relational.inl" />
-    <None Include="src\vender\glm\ext\matrix_transform.inl" />
-    <None Include="src\vender\glm\ext\quaternion_common.inl" />
-    <None Include="src\vender\glm\ext\quaternion_common_simd.inl" />
-    <None Include="src\vender\glm\ext\quaternion_exponential.inl" />
-    <None Include="src\vender\glm\ext\quaternion_geometric.inl" />
-    <None Include="src\vender\glm\ext\quaternion_relational.inl" />
-    <None Include="src\vender\glm\ext\quaternion_transform.inl" />
-    <None Include="src\vender\glm\ext\quaternion_trigonometric.inl" />
-    <None Include="src\vender\glm\ext\scalar_common.inl" />
-    <None Include="src\vender\glm\ext\scalar_constants.inl" />
-    <None Include="src\vender\glm\ext\scalar_integer.inl" />
-    <None Include="src\vender\glm\ext\scalar_packing.inl" />
-    <None Include="src\vender\glm\ext\scalar_relational.inl" />
-    <None Include="src\vender\glm\ext\scalar_ulp.inl" />
-    <None Include="src\vender\glm\ext\vector_common.inl" />
-    <None Include="src\vender\glm\ext\vector_integer.inl" />
-    <None Include="src\vender\glm\ext\vector_packing.inl" />
-    <None Include="src\vender\glm\ext\vector_relational.inl" />
-    <None Include="src\vender\glm\ext\vector_ulp.inl" />
-    <None Include="src\vender\glm\gtc\bitfield.inl" />
-    <None Include="src\vender\glm\gtc\color_space.inl" />
-    <None Include="src\vender\glm\gtc\constants.inl" />
-    <None Include="src\vender\glm\gtc\epsilon.inl" />
-    <None Include="src\vender\glm\gtc\integer.inl" />
-    <None Include="src\vender\glm\gtc\matrix_access.inl" />
-    <None Include="src\vender\glm\gtc\matrix_inverse.inl" />
-    <None Include="src\vender\glm\gtc\matrix_transform.inl" />
-    <None Include="src\vender\glm\gtc\noise.inl" />
-    <None Include="src\vender\glm\gtc\packing.inl" />
-    <None Include="src\vender\glm\gtc\quaternion.inl" />
-    <None Include="src\vender\glm\gtc\quaternion_simd.inl" />
-    <None Include="src\vender\glm\gtc\random.inl" />
-    <None Include="src\vender\glm\gtc\reciprocal.inl" />
-    <None Include="src\vender\glm\gtc\round.inl" />
-    <None Include="src\vender\glm\gtc\type_precision.inl" />
-    <None Include="src\vender\glm\gtc\type_ptr.inl" />
-    <None Include="src\vender\glm\gtc\ulp.inl" />
-    <None Include="src\vender\glm\gtx\associated_min_max.inl" />
-    <None Include="src\vender\glm\gtx\bit.inl" />
-    <None Include="src\vender\glm\gtx\closest_point.inl" />
-    <None Include="src\vender\glm\gtx\color_encoding.inl" />
-    <None Include="src\vender\glm\gtx\color_space.inl" />
-    <None Include="src\vender\glm\gtx\color_space_YCoCg.inl" />
-    <None Include="src\vender\glm\gtx\common.inl" />
-    <None Include="src\vender\glm\gtx\compatibility.inl" />
-    <None Include="src\vender\glm\gtx\component_wise.inl" />
-    <None Include="src\vender\glm\gtx\dual_quaternion.inl" />
-    <None Include="src\vender\glm\gtx\easing.inl" />
-    <None Include="src\vender\glm\gtx\euler_angles.inl" />
-    <None Include="src\vender\glm\gtx\extend.inl" />
-    <None Include="src\vender\glm\gtx\extended_min_max.inl" />
-    <None Include="src\vender\glm\gtx\exterior_product.inl" />
-    <None Include="src\vender\glm\gtx\fast_exponential.inl" />
-    <None Include="src\vender\glm\gtx\fast_square_root.inl" />
-    <None Include="src\vender\glm\gtx\fast_trigonometry.inl" />
-    <None Include="src\vender\glm\gtx\float_notmalize.inl" />
-    <None Include="src\vender\glm\gtx\functions.inl" />
-    <None Include="src\vender\glm\gtx\gradient_paint.inl" />
-    <None Include="src\vender\glm\gtx\handed_coordinate_space.inl" />
-    <None Include="src\vender\glm\gtx\hash.inl" />
-    <None Include="src\vender\glm\gtx\integer.inl" />
-    <None Include="src\vender\glm\gtx\intersect.inl" />
-    <None Include="src\vender\glm\gtx\io.inl" />
-    <None Include="src\vender\glm\gtx\log_base.inl" />
-    <None Include="src\vender\glm\gtx\matrix_cross_product.inl" />
-    <None Include="src\vender\glm\gtx\matrix_decompose.inl" />
-    <None Include="src\vender\glm\gtx\matrix_factorisation.inl" />
-    <None Include="src\vender\glm\gtx\matrix_interpolation.inl" />
-    <None Include="src\vender\glm\gtx\matrix_major_storage.inl" />
-    <None Include="src\vender\glm\gtx\matrix_operation.inl" />
-    <None Include="src\vender\glm\gtx\matrix_query.inl" />
-    <None Include="src\vender\glm\gtx\matrix_transform_2d.inl" />
-    <None Include="src\vender\glm\gtx\mixed_product.inl" />
-    <None Include="src\vender\glm\gtx\norm.inl" />
-    <None Include="src\vender\glm\gtx\normal.inl" />
-    <None Include="src\vender\glm\gtx\normalize_dot.inl" />
-    <None Include="src\vender\glm\gtx\number_precision.inl" />
-    <None Include="src\vender\glm\gtx\optimum_pow.inl" />
-    <None Include="src\vender\glm\gtx\orthonormalize.inl" />
-    <None Include="src\vender\glm\gtx\perpendicular.inl" />
-    <None Include="src\vender\glm\gtx\polar_coordinates.inl" />
-    <None Include="src\vender\glm\gtx\projection.inl" />
-    <None Include="src\vender\glm\gtx\quaternion.inl" />
-    <None Include="src\vender\glm\gtx\raw_data.inl" />
-    <None Include="src\vender\glm\gtx\rotate_normalized_axis.inl" />
-    <None Include="src\vender\glm\gtx\rotate_vector.inl" />
-    <None Include="src\vender\glm\gtx\scalar_relational.inl" />
-    <None Include="src\vender\glm\gtx\spline.inl" />
-    <None Include="src\vender\glm\gtx\std_based_type.inl" />
-    <None Include="src\vender\glm\gtx\string_cast.inl" />
-    <None Include="src\vender\glm\gtx\texture.inl" />
-    <None Include="src\vender\glm\gtx\transform.inl" />
-    <None Include="src\vender\glm\gtx\transform2.inl" />
-    <None Include="src\vender\glm\gtx\type_aligned.inl" />
-    <None Include="src\vender\glm\gtx\type_trait.inl" />
-    <None Include="src\vender\glm\gtx\vector_angle.inl" />
-    <None Include="src\vender\glm\gtx\vector_query.inl" />
-    <None Include="src\vender\glm\gtx\wrap.inl" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
