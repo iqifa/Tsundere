@@ -8,5 +8,11 @@
 /Dependence
 /res
 /doc
-/res/vender
-/src/vender
+/.VSCodeCounter
+/Core/Debug
+/Core/src/vender
+/Core/res
+*.ini
+/T_Tool/Debug
+/T_UI/Debug
+/Core/Release
