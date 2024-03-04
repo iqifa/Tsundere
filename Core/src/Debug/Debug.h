@@ -1,24 +1,35 @@
 
 #include"glm/glm.hpp"
 #include<iostream>
+#include"Core/Core.h"
+
+#include"HeadLine.h"
+
+#include"spdlog/spdlog.h"
+#include"spdlog/sinks/stdout_color_sinks.h"
 
 using namespace glm;
 #ifndef DEBUG
 
 #define DEBUG
-#define debuglog(...) log(__VA_ARGS__,__FILE__,__LINE__);
-#define debugerror(...)error(__VA_ARGS__,__FILE__,__LINE__);
-#define debugwarring(...)warring(__VA_ARGS__,__FILE__,__LINE__);
+#define debuglog(...)		::Engine::Log::GetCoreLogger()->trace(__VA_ARGS__);
+#define debugerror(...)		::Engine::Log::GetCoreLogger()->error(__VA_ARGS__);
+#define debugwarring(...)	::Engine::Log::GetCoreLogger()->warn(__VA_ARGS__);
 
-void log(const std::string str, std::string name, const char* file, int line);
-void log(vec3& vec, const std::string name, const char* file, int line);
-void log(unsigned int unit, const std::string name, const char* file, int line);
-void log(const std::string str, const char* file, int line);
-void log(float num, const char* file, int line);
-void log(mat4 mat,std::string name, const char* file, int line);
 
-void error(std::string msg, const char* file, int line);
 
-void warring(const std::string str, const char* file, int line);
+namespace Engine {
+	class T_API Log
+	{
+	public:
+		static void Init();
+
+		static Ref<spdlog::logger>& GetCoreLogger() { return s_CoreLogger; }
+		static Ref<spdlog::logger>& GetClientLogger() { return s_ClientLogger; }
+	private:
+		static Ref<spdlog::logger> s_CoreLogger;
+		static Ref<spdlog::logger> s_ClientLogger;
+	};
+}
 #endif // !DUBUG
 

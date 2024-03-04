@@ -49,3 +49,22 @@ void warring(const std::string str, const char* file, int line)
 {
 	std::cout << "\033[1;33mWarring:" << str << "\tFile:" << file << "\tLine:" << line << "\033[0m" << std::endl;
 }
+namespace Engine {
+
+	Ref<spdlog::logger> Log::s_CoreLogger;
+	Ref<spdlog::logger> Log::s_ClientLogger;
+
+	void Log::Init()
+	{
+		s_CoreLogger = CreateRef<spdlog::logger>("TSUNDERE");
+		s_ClientLogger = CreateRef<spdlog::logger>("APP");
+
+		s_CoreLogger->set_pattern("%^[%T] %n: %v%$");
+		s_CoreLogger = spdlog::stderr_color_mt("TSUNDERE");
+		s_CoreLogger->set_level(spdlog::level::trace);
+
+		s_ClientLogger->set_pattern("%^[%T] %n: %v%$");
+		s_ClientLogger = spdlog::stderr_color_mt("APP");
+		s_ClientLogger->set_level(spdlog::level::trace);
+	}
+}

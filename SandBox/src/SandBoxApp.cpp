@@ -1,4 +1,3 @@
-//#include<Core/Tsunder.h>
 #include<Tsunder.h>
 class SandBox:public Engine::Application
 {
@@ -11,6 +10,6 @@ private:
 };
 Engine::Application* Engine::CreateApplication()
 {
-	std::cout << "Create Sandbox";
+	std::cout << "Create Sandbox" << endl;
 	return new SandBox();
 }

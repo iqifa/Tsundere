@@ -10,9 +10,12 @@ namespace Engine {
 
 	void Application::Run()
 	{
+		
 		while (true)
 		{
 
 		}
 	}
+
+
 }

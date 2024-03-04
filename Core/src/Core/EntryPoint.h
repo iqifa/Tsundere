@@ -1,5 +1,6 @@
 #pragma once
 #include"Application.h"
+#include"Debug/Debug.h"
 #ifdef T_PLATFORM_WINDOWS
 
 extern Engine::Application* Engine::CreateApplication();
@@ -7,8 +8,10 @@ extern Engine::Application* Engine::CreateApplication();
 
 int main(int argc,char** argv)
 {
-	auto app = Engine::CreateApplication();
+	Engine::Log::Init();
 
+	auto app = Engine::CreateApplication();
+	debuglog("Start Tsundere!")
 	app->Run();
 
 

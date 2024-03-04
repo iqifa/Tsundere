@@ -1,5 +1,6 @@
 #pragma once
 #include"Core.h"
+
 namespace Engine {
 	class T_API Application
 	{
