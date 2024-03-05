@@ -17,3 +17,7 @@
 /T_UI/Debug
 /Core/Release
 /SandBox/Debug
+/T_Core/Debug
+/T_Core/Release
+/T_Core/src/vender
+/T_Core/res

@@ -1,179 +1,5 @@
-<?xml version="1.0" encoding="utf-8"?>
-<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <ItemGroup Label="ProjectConfigurations">
-    <ProjectConfiguration Include="Debug|Win32">
-      <Configuration>Debug</Configuration>
-      <Platform>Win32</Platform>
-    </ProjectConfiguration>
-    <ProjectConfiguration Include="Release|Win32">
-      <Configuration>Release</Configuration>
-      <Platform>Win32</Platform>
-    </ProjectConfiguration>
-    <ProjectConfiguration Include="Debug|x64">
-      <Configuration>Debug</Configuration>
-      <Platform>x64</Platform>
-    </ProjectConfiguration>
-    <ProjectConfiguration Include="Release|x64">
-      <Configuration>Release</Configuration>
-      <Platform>x64</Platform>
-    </ProjectConfiguration>
-  </ItemGroup>
-  <PropertyGroup Label="Globals">
-    <VCProjectVersion>16.0</VCProjectVersion>
-    <Keyword>Win32Proj</Keyword>
-    <ProjectGuid>{e517efe5-0e80-4a47-8e13-287ee9b583b9}</ProjectGuid>
-    <RootNamespace>GraduateTest</RootNamespace>
-    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
-    <ProjectName>T_Core</ProjectName>
-  </PropertyGroup>
-  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
-    <ConfigurationType>DynamicLibrary</ConfigurationType>
-    <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v142</PlatformToolset>
-    <CharacterSet>Unicode</CharacterSet>
-    <CLRSupport>false</CLRSupport>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
-    <ConfigurationType>Application</ConfigurationType>
-    <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v142</PlatformToolset>
-    <WholeProgramOptimization>true</WholeProgramOptimization>
-    <CharacterSet>Unicode</CharacterSet>
-    <CLRSupport>true</CLRSupport>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
-    <ConfigurationType>Application</ConfigurationType>
-    <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v142</PlatformToolset>
-    <CharacterSet>Unicode</CharacterSet>
-    <CLRSupport>true</CLRSupport>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
-    <ConfigurationType>Application</ConfigurationType>
-    <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v142</PlatformToolset>
-    <WholeProgramOptimization>true</WholeProgramOptimization>
-    <CharacterSet>Unicode</CharacterSet>
-    <CLRSupport>true</CLRSupport>
-  </PropertyGroup>
-  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
-  <ImportGroup Label="ExtensionSettings">
-  </ImportGroup>
-  <ImportGroup Label="Shared">
-  </ImportGroup>
-  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
-    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
-  </ImportGroup>
-  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
-    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
-  </ImportGroup>
-  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
-  </ImportGroup>
-  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
-  </ImportGroup>
-  <PropertyGroup Label="UserMacros" />
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
-    <LinkIncremental>true</LinkIncremental>
-    <ExecutablePath>$(SolutionDir)\dll;$(ExecutablePath)</ExecutablePath>
-    <IncludePath>$(SolutionDir)T_Tool\include;$(IncludePath)</IncludePath>
-    <OutDir>$(SolutionDir)$(Configuration)\Core\</OutDir>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
-    <LinkIncremental>false</LinkIncremental>
-    <ExecutablePath>$(SolutionDir)\dll;$(ExecutablePath)</ExecutablePath>
-    <IncludePath>$(SolutionDir)T_Tool\include;$(IncludePath)</IncludePath>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <LinkIncremental>true</LinkIncremental>
-    <ExecutablePath>$(SolutionDir)\dll;$(ExecutablePath)</ExecutablePath>
-    <IncludePath>$(SolutionDir)T_Tool\include;$(IncludePath)</IncludePath>
-    <OutDir>$(SolutionDir)$(Configuration)\</OutDir>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <LinkIncremental>false</LinkIncremental>
-    <ExecutablePath>$(SolutionDir)\dll;$(ExecutablePath)</ExecutablePath>
-    <IncludePath>$(SolutionDir)T_Tool\include;$(IncludePath)</IncludePath>
-    <OutDir>$(SolutionDir)$(Configuration)\</OutDir>
-  </PropertyGroup>
-  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
-    <ClCompile>
-      <WarningLevel>Level3</WarningLevel>
-      <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>T_PLATFORM_WINDOWS;T_BUILD_DLL;WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <ConformanceMode>false</ConformanceMode>
-      <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>$(SolutionDir)Dependence\GLFW\include;$(SolutionDir)Dependence\GLEW\include;$(SolutionDir)Core\src;src\vender;src\Platform\GL;$(SolutionDir)Dependence\assimp\include;$(SolutionDir)T_UI\include;src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <StructMemberAlignment>16Bytes</StructMemberAlignment>
-    </ClCompile>
-    <Link>
-      <SubSystem>Console</SubSystem>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>glfw3.lib;opengl32.lib;glew32.lib;assimp-vc142-mtd.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>$(SolutionDir)Dependence\GLEW\lib\Release\Win32;$(SolutionDir)Dependence\GLFW\lib-vc2019;$(SolutionDir)Dependence\assimp\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-    </Link>
-  </ItemDefinitionGroup>
-  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
-    <ClCompile>
-      <WarningLevel>Level3</WarningLevel>
-      <FunctionLevelLinking>true</FunctionLevelLinking>
-      <IntrinsicFunctions>true</IntrinsicFunctions>
-      <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <ConformanceMode>false</ConformanceMode>
-      <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>$(SolutionDir)Dependence\GLFW\include;$(SolutionDir)Dependence\GLEW\include;src\vender;src;src\Platform\GL;$(SolutionDir)Dependence\assimp\include;$(SolutionDir)T_UI\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <StructMemberAlignment>16Bytes</StructMemberAlignment>
-    </ClCompile>
-    <Link>
-      <SubSystem>Console</SubSystem>
-      <EnableCOMDATFolding>true</EnableCOMDATFolding>
-      <OptimizeReferences>true</OptimizeReferences>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>glfw3.lib;opengl32.lib;glew32.lib;assimp-vc142-mtd.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>$(SolutionDir)Dependence\GLEW\lib\Release\Win32;$(SolutionDir)Dependence\GLFW\lib-vc2019;$(SolutionDir)Dependence\assimp\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-    </Link>
-  </ItemDefinitionGroup>
-  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <ClCompile>
-      <WarningLevel>Level3</WarningLevel>
-      <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <ConformanceMode>false</ConformanceMode>
-      <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>$(SolutionDir)Dependence\GLFW\include;$(SolutionDir)Dependence\GLEW\include;src\vender;src;src\Platform\GL;$(SolutionDir)Dependence\assimp\include;$(SolutionDir)T_UI\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <StructMemberAlignment>16Bytes</StructMemberAlignment>
-    </ClCompile>
-    <Link>
-      <SubSystem>Console</SubSystem>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>glfw3.lib;opengl32.lib;glew32.lib;assimp-vc142-mtd.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>$(SolutionDir)Dependence\GLEW\lib\Release\Win32;$(SolutionDir)Dependence\GLFW\lib-vc2019;$(SolutionDir)Dependence\assimp\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-    </Link>
-  </ItemDefinitionGroup>
-  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <ClCompile>
-      <WarningLevel>Level3</WarningLevel>
-      <FunctionLevelLinking>true</FunctionLevelLinking>
-      <IntrinsicFunctions>true</IntrinsicFunctions>
-      <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <ConformanceMode>false</ConformanceMode>
-      <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>$(SolutionDir)Dependence\GLFW\include;$(SolutionDir)Dependence\GLEW\include;src\vender;src;src\Platform\GL;$(SolutionDir)Dependence\assimp\include;$(SolutionDir)T_UI\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <StructMemberAlignment>16Bytes</StructMemberAlignment>
-    </ClCompile>
-    <Link>
-      <SubSystem>Console</SubSystem>
-      <EnableCOMDATFolding>true</EnableCOMDATFolding>
-      <OptimizeReferences>true</OptimizeReferences>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>glfw3.lib;opengl32.lib;glew32.lib;assimp-vc142-mtd.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>$(SolutionDir)Dependence\GLEW\lib\Release\Win32;$(SolutionDir)Dependence\GLFW\lib-vc2019;$(SolutionDir)Dependence\assimp\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-    </Link>
-  </ItemDefinitionGroup>
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <None Include="freeglut.dll" />
     <None Include="src\vender\glm\detail\func_common.inl" />
@@ -316,10 +142,17 @@
   <ItemGroup>
     <ClCompile Include="src\Core\Application.cpp" />
     <ClCompile Include="src\Debug\Debug.cpp" />
-    <ClCompile Include="src\GL.cpp" />
     <ClCompile Include="src\Panels\ImGuiLayer.cpp" />
     <ClCompile Include="src\Panels\Material.cpp" />
     <ClCompile Include="src\Panels\MeshFilePath.cpp" />
+    <ClCompile Include="src\vender\glm\detail\glm.cpp" />
+    <ClCompile Include="src\vender\imgui\imgui.cpp" />
+    <ClCompile Include="src\vender\imgui\imgui_draw.cpp" />
+    <ClCompile Include="src\vender\imgui\imgui_impl_glfw.cpp" />
+    <ClCompile Include="src\vender\imgui\imgui_impl_opengl3.cpp" />
+    <ClCompile Include="src\vender\imgui\imgui_tables.cpp" />
+    <ClCompile Include="src\vender\imgui\imgui_widgets.cpp" />
+    <ClCompile Include="src\vender\stb_image\stb_image.cpp" />
     <ClCompile Include="src\Platform\GL\CubeMap.cpp" />
     <ClCompile Include="src\Platform\GL\FrameBuffer.cpp" />
     <ClCompile Include="src\Platform\GL\IndexBuffer.cpp" />
@@ -333,15 +166,8 @@
     <ClCompile Include="src\Test\TestCube.cpp" />
     <ClCompile Include="src\Test\TestTexture2D.cpp" />
     <ClCompile Include="src\Trans\SceneCamera.cpp" />
-    <ClCompile Include="src\vender\glm\detail\glm.cpp" />
-    <ClCompile Include="src\vender\imgui\imgui.cpp" />
+    <ClCompile Include="src\GL.cpp" />
     <ClCompile Include="src\vender\imgui\imgui_demo.cpp" />
-    <ClCompile Include="src\vender\imgui\imgui_draw.cpp" />
-    <ClCompile Include="src\vender\imgui\imgui_impl_glfw.cpp" />
-    <ClCompile Include="src\vender\imgui\imgui_impl_opengl3.cpp" />
-    <ClCompile Include="src\vender\imgui\imgui_tables.cpp" />
-    <ClCompile Include="src\vender\imgui\imgui_widgets.cpp" />
-    <ClCompile Include="src\vender\stb_image\stb_image.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\Core\Application.h" />
@@ -349,38 +175,17 @@
     <ClInclude Include="src\Core\EntryPoint.h" />
     <ClInclude Include="src\Core\Tsunder.h" />
     <ClInclude Include="src\Debug\Debug.h" />
-    <ClInclude Include="src\ExternalFiles.h" />
-    <ClInclude Include="src\GLHead.h" />
-    <ClInclude Include="src\HeadLine.h" />
     <ClInclude Include="src\Panels\ImGuiLayer.h" />
     <ClInclude Include="src\Panels\Material.h" />
     <ClInclude Include="src\Panels\MeshFilePath.h" />
     <ClInclude Include="src\Panels\Panel.h" />
-    <ClInclude Include="src\Platform\GL\CubeMap.h" />
-    <ClInclude Include="src\Platform\GL\FrameBuffer.h" />
-    <ClInclude Include="src\Platform\GL\IndexBuffer.h" />
-    <ClInclude Include="src\Platform\GL\Renderer.h" />
-    <ClInclude Include="src\Platform\GL\Shader.h" />
-    <ClInclude Include="src\Platform\GL\Texture.h" />
-    <ClInclude Include="src\Platform\GL\VertexArray.h" />
-    <ClInclude Include="src\Platform\GL\VertexBuffer.h" />
-    <ClInclude Include="src\Platform\GL\VertexBufferLayout.h" />
-    <ClInclude Include="src\Scene\Component.h" />
-    <ClInclude Include="src\Scene\Entity.h" />
-    <ClInclude Include="src\Scene\Mesh.h" />
-    <ClInclude Include="src\Scene\Modle.h" />
-    <ClInclude Include="src\Scene\Scene.h" />
-    <ClInclude Include="src\Scene\SceneRender.h" />
-    <ClInclude Include="src\Scene\SkyBox.h" />
-    <ClInclude Include="src\Test\Test.h" />
-    <ClInclude Include="src\Test\TestClearColor.h" />
-    <ClInclude Include="src\Test\TestCube.h" />
-    <ClInclude Include="src\Test\TestHead.h" />
-    <ClInclude Include="src\Test\TestScene.h" />
-    <ClInclude Include="src\Test\TestTexture2D.h" />
-    <ClInclude Include="src\Trans\SceneCamera.h" />
     <ClInclude Include="src\vender\entt\include\entt.hpp" />
-    <ClInclude Include="src\vender\glm\common.hpp" />
+    <ClInclude Include="src\vender\glm\detail\_features.hpp" />
+    <ClInclude Include="src\vender\glm\detail\_fixes.hpp" />
+    <ClInclude Include="src\vender\glm\detail\_noise.hpp" />
+    <ClInclude Include="src\vender\glm\detail\_swizzle.hpp" />
+    <ClInclude Include="src\vender\glm\detail\_swizzle_func.hpp" />
+    <ClInclude Include="src\vender\glm\detail\_vectorize.hpp" />
     <ClInclude Include="src\vender\glm\detail\compute_common.hpp" />
     <ClInclude Include="src\vender\glm\detail\compute_vector_relational.hpp" />
     <ClInclude Include="src\vender\glm\detail\qualifier.hpp" />
@@ -401,14 +206,6 @@
     <ClInclude Include="src\vender\glm\detail\type_vec2.hpp" />
     <ClInclude Include="src\vender\glm\detail\type_vec3.hpp" />
     <ClInclude Include="src\vender\glm\detail\type_vec4.hpp" />
-    <ClInclude Include="src\vender\glm\detail\_features.hpp" />
-    <ClInclude Include="src\vender\glm\detail\_fixes.hpp" />
-    <ClInclude Include="src\vender\glm\detail\_noise.hpp" />
-    <ClInclude Include="src\vender\glm\detail\_swizzle.hpp" />
-    <ClInclude Include="src\vender\glm\detail\_swizzle_func.hpp" />
-    <ClInclude Include="src\vender\glm\detail\_vectorize.hpp" />
-    <ClInclude Include="src\vender\glm\exponential.hpp" />
-    <ClInclude Include="src\vender\glm\ext.hpp" />
     <ClInclude Include="src\vender\glm\ext\matrix_clip_space.hpp" />
     <ClInclude Include="src\vender\glm\ext\matrix_common.hpp" />
     <ClInclude Include="src\vender\glm\ext\matrix_double2x2.hpp" />
@@ -498,8 +295,8 @@
     <ClInclude Include="src\vender\glm\ext\quaternion_trigonometric.hpp" />
     <ClInclude Include="src\vender\glm\ext\scalar_common.hpp" />
     <ClInclude Include="src\vender\glm\ext\scalar_constants.hpp" />
-    <ClInclude Include="src\vender\glm\ext\scalar_integer.hpp" />
     <ClInclude Include="src\vender\glm\ext\scalar_int_sized.hpp" />
+    <ClInclude Include="src\vender\glm\ext\scalar_integer.hpp" />
     <ClInclude Include="src\vender\glm\ext\scalar_packing.hpp" />
     <ClInclude Include="src\vender\glm\ext\scalar_relational.hpp" />
     <ClInclude Include="src\vender\glm\ext\scalar_uint_sized.hpp" />
@@ -549,9 +346,6 @@
     <ClInclude Include="src\vender\glm\ext\vector_uint4.hpp" />
     <ClInclude Include="src\vender\glm\ext\vector_uint4_sized.hpp" />
     <ClInclude Include="src\vender\glm\ext\vector_ulp.hpp" />
-    <ClInclude Include="src\vender\glm\fwd.hpp" />
-    <ClInclude Include="src\vender\glm\geometric.hpp" />
-    <ClInclude Include="src\vender\glm\glm.hpp" />
     <ClInclude Include="src\vender\glm\gtc\bitfield.hpp" />
     <ClInclude Include="src\vender\glm\gtc\color_space.hpp" />
     <ClInclude Include="src\vender\glm\gtc\constants.hpp" />
@@ -631,10 +425,26 @@
     <ClInclude Include="src\vender\glm\gtx\transform2.hpp" />
     <ClInclude Include="src\vender\glm\gtx\type_aligned.hpp" />
     <ClInclude Include="src\vender\glm\gtx\type_trait.hpp" />
+    <ClInclude Include="src\vender\glm\gtx\vec_swizzle.hpp" />
     <ClInclude Include="src\vender\glm\gtx\vector_angle.hpp" />
     <ClInclude Include="src\vender\glm\gtx\vector_query.hpp" />
-    <ClInclude Include="src\vender\glm\gtx\vec_swizzle.hpp" />
     <ClInclude Include="src\vender\glm\gtx\wrap.hpp" />
+    <ClInclude Include="src\vender\glm\simd\common.h" />
+    <ClInclude Include="src\vender\glm\simd\exponential.h" />
+    <ClInclude Include="src\vender\glm\simd\geometric.h" />
+    <ClInclude Include="src\vender\glm\simd\integer.h" />
+    <ClInclude Include="src\vender\glm\simd\matrix.h" />
+    <ClInclude Include="src\vender\glm\simd\neon.h" />
+    <ClInclude Include="src\vender\glm\simd\packing.h" />
+    <ClInclude Include="src\vender\glm\simd\platform.h" />
+    <ClInclude Include="src\vender\glm\simd\trigonometric.h" />
+    <ClInclude Include="src\vender\glm\simd\vector_relational.h" />
+    <ClInclude Include="src\vender\glm\common.hpp" />
+    <ClInclude Include="src\vender\glm\exponential.hpp" />
+    <ClInclude Include="src\vender\glm\ext.hpp" />
+    <ClInclude Include="src\vender\glm\fwd.hpp" />
+    <ClInclude Include="src\vender\glm\geometric.hpp" />
+    <ClInclude Include="src\vender\glm\glm.hpp" />
     <ClInclude Include="src\vender\glm\integer.hpp" />
     <ClInclude Include="src\vender\glm\mat2x2.hpp" />
     <ClInclude Include="src\vender\glm\mat2x3.hpp" />
@@ -647,23 +457,12 @@
     <ClInclude Include="src\vender\glm\mat4x4.hpp" />
     <ClInclude Include="src\vender\glm\matrix.hpp" />
     <ClInclude Include="src\vender\glm\packing.hpp" />
-    <ClInclude Include="src\vender\glm\simd\common.h" />
-    <ClInclude Include="src\vender\glm\simd\exponential.h" />
-    <ClInclude Include="src\vender\glm\simd\geometric.h" />
-    <ClInclude Include="src\vender\glm\simd\integer.h" />
-    <ClInclude Include="src\vender\glm\simd\matrix.h" />
-    <ClInclude Include="src\vender\glm\simd\neon.h" />
-    <ClInclude Include="src\vender\glm\simd\packing.h" />
-    <ClInclude Include="src\vender\glm\simd\platform.h" />
-    <ClInclude Include="src\vender\glm\simd\trigonometric.h" />
-    <ClInclude Include="src\vender\glm\simd\vector_relational.h" />
     <ClInclude Include="src\vender\glm\trigonometric.hpp" />
     <ClInclude Include="src\vender\glm\vec2.hpp" />
     <ClInclude Include="src\vender\glm\vec3.hpp" />
     <ClInclude Include="src\vender\glm\vec4.hpp" />
     <ClInclude Include="src\vender\glm\vector_relational.hpp" />
     <ClInclude Include="src\vender\imgui\imconfig.h" />
-    <ClInclude Include="src\vender\imgui\imgui.h" />
     <ClInclude Include="src\vender\imgui\imgui_impl_glfw.h" />
     <ClInclude Include="src\vender\imgui\imgui_impl_opengl3.h" />
     <ClInclude Include="src\vender\imgui\imgui_impl_opengl3_loader.h" />
@@ -672,8 +471,32 @@
     <ClInclude Include="src\vender\imgui\imstb_textedit.h" />
     <ClInclude Include="src\vender\imgui\imstb_truetype.h" />
     <ClInclude Include="src\vender\stb_image\stb_image.h" />
+    <ClInclude Include="src\Platform\GL\CubeMap.h" />
+    <ClInclude Include="src\Platform\GL\FrameBuffer.h" />
+    <ClInclude Include="src\Platform\GL\IndexBuffer.h" />
+    <ClInclude Include="src\Platform\GL\Renderer.h" />
+    <ClInclude Include="src\Platform\GL\Shader.h" />
+    <ClInclude Include="src\Platform\GL\Texture.h" />
+    <ClInclude Include="src\Platform\GL\VertexArray.h" />
+    <ClInclude Include="src\Platform\GL\VertexBuffer.h" />
+    <ClInclude Include="src\Platform\GL\VertexBufferLayout.h" />
+    <ClInclude Include="src\Scene\Component.h" />
+    <ClInclude Include="src\Scene\Entity.h" />
+    <ClInclude Include="src\Scene\Mesh.h" />
+    <ClInclude Include="src\Scene\Modle.h" />
+    <ClInclude Include="src\Scene\Scene.h" />
+    <ClInclude Include="src\Scene\SceneRender.h" />
+    <ClInclude Include="src\Scene\SkyBox.h" />
+    <ClInclude Include="src\Test\Test.h" />
+    <ClInclude Include="src\Test\TestClearColor.h" />
+    <ClInclude Include="src\Test\TestCube.h" />
+    <ClInclude Include="src\Test\TestHead.h" />
+    <ClInclude Include="src\Test\TestScene.h" />
+    <ClInclude Include="src\Test\TestTexture2D.h" />
+    <ClInclude Include="src\Trans\SceneCamera.h" />
+    <ClInclude Include="src\ExternalFiles.h" />
+    <ClInclude Include="src\GLHead.h" />
+    <ClInclude Include="src\HeadLine.h" />
+    <ClInclude Include="src\vender\imgui\imgui.h" />
   </ItemGroup>
-  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
-  <ImportGroup Label="ExtensionTargets">
-  </ImportGroup>
 </Project>
