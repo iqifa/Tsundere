@@ -56,15 +56,18 @@ namespace Engine {
 
 	void Log::Init()
 	{
+		//auto colorsink = createref<spdlog::sinks::ansicolor_sink>();
+		//auto sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+		//sink->set_color(spdlog::level::trace,);
 		s_CoreLogger = CreateRef<spdlog::logger>("TSUNDERE");
 		s_ClientLogger = CreateRef<spdlog::logger>("APP");
 
-		s_CoreLogger->set_pattern("%^[%T] %n: %v%$");
 		s_CoreLogger = spdlog::stderr_color_mt("TSUNDERE");
+		s_CoreLogger->set_pattern("[%T] %^[%n]: %v%$");
 		s_CoreLogger->set_level(spdlog::level::trace);
 
-		s_ClientLogger->set_pattern("%^[%T] %n: %v%$");
 		s_ClientLogger = spdlog::stderr_color_mt("APP");
+		s_ClientLogger->set_pattern("%^[%T] [%n]: %v%$");
 		s_ClientLogger->set_level(spdlog::level::trace);
 	}
 }
