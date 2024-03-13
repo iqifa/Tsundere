@@ -12,7 +12,7 @@ using ListenerID = unsigned int;
 namespace Eventing {
 
 	template<class... ArgsTypes>
-	class Event {
+	class _declspec(dllexport) Event {
 		using CallBack = std::function<void(ArgsTypes...)>;
 	public:
 		bool RemoveListenerID(ListenerID listenerid);
