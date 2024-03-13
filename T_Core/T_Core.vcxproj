@@ -105,7 +105,7 @@
       <PreprocessorDefinitions>T_PLATFORM_WINDOWS;T_BUILD_DLL;WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>false</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>$(SolutionDir)Dependence\GLFW\include;$(SolutionDir)Dependence\GLEW\include;$(SolutionDir)T_Core\src;src\vender;src\Platform\GL;$(SolutionDir)Dependence\assimp\include;$(SolutionDir)T_UI\include;src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)Dependence\GLFW\include;$(SolutionDir)Dependence\GLEW\include;$(SolutionDir)T_Core\src;src\vender;src\Platform\GL;$(SolutionDir)Dependence\assimp\include;$(SolutionDir)T_UI\include;src;$(SolutionDir)T_Tool\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <StructMemberAlignment>16Bytes</StructMemberAlignment>
     </ClCompile>
     <Link>
@@ -314,7 +314,10 @@
     <None Include="src\vender\glm\gtx\wrap.inl" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="src\Core\Layer\LayerStack.cpp" />
+    <ClCompile Include="src\Core\Layer\Layer.cpp" />
     <ClCompile Include="src\Core\Application.cpp" />
+    <ClCompile Include="src\Core\Window.cpp" />
     <ClCompile Include="src\Debug\Debug.cpp" />
     <ClCompile Include="src\GL.cpp" />
     <ClCompile Include="src\Panels\ImGuiLayer.cpp" />
@@ -328,6 +331,7 @@
     <ClCompile Include="src\Platform\GL\Texture.cpp" />
     <ClCompile Include="src\Platform\GL\VertexArray.cpp" />
     <ClCompile Include="src\Platform\GL\VertexBuffer.cpp" />
+    <ClCompile Include="src\Platform\Windows\WindowsWindow.cpp" />
     <ClCompile Include="src\Test\Test.cpp" />
     <ClCompile Include="src\Test\TestClearColor.cpp" />
     <ClCompile Include="src\Test\TestCube.cpp" />
@@ -344,10 +348,13 @@
     <ClCompile Include="src\vender\stb_image\stb_image.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\Core\Layer\LayerStack.h" />
+    <ClInclude Include="src\Core\Layer\Layer.h" />
     <ClInclude Include="src\Core\Application.h" />
     <ClInclude Include="src\Core\Core.h" />
     <ClInclude Include="src\Core\EntryPoint.h" />
     <ClInclude Include="src\Core\Tsunder.h" />
+    <ClInclude Include="src\Core\Window.h" />
     <ClInclude Include="src\Debug\Debug.h" />
     <ClInclude Include="src\ExternalFiles.h" />
     <ClInclude Include="src\GLHead.h" />
@@ -365,6 +372,7 @@
     <ClInclude Include="src\Platform\GL\VertexArray.h" />
     <ClInclude Include="src\Platform\GL\VertexBuffer.h" />
     <ClInclude Include="src\Platform\GL\VertexBufferLayout.h" />
+    <ClInclude Include="src\Platform\Windows\WindowsWindow.h" />
     <ClInclude Include="src\Scene\Component.h" />
     <ClInclude Include="src\Scene\Entity.h" />
     <ClInclude Include="src\Scene\Mesh.h" />

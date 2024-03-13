@@ -1,8 +1,29 @@
 #include<Tsunder.h>
+#include"Event/Event.h"
+class ExampleLayer :public Engine::Layer {
+public:
+	ExampleLayer()
+		: Layer("Example")
+	{
+	}
+
+	void OnUpdate() override
+	{
+		Info_Core("ExampleLayer::Update");
+	}
+
+	void OnEvent(Eventing::Event<>& event) override
+	{
+		event.Invoke();
+	}
+
+};
 class SandBox:public Engine::Application
 {
 public:
-	SandBox(){}
+	SandBox(){
+		PushLayer(new ExampleLayer());
+	}
 	~SandBox(){}
 
 private:

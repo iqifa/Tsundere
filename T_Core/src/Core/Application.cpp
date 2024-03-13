@@ -18,6 +18,11 @@ namespace Engine {
 		while (m_Running)
 		{
 			m_Window->OnUpdate();
+
+			for (auto layer : layerStack)
+			{
+				layer->OnUpdate();
+			}
 		}
 		
 	}
@@ -26,5 +31,13 @@ namespace Engine {
 		ev.Invoke();
 	}
 
+	void Application::PushLayer(Layer* layer)
+	{
+		layerStack.PushLayer(layer);
+	}
 
+	void Application::PopLayer(Layer* layer)
+	{
+		layerStack.PopLayer(layer);
+	}
 }

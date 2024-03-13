@@ -168,6 +168,10 @@
     <ClCompile Include="src\Trans\SceneCamera.cpp" />
     <ClCompile Include="src\GL.cpp" />
     <ClCompile Include="src\vender\imgui\imgui_demo.cpp" />
+    <ClCompile Include="src\Core\Layer\Layer.cpp" />
+    <ClCompile Include="src\Core\Layer\LayerStack.cpp" />
+    <ClCompile Include="src\Core\Window.cpp" />
+    <ClCompile Include="src\Platform\Windows\WindowsWindow.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\Core\Application.h" />
@@ -498,5 +502,9 @@
     <ClInclude Include="src\GLHead.h" />
     <ClInclude Include="src\HeadLine.h" />
     <ClInclude Include="src\vender\imgui\imgui.h" />
+    <ClInclude Include="src\Core\Layer\Layer.h" />
+    <ClInclude Include="src\Core\Layer\LayerStack.h" />
+    <ClInclude Include="src\Core\Window.h" />
+    <ClInclude Include="src\Platform\Windows\WindowsWindow.h" />
   </ItemGroup>
 </Project>
