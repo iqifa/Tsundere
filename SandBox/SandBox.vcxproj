@@ -90,7 +90,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>T_PLATFORM_WINDOWS;WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>$(SolutionDir)T_Core\src;$(SolutionDir)T_Core\src\Core;$(SolutionDir)T_Core\src\vender;$(SolutionDir)T_Tool\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)T_Core\src;$(SolutionDir)T_Core\src\Core;$(SolutionDir)T_Core\src\vender;$(SolutionDir)T_Tool\include;$(SolutionDir)Dependence\GLFW\include;$(SolutionDir)Dependence\GLEW\include;$(SolutionDir)vender;$(SolutionDir)Dependence\assimp\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>

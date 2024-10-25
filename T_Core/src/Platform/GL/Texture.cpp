@@ -1,5 +1,5 @@
 #include "Texture.h"
-#include"vender/stb_image/stb_image.h"
+#include"stb_image/stb_image.h"
 #include"Panels/MeshFilePath.h"
 Texture::Texture(const string& path)
 	:m_FilePath(path), m_LocalBuffer(nullptr), m_Height(0), m_Width(0)

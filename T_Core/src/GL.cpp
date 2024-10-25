@@ -44,7 +44,7 @@ int main(void)
 	{
 		cout << "Error!" << endl;
 	}
-	ImGuiLayer iml;
+	Engine::ImGuiLayer iml;
 	cout << glGetString(GL_VERSION) << endl;
 
 	iml.OnAttach();

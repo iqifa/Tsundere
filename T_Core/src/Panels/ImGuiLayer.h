@@ -3,23 +3,28 @@
 #define GUILAYER
 
 #include"ExternalFiles.h"
+#include"Core/Layer/LayerStack.h"
+#include"Core/Application.h"
+namespace Engine {
+	class T_API ImGuiLayer :public Layer
+	{
+	public:
 
-class ImGuiLayer
-{
-public:
+		ImGuiLayer();
+		~ImGuiLayer() = default;
 
-	ImGuiLayer();
-	~ImGuiLayer() = default;
+		void OnAttach()override;
+		void OnDetach()override;
+		void OnUpdate()override;
+		//virtual void OnEvent(Event& e);
 
-	virtual void OnAttach();
-	virtual void OnDetach();
-	//virtual void OnEvent(Event& e);
+		void Begin();
+		void End();
 
-	void Begin();
-	void End();
-
-	void BlockEvent(bool block) {}
-
-};
+		void BlockEvent(bool block) {}
+	private:
+		float m_Time=0.0f;
+	};
+}
 
 #endif

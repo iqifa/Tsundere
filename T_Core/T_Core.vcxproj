@@ -78,7 +78,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <LinkIncremental>true</LinkIncremental>
     <ExecutablePath>$(SolutionDir)\dll;$(ExecutablePath)</ExecutablePath>
-    <IncludePath>$(SolutionDir)T_Tool\include;$(IncludePath)</IncludePath>
+    <IncludePath>$(SolutionDir)T_Tool\include;$(SolutionDir)vender;$(IncludePath)</IncludePath>
     <OutDir>$(SolutionDir)$(Configuration)\Core\</OutDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -105,7 +105,7 @@
       <PreprocessorDefinitions>T_PLATFORM_WINDOWS;T_BUILD_DLL;WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>false</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>$(SolutionDir)Dependence\GLFW\include;$(SolutionDir)Dependence\GLEW\include;$(SolutionDir)T_Core\src;src\vender;src\Platform\GL;$(SolutionDir)Dependence\assimp\include;$(SolutionDir)T_UI\include;src;$(SolutionDir)T_Tool\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)Dependence\GLFW\include;$(SolutionDir)Dependence\GLEW\include;$(SolutionDir)T_Core\src;$(ProjectDir)src\vender;src\Platform\GL;$(SolutionDir)Dependence\assimp\include;$(SolutionDir)T_UI\include;src;$(SolutionDir)T_Tool\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <StructMemberAlignment>16Bytes</StructMemberAlignment>
     </ClCompile>
     <Link>
@@ -679,6 +679,109 @@
     <ClInclude Include="src\vender\imgui\imstb_rectpack.h" />
     <ClInclude Include="src\vender\imgui\imstb_textedit.h" />
     <ClInclude Include="src\vender\imgui\imstb_truetype.h" />
+    <ClInclude Include="src\vender\spdlog\async.h" />
+    <ClInclude Include="src\vender\spdlog\async_logger-inl.h" />
+    <ClInclude Include="src\vender\spdlog\async_logger.h" />
+    <ClInclude Include="src\vender\spdlog\cfg\argv.h" />
+    <ClInclude Include="src\vender\spdlog\cfg\env.h" />
+    <ClInclude Include="src\vender\spdlog\cfg\helpers-inl.h" />
+    <ClInclude Include="src\vender\spdlog\cfg\helpers.h" />
+    <ClInclude Include="src\vender\spdlog\common-inl.h" />
+    <ClInclude Include="src\vender\spdlog\common.h" />
+    <ClInclude Include="src\vender\spdlog\details\backtracer-inl.h" />
+    <ClInclude Include="src\vender\spdlog\details\backtracer.h" />
+    <ClInclude Include="src\vender\spdlog\details\circular_q.h" />
+    <ClInclude Include="src\vender\spdlog\details\console_globals.h" />
+    <ClInclude Include="src\vender\spdlog\details\file_helper-inl.h" />
+    <ClInclude Include="src\vender\spdlog\details\file_helper.h" />
+    <ClInclude Include="src\vender\spdlog\details\fmt_helper.h" />
+    <ClInclude Include="src\vender\spdlog\details\log_msg-inl.h" />
+    <ClInclude Include="src\vender\spdlog\details\log_msg.h" />
+    <ClInclude Include="src\vender\spdlog\details\log_msg_buffer-inl.h" />
+    <ClInclude Include="src\vender\spdlog\details\log_msg_buffer.h" />
+    <ClInclude Include="src\vender\spdlog\details\mpmc_blocking_q.h" />
+    <ClInclude Include="src\vender\spdlog\details\null_mutex.h" />
+    <ClInclude Include="src\vender\spdlog\details\os-inl.h" />
+    <ClInclude Include="src\vender\spdlog\details\os.h" />
+    <ClInclude Include="src\vender\spdlog\details\periodic_worker-inl.h" />
+    <ClInclude Include="src\vender\spdlog\details\periodic_worker.h" />
+    <ClInclude Include="src\vender\spdlog\details\registry-inl.h" />
+    <ClInclude Include="src\vender\spdlog\details\registry.h" />
+    <ClInclude Include="src\vender\spdlog\details\synchronous_factory.h" />
+    <ClInclude Include="src\vender\spdlog\details\tcp_client-windows.h" />
+    <ClInclude Include="src\vender\spdlog\details\tcp_client.h" />
+    <ClInclude Include="src\vender\spdlog\details\thread_pool-inl.h" />
+    <ClInclude Include="src\vender\spdlog\details\thread_pool.h" />
+    <ClInclude Include="src\vender\spdlog\details\udp_client-windows.h" />
+    <ClInclude Include="src\vender\spdlog\details\udp_client.h" />
+    <ClInclude Include="src\vender\spdlog\details\windows_include.h" />
+    <ClInclude Include="src\vender\spdlog\fmt\bin_to_hex.h" />
+    <ClInclude Include="src\vender\spdlog\fmt\bundled\args.h" />
+    <ClInclude Include="src\vender\spdlog\fmt\bundled\chrono.h" />
+    <ClInclude Include="src\vender\spdlog\fmt\bundled\color.h" />
+    <ClInclude Include="src\vender\spdlog\fmt\bundled\compile.h" />
+    <ClInclude Include="src\vender\spdlog\fmt\bundled\core.h" />
+    <ClInclude Include="src\vender\spdlog\fmt\bundled\format-inl.h" />
+    <ClInclude Include="src\vender\spdlog\fmt\bundled\format.h" />
+    <ClInclude Include="src\vender\spdlog\fmt\bundled\locale.h" />
+    <ClInclude Include="src\vender\spdlog\fmt\bundled\os.h" />
+    <ClInclude Include="src\vender\spdlog\fmt\bundled\ostream.h" />
+    <ClInclude Include="src\vender\spdlog\fmt\bundled\printf.h" />
+    <ClInclude Include="src\vender\spdlog\fmt\bundled\ranges.h" />
+    <ClInclude Include="src\vender\spdlog\fmt\bundled\std.h" />
+    <ClInclude Include="src\vender\spdlog\fmt\bundled\xchar.h" />
+    <ClInclude Include="src\vender\spdlog\fmt\chrono.h" />
+    <ClInclude Include="src\vender\spdlog\fmt\compile.h" />
+    <ClInclude Include="src\vender\spdlog\fmt\fmt.h" />
+    <ClInclude Include="src\vender\spdlog\fmt\ostr.h" />
+    <ClInclude Include="src\vender\spdlog\fmt\ranges.h" />
+    <ClInclude Include="src\vender\spdlog\fmt\std.h" />
+    <ClInclude Include="src\vender\spdlog\fmt\xchar.h" />
+    <ClInclude Include="src\vender\spdlog\formatter.h" />
+    <ClInclude Include="src\vender\spdlog\fwd.h" />
+    <ClInclude Include="src\vender\spdlog\logger-inl.h" />
+    <ClInclude Include="src\vender\spdlog\logger.h" />
+    <ClInclude Include="src\vender\spdlog\pattern_formatter-inl.h" />
+    <ClInclude Include="src\vender\spdlog\pattern_formatter.h" />
+    <ClInclude Include="src\vender\spdlog\sinks\android_sink.h" />
+    <ClInclude Include="src\vender\spdlog\sinks\ansicolor_sink-inl.h" />
+    <ClInclude Include="src\vender\spdlog\sinks\ansicolor_sink.h" />
+    <ClInclude Include="src\vender\spdlog\sinks\base_sink-inl.h" />
+    <ClInclude Include="src\vender\spdlog\sinks\base_sink.h" />
+    <ClInclude Include="src\vender\spdlog\sinks\basic_file_sink-inl.h" />
+    <ClInclude Include="src\vender\spdlog\sinks\basic_file_sink.h" />
+    <ClInclude Include="src\vender\spdlog\sinks\callback_sink.h" />
+    <ClInclude Include="src\vender\spdlog\sinks\daily_file_sink.h" />
+    <ClInclude Include="src\vender\spdlog\sinks\dist_sink.h" />
+    <ClInclude Include="src\vender\spdlog\sinks\dup_filter_sink.h" />
+    <ClInclude Include="src\vender\spdlog\sinks\hourly_file_sink.h" />
+    <ClInclude Include="src\vender\spdlog\sinks\kafka_sink.h" />
+    <ClInclude Include="src\vender\spdlog\sinks\mongo_sink.h" />
+    <ClInclude Include="src\vender\spdlog\sinks\msvc_sink.h" />
+    <ClInclude Include="src\vender\spdlog\sinks\null_sink.h" />
+    <ClInclude Include="src\vender\spdlog\sinks\ostream_sink.h" />
+    <ClInclude Include="src\vender\spdlog\sinks\qt_sinks.h" />
+    <ClInclude Include="src\vender\spdlog\sinks\ringbuffer_sink.h" />
+    <ClInclude Include="src\vender\spdlog\sinks\rotating_file_sink-inl.h" />
+    <ClInclude Include="src\vender\spdlog\sinks\rotating_file_sink.h" />
+    <ClInclude Include="src\vender\spdlog\sinks\sink-inl.h" />
+    <ClInclude Include="src\vender\spdlog\sinks\sink.h" />
+    <ClInclude Include="src\vender\spdlog\sinks\stdout_color_sinks-inl.h" />
+    <ClInclude Include="src\vender\spdlog\sinks\stdout_color_sinks.h" />
+    <ClInclude Include="src\vender\spdlog\sinks\stdout_sinks-inl.h" />
+    <ClInclude Include="src\vender\spdlog\sinks\stdout_sinks.h" />
+    <ClInclude Include="src\vender\spdlog\sinks\syslog_sink.h" />
+    <ClInclude Include="src\vender\spdlog\sinks\systemd_sink.h" />
+    <ClInclude Include="src\vender\spdlog\sinks\tcp_sink.h" />
+    <ClInclude Include="src\vender\spdlog\sinks\udp_sink.h" />
+    <ClInclude Include="src\vender\spdlog\sinks\wincolor_sink-inl.h" />
+    <ClInclude Include="src\vender\spdlog\sinks\wincolor_sink.h" />
+    <ClInclude Include="src\vender\spdlog\sinks\win_eventlog_sink.h" />
+    <ClInclude Include="src\vender\spdlog\spdlog-inl.h" />
+    <ClInclude Include="src\vender\spdlog\spdlog.h" />
+    <ClInclude Include="src\vender\spdlog\stopwatch.h" />
+    <ClInclude Include="src\vender\spdlog\tweakme.h" />
+    <ClInclude Include="src\vender\spdlog\version.h" />
     <ClInclude Include="src\vender\stb_image\stb_image.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

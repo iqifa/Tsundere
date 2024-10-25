@@ -1,5 +1,6 @@
 #include<Tsunder.h>
 #include"Event/Event.h"
+#include"Panels/ImGuiLayer.h"
 class ExampleLayer :public Engine::Layer {
 public:
 	ExampleLayer()
@@ -23,6 +24,7 @@ class SandBox:public Engine::Application
 public:
 	SandBox(){
 		PushLayer(new ExampleLayer());
+		PushLayer(new Engine::ImGuiLayer());
 	}
 	~SandBox(){}
 

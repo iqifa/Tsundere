@@ -5,9 +5,9 @@
 #include<string>
 #include"Event\Event.h"
 #include"Event\Event.inl"
-#include "../../T_Core/src/vender/imgui/imgui.h"
-#include"../../T_Core/src/vender/glm/glm.hpp"
-#include"../../T_Core/src/vender/glm/gtc/matrix_integer.hpp"
+#include "imgui/imgui.h"
+#include"glm/glm.hpp"
+#include"glm/gtc/matrix_integer.hpp"
 using namespace std;
 
 

@@ -14,6 +14,8 @@ namespace Engine {
 		inline  int GetWidth() const override { return m_Data.Width; }
 		inline  int GetHeight() const override { return m_Data.Height; }
 
+		virtual void* GetWindow() const override { return m_Window; }
+
 		// Window attributes
 		inline void SetEventCallback(const CallBack& callback) override { m_Data.callback = callback; }
 		void SetVSync(bool enabled) override;

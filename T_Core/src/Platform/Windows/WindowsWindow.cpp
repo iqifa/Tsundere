@@ -18,6 +18,7 @@ namespace Engine {
 	}
 	void WindowsWindow::OnUpdate()
 	{
+		//glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		glfwPollEvents();
 		glfwSwapBuffers(m_Window);
 	}
@@ -53,7 +54,9 @@ namespace Engine {
 			}
 
 		m_Window = glfwCreateWindow((int)props.Width, (int)props.Height, m_Data.Title.c_str(), nullptr, nullptr);
+
 		glfwMakeContextCurrent(m_Window);
+
 		glfwSetWindowUserPointer(m_Window, &m_Data);
 		SetVSync(true);
 

@@ -2,9 +2,11 @@
 namespace Engine {
 
 #define BIND_EVENT_FN(x) std::bind(&Application::x, this, std::placeholders::_1)
-
+	Application* Application::Instance = nullptr;
 	Application::Application()
 	{
+		if (Instance == nullptr)
+			Instance = this;
 		m_Window = std::unique_ptr<Window>(Window::Create());
 		m_Window->SetEventCallback(BIND_EVENT_FN(OnEvents));
 	}
@@ -17,12 +19,13 @@ namespace Engine {
 	{
 		while (m_Running)
 		{
-			m_Window->OnUpdate();
-
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+			
 			for (auto layer : layerStack)
 			{
 				layer->OnUpdate();
 			}
+			m_Window->OnUpdate();
 		}
 		
 	}
@@ -34,6 +37,7 @@ namespace Engine {
 	void Application::PushLayer(Layer* layer)
 	{
 		layerStack.PushLayer(layer);
+		layer->OnAttach();
 	}
 
 	void Application::PopLayer(Layer* layer)
