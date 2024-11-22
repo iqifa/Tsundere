@@ -1,8 +1,10 @@
 #include"CubeMap.h"
 #include"Renderer.h"
+#define STB_IMAGE_IMPLEMENTATION
+#include"stb_image/stb_image.h"
 CubeMap::CubeMap(vector<string> TexFilePaths):textures_face(TexFilePaths),m_Height(0),m_Width(0),m_LocalBuffer(nullptr)
 {
-	////·´×ªÎÆÀí
+	////åè½¬çº¹ç†
 	//stbi_set_flip_vertically_on_load(1);
 	GLCall(glGenTextures(1, &m_RendererID));
 	glBindTexture(GL_TEXTURE_CUBE_MAP, m_RendererID);

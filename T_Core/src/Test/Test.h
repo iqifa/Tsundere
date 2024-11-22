@@ -2,7 +2,10 @@
 #include<iostream>
 #include<vector>
 #include<functional>
-#include"Trans/SceneCamera.h"
+#include"../Trans/SceneCamera.h"
+#include "../Platform/GL/Renderer.h"
+#include"../HeadLine.h"
+#include"../GLHead.h"
 using namespace std;
 
 namespace test {

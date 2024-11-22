@@ -4,6 +4,7 @@
 #include"Layer/LayerStack.h"
 #include"HeadLine.h"
 #include"ExternalFiles.h"
+#include"Panels/ImGuiLayer.h"
 namespace Engine {
 	class T_API Application
 	{
@@ -24,8 +25,8 @@ namespace Engine {
 
 		Ptr<Window> m_Window;
 		bool m_Running = true;
-
 		LayerStack layerStack;
+		ImGuiLayer *m_iml;
 	};
 
 	Application* CreateApplication();

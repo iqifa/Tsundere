@@ -1,4 +1,5 @@
 #include"Debug.h"
+#include <spdlog/sinks/stdout_color_sinks.h>
 namespace Engine {
 
 	Ref<spdlog::logger> Log::s_CoreLogger;

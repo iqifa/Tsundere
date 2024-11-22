@@ -5,7 +5,7 @@
 #include<string>
 #include"Event\Event.h"
 #include"Event\Event.inl"
-#include "imgui/imgui.h"
+#include"imgui/imgui.h"
 #include"glm/glm.hpp"
 #include"glm/gtc/matrix_integer.hpp"
 using namespace std;
@@ -51,7 +51,7 @@ namespace Widget
 			else
 				ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(255, 255, 0, 255));
 			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(255, 255, 0, 255));
-			if (ImGui::ImageButton(img_id, size, ImVec2{ 0,1 }, ImVec2{ 1,0 }))
+			if (ImGui::ImageButton("", img_id, size, ImVec2{0,1}, ImVec2{1,0}))
 			{
 				ClickEvents.Invoke();
 			}

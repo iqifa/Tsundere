@@ -13,6 +13,8 @@ namespace Engine {
 		virtual void OnDetach() {}
 		virtual void OnUpdate() {}
 		virtual void OnEvent(Eventing::Event<>& event) { event.Invoke(); }
+		virtual void OnRender(){}
+		virtual void OnImGuiRender(){}
 
 		inline const std::string& GetName() const { return m_DebugName; }
 	protected:

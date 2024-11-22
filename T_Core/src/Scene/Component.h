@@ -7,6 +7,7 @@
 #include"CubeMap.h"
 #include"Panels/Material.h"
 #include<random>
+#include "Modle.h"
 
 static std::random_device s_RandomDevice;
 static std::mt19937_64 s_Engine(s_RandomDevice());
@@ -102,5 +103,6 @@ namespace Component
 		vector<Ref<Material>> materials;
 	};
 }
+
 #endif // !COMPONENT
 

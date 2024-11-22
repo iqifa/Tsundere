@@ -1,6 +1,6 @@
 #pragma once
 
-#include"entt/include/entt.hpp"
+#include"entt/entt.hpp"
 #include"Entity.h"
 class Entity;
 class Scene {

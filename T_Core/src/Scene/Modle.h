@@ -4,6 +4,11 @@
 
 #include"Mesh.h"
 #include"Panels/Material.h"
+
+#include"stb_image/stb_image.h"
+
+
+
 inline unsigned int TextureFromFile(const char* path, const string& directory, bool gamma = false);
 
 class Model

@@ -1,5 +1,5 @@
 #pragma once
-#include"entt/include/entt.hpp"
+#include"entt/entt.hpp"
 #include"Scene/Component.h"
 #include"Panels/Material.h"
 using namespace Component;

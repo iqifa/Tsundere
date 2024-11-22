@@ -6,9 +6,7 @@
 #include"HeadLine.h"
 
 #include"spdlog/spdlog.h"
-#include"spdlog/sinks/stdout_color_sinks.h"
 #include"spdlog/sinks/ansicolor_sink.h"
-#include"spdlog/sinks/stdout_color_sinks.h"
 using namespace glm;
 #ifndef DEBUG
 

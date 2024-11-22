@@ -1,6 +1,6 @@
 #include"ImGuiLayer.h"
 #include <Platform/Windows/WindowsWindow.h>
-
+#include"Core/Application.h"
 
 namespace Engine {
 	ImGuiLayer::ImGuiLayer()
@@ -64,6 +64,18 @@ namespace Engine {
 
 	void ImGuiLayer::OnUpdate()
 	{
+		
+
+	
+		
+	}
+	void ImGuiLayer::OnImGuiRender()
+	{
+		static bool show = true;
+		ImGui::ShowDemoWindow(&show);
+	}
+	void ImGuiLayer::Begin()
+	{
 		ImGuiIO& io = ImGui::GetIO();
 		Application& app = Application::Get();
 		io.DisplaySize = ImVec2(app.GetWindow().GetWidth(), app.GetWindow().GetHeight());
@@ -75,23 +87,17 @@ namespace Engine {
 		ImGui_ImplOpenGL3_NewFrame();
 		ImGui_ImplGlfw_NewFrame();
 		ImGui::NewFrame();
-
-		static bool show = true;
-		ImGui::ShowDemoWindow(&show);
-
-		ImGui::Render();
-		ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-	}
-
-	void ImGuiLayer::Begin()
-	{
-		
 	}
 
 	void ImGuiLayer::End()
 	{
 		ImGuiIO& io = ImGui::GetIO();
 		//io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+
+		ImGui::Render();
+		ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
+
 		if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
 		{
 			GLFWwindow* backup_current_context = glfwGetCurrentContext();

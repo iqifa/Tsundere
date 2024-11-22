@@ -9,6 +9,8 @@ namespace Engine {
 			Instance = this;
 		m_Window = std::unique_ptr<Window>(Window::Create());
 		m_Window->SetEventCallback(BIND_EVENT_FN(OnEvents));
+
+		m_iml = new ImGuiLayer();
 	}
 
 	Application::~Application()
@@ -25,6 +27,12 @@ namespace Engine {
 			{
 				layer->OnUpdate();
 			}
+			m_iml->Begin();
+			for (auto layer : layerStack)
+			{
+				layer->OnImGuiRender();
+			}
+			m_iml->End();
 			m_Window->OnUpdate();
 		}
 		

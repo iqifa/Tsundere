@@ -35,7 +35,7 @@ public:
 	 
 	 
 	/// <summary>
-	/// 感觉有优化的空间
+	/// 鎰熻鏈変紭鍖栫殑绌洪棿
 	/// </summary>
 	/// <param name="filepath"></param>
 	/// <returns></returns>

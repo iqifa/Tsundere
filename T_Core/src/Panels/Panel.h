@@ -56,10 +56,16 @@ public:
 
 		ImGui::Begin(headtitle.c_str());
 
-		m_Context->m_Registry.each([&](auto entityID) {
+		/*m_Context->m_Registry.each([&](auto entityID) {
 			Entity entity{ m_Context.get(),entityID };
 			DrawEntityNode(entity);
-			});
+			});*/
+
+		for (auto entityID : m_Context->m_Registry.view<entt::entity>())
+		{
+			Entity entity{ m_Context.get(),entityID };
+			DrawEntityNode(entity);
+		}
 
 		if (ImGui::IsMouseDown(0) && ImGui::IsWindowHovered())
 			m_SelectedContext = {};

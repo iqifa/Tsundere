@@ -5,6 +5,8 @@
 #include"HeadLine.h"
 #include"Scene.h"
 
+
+
 class  SceneRender
 {
 public:
@@ -19,13 +21,20 @@ public:
 		m_Context = Scene;
 	}
 	void OnRender() {
-		if(m_Context)
-		m_Context->m_Registry.each([&](auto entityID)
+		if (m_Context)
+			//DPI has Deprecated ,can refer https://github.com/skypjack/entt/issues/1116
+			//m_Context->m_Registry.each([&](auto entityID)
+			//	{
+			//		Entity entity{ m_Context.get(),entityID };
+			//		if (entity.HasComponent<MeshFile>() && entity.HasComponent<Material>())
+			//			entity.Draw();
+			//	});
+			for (auto entityID : m_Context->m_Registry.view<entt::entity>())
 			{
 				Entity entity{ m_Context.get(),entityID };
-				if(entity.HasComponent<MeshFile>()&&entity.HasComponent<Material>())
+				if (entity.HasComponent<MeshFile>() && entity.HasComponent<Material>())
 					entity.Draw();
-			});
+			}
 	}
 
 private:
@@ -33,5 +42,4 @@ private:
 	Ref<Scene> m_Context;
 	friend class Scene;
 };
-
 #endif

@@ -4,7 +4,7 @@
 Texture::Texture(const string& path)
 	:m_FilePath(path), m_LocalBuffer(nullptr), m_Height(0), m_Width(0)
 {
-	//·´×ªÎÆÀí
+	//åè½¬çº¹ç†
 	stbi_set_flip_vertically_on_load(1);
 	m_LocalBuffer = stbi_load(path.c_str(), &m_Width, &m_Height, &m_BPP, 0);
 
