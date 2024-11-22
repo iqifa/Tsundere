@@ -2,23 +2,8 @@
 # 此 .gitignore 文件已由 Microsoft(R) Visual Studio 自动创建。
 ################################################################################
 
-/bin
-/.vs/GraduateTest/v16
-/Debug
-/Dependence
-/res
-/doc
-/.VSCodeCounter
-/Core/Debug
-/Core/src/vender
-/Core/res
-*.ini
-/T_Tool/Debug
-/T_UI/Debug
-/Core/Release
-/SandBox/Debug
-/T_Core/Debug
-/T_Core/Release
-/T_Core/src/vender
-/T_Core/res
-/vender
+/build
+/T_Core/vender/*
+!**/*.gitkeep
+/Dependence/*
+**/obj
