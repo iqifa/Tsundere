@@ -12,7 +12,7 @@ using ListenerID = unsigned int;
 namespace Eventing {
 
 	template<class... ArgsTypes>
-	class _declspec(dllexport) Event {
+	class   Event {
 		using CallBack = std::function<void(ArgsTypes...)>;
 	public:
 		bool RemoveListenerID(ListenerID listenerid);
@@ -27,5 +27,5 @@ namespace Eventing {
 		int ListenerID_now;
 	};
 }
-
+#include"Event.inl"
 #endif // !EVENT
