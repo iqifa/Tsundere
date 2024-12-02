@@ -45,7 +45,7 @@ namespace Engine {
 		io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 		io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
 		io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-		//io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+		io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;//在IMGUI的窗口移到Main Window后新建操作系统窗口，使得GUI_Window能够完全显示。
 
 		ImGui_ImplOpenGL3_Init("#version 410");
 
