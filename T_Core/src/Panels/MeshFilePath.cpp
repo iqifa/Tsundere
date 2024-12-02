@@ -1,4 +1,5 @@
 #include"MeshFilePath.h"
+using namespace std;
 vector<string> ModlePaths = {
 	"res/modle/nanosuit.obj",
 	"res/cube/cube.obj",

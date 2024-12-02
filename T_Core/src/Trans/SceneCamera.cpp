@@ -1,4 +1,3 @@
-#pragma once
 #include"SceneCamera.h"
 
 
@@ -107,7 +106,7 @@ void SceneCamera::GLMouseInput(double xoffset, double yoffset, GLboolean constra
 	//debuglog((unsigned int)this, "cameraID");
 
 	/// <summary>
-	/// 问题 ，做完以后记得回来看
+	/// 闂 锛屽仛瀹屼互鍚庤寰楀洖鏉ョ湅
 	/// </summary>
 	/// <param name="xoffset"></param>
 	/// <param name="yoffset"></param>

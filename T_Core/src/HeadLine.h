@@ -8,21 +8,20 @@
 #include<unordered_map>
 #include<vector>
 
-using namespace std;
 template<typename T>
-using Ref = shared_ptr<T>;
+using Ref = std::shared_ptr<T>;
 template<typename T, typename ... Args>
 Ref<T>CreateRef(Args &&...args)
 {
-	return make_shared<T>(std::forward<Args>(args)...);
+	return std::make_shared<T>(std::forward<Args>(args)...);
 }
 
 template<typename T>
-using Ptr = unique_ptr<T>;
+using Ptr = std::unique_ptr<T>;
 template<typename T, typename ... Args>
 Ptr<T>CreatePtr(Args &&...args)
 {
-	return make_unique<T>(std::forward<Args>(args)...);
+	return std::make_unique<T>(std::forward<Args>(args)...);
 }
 
 #endif // !HEAD

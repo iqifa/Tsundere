@@ -8,7 +8,6 @@
 #include"imgui/imgui.h"
 #include"glm/glm.hpp"
 #include"glm/gtc/matrix_integer.hpp"
-using namespace std;
 
 
 namespace Widget

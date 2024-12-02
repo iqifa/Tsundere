@@ -6,12 +6,12 @@ class Texture
 {
 private:
 	unsigned int m_RendererID;
-	string m_FilePath;
+	std::string m_FilePath;
 	unsigned char* m_LocalBuffer;
 	int m_Width, m_Height, m_BPP;
 
 public:
-	Texture(const string& path);
+	Texture(const std::string& path);
 	~Texture();
 	Texture() {}
 
@@ -20,13 +20,13 @@ public:
 
 	unsigned int GetTextureID();
 
-	inline string GetPath()const { return m_FilePath; }
+	inline std::string GetPath()const { return m_FilePath; }
 	inline int GetWidth()const { return m_Width; }
 	inline int GetHeight()const { return m_Height; }
 };
 class TextureLibiary {
 public:
-	static unordered_map<string, Ref<Texture>> m_TextureMap;
+	static std::unordered_map<std::string, Ref<Texture>> m_TextureMap;
 	static void Add(Ref<Texture>tex)
 	{
 		auto& path = tex->GetPath();
@@ -39,7 +39,7 @@ public:
 	/// </summary>
 	/// <param name="filepath"></param>
 	/// <returns></returns>
-	static Ref<Texture> Load(const string& filepath)
+	static Ref<Texture> Load(const std::string& filepath)
 	{
 		if (m_TextureMap.find(filepath) != m_TextureMap.end())
 		{
@@ -52,7 +52,7 @@ public:
 			return tex;
 		}
 	}
-	static Ref<Texture> Get(const string& filepath)
+	static Ref<Texture> Get(const std::string& filepath)
 	{
 		if (m_TextureMap.find(filepath) != m_TextureMap.end())
 		{

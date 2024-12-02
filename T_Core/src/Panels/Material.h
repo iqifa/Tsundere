@@ -53,7 +53,7 @@ public:
 	Material(const Material&) = default;
 	Material(const Ref<Shader>&shader) :shader(shader) {}
 	Material(const Ref<Shader>&shader, const Texture & texture) :shader(shader), texture(texture) {}
-	Material(const string & path = "res/shaders/default.sahder")
+	Material(const std::string & path = "res/shaders/default.sahder")
 	{
 		//shader = CreateRef<Shader>(path);
 		shader = ShaderLibiray::Get(path);
@@ -63,7 +63,7 @@ public:
 	//vector<unsigned int> varies;
 
 	//id,Type,Name
-	vector<tuple<unsigned int,ValueType,string>> varies;
+	std::vector<std::tuple<unsigned int,ValueType, std::string>> varies;
 
 	void InitVaires()
 	{
@@ -72,7 +72,7 @@ public:
 			free((void*)std::get<0>(var));
 		}
 		varies.clear();
-		vector<Uniform> uniforms = shader->uniform;
+		std::vector<Uniform> uniforms = shader->uniform;
 		for (auto uniform : uniforms)
 		{
 			InitVarie(uniform);
@@ -85,9 +85,9 @@ public:
 };
 
 class MaterialLibiary {
-	static unordered_map<string, Ref<Material>> mat_map;
+	static std::unordered_map<std::string, Ref<Material>> mat_map;
 
-	Ref<Material> Load(string path)
+	Ref<Material> Load(std::string path)
 	{
 
 

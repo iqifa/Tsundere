@@ -65,11 +65,11 @@ namespace Component
 
 
 	struct Tag {
-		string tag;
+		std::string tag;
 
 		Tag() = default;
 		Tag(const Tag&) = default;
-		Tag(const string& tag) :tag(tag) {}
+		Tag(const std::string& tag) :tag(tag) {}
 	};
 
 	//struct Material
@@ -100,7 +100,7 @@ namespace Component
 	};
 
 	struct MeshRender {
-		vector<Ref<Material>> materials;
+		std::vector<Ref<Material>> materials;
 	};
 }
 

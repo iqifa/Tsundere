@@ -7,7 +7,6 @@
 #include<unordered_map>
 
 
-using namespace std;
 using ListenerID = unsigned int;
 namespace Eventing {
 
@@ -23,7 +22,7 @@ namespace Eventing {
 		ListenerID operator+=(CallBack p_call);
 		bool operator-=(ListenerID listenerid);
 	private:
-		unordered_map<ListenerID, CallBack>  m_Callbacks;
+		std::unordered_map<ListenerID, CallBack>  m_Callbacks;
 		int ListenerID_now;
 	};
 }

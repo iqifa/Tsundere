@@ -33,22 +33,22 @@ struct Vertex {
 /// </summary>
 struct Texture_Struct {
     unsigned int id;
-    string type;
-    string path;
+    std::string type;
+    std::string path;
 };
 
 class Mesh {
 public:
     // mesh Data
-	vector<Vertex>       vertices;
-	vector<unsigned int> indices;
-	vector<Texture_Struct>      textures;
-    unique_ptr<VertexArray>vao;
-    unique_ptr<VertexBuffer>vbo;
-    unique_ptr<IndexBuffer>ibo;
+	std::vector<Vertex>       vertices;
+	std::vector<unsigned int> indices;
+	std::vector<Texture_Struct>      textures;
+    std::unique_ptr<VertexArray>vao;
+    std::unique_ptr<VertexBuffer>vbo;
+    std::unique_ptr<IndexBuffer>ibo;
     // constructor
     Mesh() = default;
-    Mesh(vector<Vertex> vertices, vector<unsigned int> indices, vector<Texture_Struct> textures)
+    Mesh(std::vector<Vertex> vertices, std::vector<unsigned int> indices, std::vector<Texture_Struct> textures)
     {
         this->vertices = vertices;
         this->indices = indices;
@@ -83,8 +83,8 @@ public:
         {
             glActiveTexture(GL_TEXTURE0 + (i+1)); // active proper texture unit before binding
             // retrieve texture number (the N in diffuse_textureN)
-            string number;
-            string name = textures[i].type;
+            std::string number;
+            std::string name = textures[i].type;
             if (name == "texture_diffuse")
                 number = std::to_string(diffuseNr++);
             else if (name == "texture_specular")

@@ -8,16 +8,16 @@
 
 	struct SkyBox
 	{
-		vector<string> texpaths;
+		std::vector<std::string> texpaths;
 
-		unique_ptr<CubeMap>m_Cmp;
-		unique_ptr<Shader>m_Shader;
-		unique_ptr<VertexArray>m_vao;
-		unique_ptr<VertexBuffer>m_VertexBuffer;
+		std::unique_ptr<CubeMap>m_Cmp;
+		std::unique_ptr<Shader>m_Shader;
+		std::unique_ptr<VertexArray>m_vao;
+		std::unique_ptr<VertexBuffer>m_VertexBuffer;
 
 
 		SkyBox() = default;
-		SkyBox(vector<string> vec) :texpaths(vec)
+		SkyBox(std::vector<std::string> vec) :texpaths(vec)
 		{
 			float skyboxVertices[] = {
 				// positions          
@@ -63,14 +63,14 @@
 				-1.0f, -1.0f,  1.0f,
 				 1.0f, -1.0f,  1.0f
 			};
-			m_Cmp = make_unique<CubeMap>(texpaths);
+			m_Cmp = std::make_unique<CubeMap>(texpaths);
 			m_Cmp->Bind();
 
-			m_Shader = make_unique<Shader>("res/shaders/SkyBox.shader");
+			m_Shader = std::make_unique<Shader>("res/shaders/SkyBox.shader");
 			m_Shader->Bind();
 
-			m_vao = make_unique<VertexArray>(36);
-			m_VertexBuffer = make_unique<VertexBuffer>(skyboxVertices, 36 * 5 * sizeof(float));
+			m_vao = std::make_unique<VertexArray>(36);
+			m_VertexBuffer = std::make_unique<VertexBuffer>(skyboxVertices, 36 * 5 * sizeof(float));
 
 			VertexBufferLayout layout;
 			layout.Push<float>(3);

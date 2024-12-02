@@ -1,4 +1,5 @@
 #include "LayerStack.h"
+using namespace std;
 namespace Engine {
 	LayerStack::LayerStack()
 	{

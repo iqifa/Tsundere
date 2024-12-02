@@ -6,11 +6,11 @@
 namespace Engine {
 	struct WindowProps
 	{
-		string Title;
+		std::string Title;
 		int Width;
 		int Height;
 
-		WindowProps(const string& title = "Tsunder", int width = 1080, int height = 960) :Title(title), Width(width), Height(height)
+		WindowProps(const std::string& title = "Tsunder", int width = 1080, int height = 960) :Title(title), Width(width), Height(height)
 		{
 
 		}

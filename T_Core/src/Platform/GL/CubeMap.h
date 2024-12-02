@@ -7,7 +7,7 @@ class CubeMap
 public:
 	CubeMap() = default;
 	CubeMap(CubeMap& cubemap) = default;
-	CubeMap(vector<string> TexFilePaths);
+	CubeMap(std::vector<std::string> TexFilePaths);
 	~CubeMap();
 
 	void Bind()const;
@@ -20,7 +20,7 @@ private:
 	unsigned int m_RendererID;
 	unsigned char* m_LocalBuffer;
 	
-	vector<string> textures_face;
+	std::vector<std::string> textures_face;
 
 	int m_Height, m_Width, m_Channels;
 };

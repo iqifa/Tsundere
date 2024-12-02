@@ -1,5 +1,6 @@
 #include "Shader.h"
 #include"Debug/Debug.h"
+using namespace std;
 Shader::Shader(const string& filepath, const string& name) :m_FilePath(filepath), m_RendererID(0), m_Name(name)
 {
 	ShaderProgramSource source = ParseShader(filepath);

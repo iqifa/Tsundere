@@ -3,6 +3,7 @@
 #include"VertexBuffer.h"
 #include"VertexArray.h"
 #include"Shader.h"
+using namespace std;
 void GLClearError()
 {
 	while (glGetError() != GL_NO_ERROR);

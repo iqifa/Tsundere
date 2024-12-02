@@ -1,9 +1,8 @@
 #pragma once
 
 #include<vector>
-#include"Renderer.h"
 #include"ExternalFiles.h"
-using namespace std;
+#include<Renderer.h>
 using namespace glm;
 struct  VertexBufferElement
 {
@@ -41,7 +40,7 @@ struct  VertexBufferElement
 class VertexBufferLayout
 {
 private:
-	vector<VertexBufferElement> m_Elements;
+	std::vector<VertexBufferElement> m_Elements;
 	unsigned int m_Stride;
 public:
 	VertexBufferLayout() :m_Stride(0) {};
@@ -105,5 +104,5 @@ public:
 	inline unsigned int GetStride() const {
 		return m_Stride;
 	}
-	inline const vector<VertexBufferElement> GetElements() const { return  m_Elements; }
+	inline const std::vector<VertexBufferElement> GetElements() const { return  m_Elements; }
 };

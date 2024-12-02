@@ -3,7 +3,7 @@ namespace Engine {
 	Layer::Layer(const std::string& name)
 		
 	{
-		std::cout << name << endl;
+		std::cout << name << std::endl;
 		m_DebugName = name;
 	}
 

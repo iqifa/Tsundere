@@ -16,11 +16,11 @@ public:
 		//m_EntityMap.erase(entity.GetUID());
 		m_Registry.destroy(entity);
 	}
-	Entity& CreateEntity(const string& name)
+	Entity& CreateEntity(const std::string& name)
 	{
 		return CreateEntityWithUID(UID(), name);
 	}
-	Entity& CreateEntityWithUID(UID UID, const string& name)
+	Entity& CreateEntityWithUID(UID UID, const std::string& name)
 	{
 		Entity entity = { this,m_Registry.create() };
 		entity.AddComponent<ID>(UID);

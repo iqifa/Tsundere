@@ -2,6 +2,7 @@
 #include"Renderer.h"
 #define STB_IMAGE_IMPLEMENTATION
 #include"stb_image/stb_image.h"
+using namespace std;
 CubeMap::CubeMap(vector<string> TexFilePaths):textures_face(TexFilePaths),m_Height(0),m_Width(0),m_LocalBuffer(nullptr)
 {
 	////反转纹理
