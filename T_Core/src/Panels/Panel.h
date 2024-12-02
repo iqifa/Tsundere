@@ -14,12 +14,12 @@
 #include"Widget.h"
 #include"Input/Input.h"
 #include"Select/Select.h"
-
+#include"Core/Layer/Layer.h"
 #include<stdio.h>
 using namespace Component;
 
 
-class BasePanel {
+class BasePanel :Engine::Layer{
 public:
 	vector<Widget::Widget*> widgets;
 
