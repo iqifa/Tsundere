@@ -19,6 +19,7 @@ project "SandBox"
         "../T_Core/vender",
         "../T_Core/src",
         "../T_Core/src/Core",
+        "../T_Core/src/Platform/GL",
         "../T_Tool/include",
         "../T_UI/include",
         -- "../T_Core/vender/spdlog/include",

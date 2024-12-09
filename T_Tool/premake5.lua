@@ -10,7 +10,7 @@ project "T_Tool"
     files
     {
         "include/**.h", 
-        "include/**.ini",
+        "include/**.inl",
         "src/**.cpp"
     }
 
