@@ -9,7 +9,7 @@ namespace Widget {
 	class __declspec(dllexport) Input :public Widget
 	{
 	public:
-		Input(string lable, unsigned int value) :Name(lable), value(value),Lable("##"+ lable) {
+		Input(std::string lable, unsigned int value) :Name(lable), value(value),Lable("##"+ lable) {
 			
 		}
 		virtual void _Draw() override {
@@ -23,8 +23,8 @@ namespace Widget {
 		void fun();
 		void fun2();
 	private:
-		string Name;
-		string Lable;
+		std::string Name;
+		std::string Lable;
 		unsigned int value;
 
 
@@ -46,7 +46,7 @@ namespace Widget {
 			ImGui::InputFloat(Lable.c_str(), var);
 		}
 		template<>
-		void Draw<string>()
+		void Draw<std::string>()
 		{
 			string* var = (string*)value;
 			char* str = var->data();

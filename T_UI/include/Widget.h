@@ -35,7 +35,7 @@ namespace Widget
 	class Button:public	Widget {
 	public:
 		Eventing::Event<> ClickEvents;
-		string lable;
+		std::string lable;
 	};
 	class  ImageRadioButton :public Button
 	{
@@ -66,7 +66,7 @@ namespace Widget
 
 	class Separator :public Widget {
 	public:
-		Separator(string Lable="") :Lable(Lable) {}
+		Separator(std::string Lable="") :Lable(Lable) {}
 		void _Draw() override {
 			ImGui::Columns(1);
 			ImGui::PushStyleVar(ImGuiStyleVar_SeparatorTextAlign, ImVec2{ 0.5f,0.5f });
@@ -74,7 +74,7 @@ namespace Widget
 			ImGui::PopStyleVar();
 		}
 	private:
-		string Lable;
+		std::string Lable;
 	};
 
 }

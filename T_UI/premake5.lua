@@ -19,7 +19,7 @@ project "T_UI"
         "../T_Core/vender",
         "include/",
         "../T_Tool/include",
-        "../T_Core/include"
+        "../T_Core/src/Platform/GL"
     }
 
     filter "system:windows" --对特定的系统(windows、OS..)、配置(Debug/Release)、平台(x64、x86)的项目属性

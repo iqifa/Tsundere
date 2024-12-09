@@ -1,11 +1,12 @@
 #pragma once
 #include"../Widget.h"
 #include"imgui/imgui.h"
-
+#include"../../T_Core/src/HeadLine.h"
+#include"../../T_Core/src/GLHead.h"
 namespace Widget {
 	class Select :public Widget {
 	private:
-		string Lable;
+		std::string Lable;
 		int LastSelect = -1;
 		int Selected;
 		ImVec2 size = ImVec2(50, 50);
@@ -24,7 +25,7 @@ namespace Widget {
 		}
 
 	public:
-		Select(string lable)
+		Select(std::string lable)
 		{
 			Lable = lable;
 		}
@@ -32,7 +33,7 @@ namespace Widget {
 
 	class Image_Select :public Widget {
 	private:
-		string Lable;
+		std::string Lable;
 		bool Selected = false;
 		ImVec2 size;
 		Ref<Texture> image;
@@ -50,7 +51,7 @@ namespace Widget {
 			ImGui::PopID();
 		}
 	public:
-		Image_Select(string lable,ImVec2 size, Ref<Texture> image) {
+		Image_Select(std::string lable,ImVec2 size, Ref<Texture> image) {
 			Lable = lable;
 			this->size = size;
 			this->image = image;
@@ -59,15 +60,15 @@ namespace Widget {
 
 	class TCombo :public DiyWidget {
 	private:
-		string Lable;
+		std::string Lable;
 		int LastSelect = -1;
 		int* Selected;
 		using str = char*;
 		str* a;
-		vector<string>SelectLable;
+		std::vector<std::string>SelectLable;
 	public:
 
-		TCombo(string Lable, int* Slected, vector<string>SelectLable, Callback lambda) :Lable(Lable), Selected(Slected), SelectLable(SelectLable), DiyWidget(lambda) {
+		TCombo(std::string Lable, int* Slected, std::vector<std::string>SelectLable, Callback lambda) :Lable(Lable), Selected(Slected), SelectLable(SelectLable), DiyWidget(lambda) {
 			InitSelect();
 		}
 		virtual void _Draw() override {
@@ -88,7 +89,7 @@ namespace Widget {
 			ImGui::Separator();
 		}
 
-		void UpDate(vector<string>SelectLable) {
+		void UpDate(std::vector<std::string>SelectLable) {
 			this->SelectLable = SelectLable;
 			InitSelect();
 		}
