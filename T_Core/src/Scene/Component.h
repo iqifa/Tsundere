@@ -8,7 +8,6 @@
 #include"Panels/Material.h"
 #include<random>
 #include "Modle.h"
-#include <entt/entt.hpp>
 
 static std::random_device s_RandomDevice;
 static std::mt19937_64 s_Engine(s_RandomDevice());
@@ -64,13 +63,7 @@ namespace Component
 		}
 	};
 
-	struct Top {
-		std::string tag;
 
-		Top() = default;
-		Top(const Top&) = default;
-		Top(const std::string& tag) :tag(tag) {}
-	};
 	struct Tag {
 		std::string tag;
 
@@ -79,34 +72,31 @@ namespace Component
 		Tag(const std::string& tag) :tag(tag) {}
 	};
 
-	struct Child {
-		std::set<entt::entity>children;
-		Child() = default;
-		Child(const Child&) = default;
-		Child(std::set<entt::entity>handles) { children = handles; }
-		void addChild(entt::entity child)
-		{
-			children.insert(child);
-		}
-		void removeChild(entt::entity child)
-		{
-			children.erase(child);
-		}
-	};
-	struct Parent {
-		entt::entity parent;
-		Parent() = default;
-		Parent(const Parent&) = default;
-		Parent(entt::entity parent) { this->parent = parent; };
+	//struct Material
+	//{
+	//	Ref<Shader> shader;
+	//	int shaderindex=-1;
+	//	Texture texture;
+	//	Material(const Material&) = default;
+	//	Material(const Ref<Shader>& shader):shader(shader){}
+	//	Material(const Ref<Shader>& shader,const Texture& texture) :shader(shader),texture(texture) {}
+	//	Material(const string& path="res/shaders/default.sahder")
+	//	{
+	//		shader = CreateRef<Shader>(path);
+	//	}
+	//};
 
-		void ChangeParent(entt::entity parent)
-		{
-			this->parent = parent;
-		}
-	};
 	struct Camera
 	{
 		vec3 Target;
+	};
+	struct MeshFile
+	{
+		Ref<Model> m_modle;
+		int m_ModleFile = -1;
+		MeshFile() = default; 
+		//MeshComponent(const MeshComponent&) = default;
+		//MeshComponent(const Model& modle):m_Modle(modle){}
 	};
 
 	struct MeshRender {
