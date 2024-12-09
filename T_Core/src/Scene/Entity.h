@@ -19,6 +19,31 @@ public:
 	Entity(const Entity& other) = default;
 	~Entity() = default;
 
+	void Destroy()
+	{
+		for (auto childid : GetComponent<Child>().children)
+		{
+			Entity{ m_Scene,childid }.Destroy();
+		}
+	}
+	void addchild(entt::entity childID)
+	{
+		GetComponent<Child>().addChild(childID);
+	}
+	void delchild(entt::entity childID)
+	{
+		GetComponent<Child>().removeChild(childID);
+	}
+	void changeparent(entt::entity parentID)
+	{	
+		GetComponent<Parent>().ChangeParent(parentID);
+	}
+	
+	void addchildwithchangeparent(entt::entity childID)
+	{
+
+	}
+
 	template<typename T, typename...Args>
 	T& AddComponent(Args&&...args)
 	{
@@ -34,20 +59,6 @@ public:
 		m_Scene->OnaddComponent(*this, component);
 		return component;
 	}
-	//template<typename...Args>
-	//MeshComponent& AddComponent<MeshComponent>(Args&&...args)
-	//{
-	//	//if (HasComponent<Material>())
-	//	//{
-	//	//	MeshComponent& component= m_Scene->m_Registry.emplace<MeshComponent>(m_EntityHandle, std::forward<Args>(args)...);
-	//	//	return component;
-	//	//}
-	///*	Shader shader("res/shaders/default.shader");
-	//	AddComponent<Material>(shader);*/
-	//	MeshComponent& component = m_Scene->m_Registry.emplace<MeshComponent>(m_EntityHandle, std::forward<Args>(args)...);
-	//	return component;
-	//}
-
 	template<typename T>
 	T& GetComponent()
 	{
@@ -62,18 +73,8 @@ public:
 	template<typename T>
 	void RemoveComponent()
 	{
-		m_Scene->m_Registry.remove<T>(m_EntityHandle);
-	}
-
-	void Draw()
-	{
-			auto& meshFile = GetComponent<MeshFile>();
-			if (meshFile.m_ModleFile != -1)
-			{
-				auto& meshRender = GetComponent<MeshRender>();
-				
-				meshFile.m_modle->Draw(meshRender.materials);
-			}
+		if (HasComponent<T>())
+			m_Scene->m_Registry.remove<T>(m_EntityHandle);
 	}
 
 
