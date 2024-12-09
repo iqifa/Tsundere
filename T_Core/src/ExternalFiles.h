@@ -6,14 +6,15 @@
 #include<GL/glew.h>
 #include <GLFW/glfw3.h>
 
-#include <imgui/imgui.h>
-#include <imgui/imgui_impl_opengl3.h>
-#include <imgui/imgui_impl_glfw.h>
-#include<imgui/imgui_internal.h>
-#include<imgui/imconfig.h>
+#include<../vender/imgui/imgui.h>
+#include<../vender/imgui/imgui_impl_opengl3.h>
+#include<../vender/imgui/imgui_impl_glfw.h>
+#include<../vender/imgui/imgui_internal.h>
+#include<../vender/imgui/imconfig.h>
 
-#include<glm/glm.hpp>
-#include<glm/gtc/matrix_transform.hpp>
+#include<../vender/glm/glm.hpp>
+#include<../vender/glm/gtc/matrix_transform.hpp>
+
 
 #include<assimp/Importer.hpp>
 #include<assimp/scene.h>
