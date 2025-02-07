@@ -1,6 +1,6 @@
 #pragma once
-
-class VertexBuffer
+#include"Core/Core.h"
+class T_API VertexBuffer
 {
 public:
 	VertexBuffer(const void* data, unsigned int size);

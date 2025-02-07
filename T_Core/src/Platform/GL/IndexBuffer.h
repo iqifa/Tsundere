@@ -1,5 +1,6 @@
 #pragma once
-class IndexBuffer
+#include"Core/Core.h"
+class T_API IndexBuffer
 {
 public:
 	IndexBuffer(const unsigned int* data, unsigned int count);

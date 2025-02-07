@@ -3,6 +3,7 @@
 #include<GL/glew.h>
 #include<iostream>
 
+#include"Core/Core.h"
 #define ueprofifile(...)
 
 class VertexArray;
@@ -18,7 +19,7 @@ class Shader;
 void GLClearError();
 bool GLLogCall(const char* function, const char* file, int line);
 
-class Renderer
+class T_API Renderer
 {
 public:
 	void DrawElement(const VertexArray& va, const IndexBuffer& ib, const Shader& shader) const;

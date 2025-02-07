@@ -2,7 +2,7 @@
 
 #include"HeadLine.h"
 #include"ExternalFiles.h"
-
+#include"Core/Core.h"
 using namespace glm;
 
 struct Uniform
@@ -15,7 +15,7 @@ struct ShaderProgramSource
 	std::string VertexSource;
 	std::string FragmentSource;
 };
-class Shader
+class T_API Shader
 {
 private:
 	std::string m_Name;

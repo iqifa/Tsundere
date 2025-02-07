@@ -19,7 +19,7 @@ struct FrameBufferSpecification {
 	unsigned int Samples = 1;
 };
 class RenderBufferObject;
-class FrameBuffer
+class T_API FrameBuffer
 {
 public:
 	FrameBuffer(const FrameBufferSpecification& spec):m_Specfication(spec)

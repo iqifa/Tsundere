@@ -1,7 +1,8 @@
 #pragma once
 #include"VertexBuffer.h"
-class VertexBufferLayout;
-class VertexArray
+#include"Core/Core.h"
+class T_API VertexBufferLayout;
+class T_API VertexArray
 { 
 private:
 	unsigned int m_RendererID;
