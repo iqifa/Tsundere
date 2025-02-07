@@ -13,6 +13,7 @@ VertexArray::~VertexArray()
 
 VertexArray::VertexArray(int count) :m_count(count)
 {
+	//Error!!  before need glewInit()
 	glGenVertexArrays(1, &m_RendererID);
 }
 

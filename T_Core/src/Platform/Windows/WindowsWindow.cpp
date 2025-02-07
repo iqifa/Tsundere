@@ -3,7 +3,7 @@
 namespace Engine {
 	static bool s_GLFWInitialized = false;
 
-	Window* Window::Create(const const WindowProps& props)
+	Window* Window::Create(const  WindowProps& props)
 	{
 		return new WindowsWindow(props);
 	}
@@ -59,7 +59,7 @@ namespace Engine {
 
 		glfwSetWindowUserPointer(m_Window, &m_Data);
 		SetVSync(true);
-
+		glewInit();
 		glfwSetWindowSizeCallback(m_Window, [](GLFWwindow* window, int width, int height) {
 			WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
 
