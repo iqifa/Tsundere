@@ -86,7 +86,7 @@ void SceneCamera::GLPrecessInput(GLFWwindow* window, float speed)
 		cameraPos += normalize(cross(cameraFront, cameraUp)) * speed;
 }
 
-void SceneCamera::GLMouseInput(double xoffset, double yoffset, GLboolean constrainPitch)
+void SceneCamera::GLMouseInput(float xoffset, float yoffset, GLboolean constrainPitch)
 {
 	xoffset *= sensitive;
 	yoffset *= sensitive;
@@ -124,7 +124,7 @@ void SceneCamera::GLMouseInput(double xoffset, double yoffset, GLboolean constra
 	vec3 Right = normalize(cross(cameraFront, WorldUp));
 	cameraUp = normalize(cross(Right, cameraFront));
 }
-void SceneCamera::GLScrollInput(double xoffset, double yoffset)
+void SceneCamera::GLScrollInput(float xoffset, float yoffset)
 {
 	if (fov >= 1.0f && fov <= 45.0f)
 		fov -= yoffset;

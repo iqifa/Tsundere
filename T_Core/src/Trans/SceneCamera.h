@@ -35,8 +35,8 @@ public:
 	vec3 getFront();
 
 	void GLPrecessInput(GLFWwindow* window,float speed);
-	void GLMouseInput(double xoffset, double yoffset, GLboolean constrainPitch);
-	void GLScrollInput(double xoffset, double yoffset);
+	void GLMouseInput(float xoffset, float yoffset, GLboolean constrainPitch);
+	void GLScrollInput(float xoffset, float yoffset);
 	
 	void RenderSkyBox();
 private:
