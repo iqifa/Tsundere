@@ -10,6 +10,7 @@ class Scene;
 
 class  Entity
 {
+	friend class Scene;
 private:
 	Scene* m_Scene = nullptr;
 	entity m_EntityHandle{ null };
@@ -19,13 +20,6 @@ public:
 	Entity(const Entity& other) = default;
 	~Entity() = default;
 
-	void Destroy()
-	{
-		for (auto childid : GetComponent<Child>().children)
-		{
-			Entity{ m_Scene,childid }.Destroy();
-		}
-	}
 	void addchild(entt::entity childID)
 	{
 		GetComponent<Child>().addChild(childID);
@@ -41,7 +35,40 @@ public:
 	
 	void addchildwithchangeparent(entt::entity childID)
 	{
+		addchild(childID);
+		//auto& prepar = m_Scene->m_Registry.get<Parent>(childID);
+		auto& prepar = Entity{ m_Scene,childID }.GetComponent<Parent>();
+		if (prepar.parent == null)
+			Entity{ m_Scene,childID }.RemoveComponent<Top>();
+		else {
+			//auto& children= m_Scene->m_Registry.get<Child>(prepar.parent);
+			auto& children = Entity{ m_Scene,prepar.parent }.GetComponent<Child>();
+			children.removeChild(childID);
+		}
+		prepar.ChangeParent(m_EntityHandle);
+	}
+	void setparenwithdelself(entt::entity parentID)
+	{
+		auto& prepar = GetComponent<Parent>();
 
+		if (parentID == prepar.parent)
+			return;
+
+		if (prepar.parent == null)
+		{
+			RemoveComponent<Top>();
+		}
+		else {
+			Entity{ m_Scene,prepar.parent }.GetComponent<Child>().removeChild(m_EntityHandle);
+			if (parentID == null)
+			{
+				AddComponent<Top>();
+			}
+			else {
+				Entity{ m_Scene,parentID }.GetComponent<Child>().addChild(m_EntityHandle);
+			}
+		}
+		prepar.ChangeParent(parentID);
 	}
 
 	template<typename T, typename...Args>

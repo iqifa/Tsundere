@@ -13,8 +13,20 @@ public:
 	void OnaddComponent(Entity& entity, T& Component) {}
 	void DestoryEntity(Entity entity)
 	{
-		//m_EntityMap.erase(entity.GetUID());
+		entity.setparenwithdelself(null);
+
+		DestoryChild(entity);
 		m_Registry.destroy(entity);
+	}
+	void DestoryChild(Entity entity)
+	{
+		auto& child = entity.GetComponent<Child>();
+		for (auto childID : child.children)
+		{
+			Entity child{ this,childID };
+			DestoryChild(child);
+			m_Registry.destroy(child);
+		}
 	}
 	Entity CreateEntity(const std::string& name)
 	{
@@ -26,6 +38,7 @@ public:
 		entity.AddComponent<ID>(UID);
 		entity.AddComponent<Top>();
 		entity.AddComponent<Child>();
+		entity.AddComponent<Parent>();
 		entity.AddComponent<Transform>();
 		auto& tag = entity.AddComponent<Tag>();
 		tag.tag = name.empty() ? "Entity" : name;

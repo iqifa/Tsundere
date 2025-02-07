@@ -94,7 +94,7 @@ namespace Component
 		}
 	};
 	struct Parent {
-		entt::entity parent;
+		entt::entity parent = entt::null;
 		Parent() = default;
 		Parent(const Parent&) = default;
 		Parent(entt::entity parent) { this->parent = parent; };
