@@ -47,7 +47,7 @@ namespace Engine {
 			{
 				// TODO: glfwTerminate on system shutdown
 				int success = glfwInit();
-				Error_Core(!success, "Could not intialize GLFW!")
+				Error_Core(success, "Could not intialize GLFW!")
 
 
 					s_GLFWInitialized = true;
