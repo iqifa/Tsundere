@@ -3,6 +3,7 @@
 #include"VertexBuffer.h"
 #include"VertexArray.h"
 #include"Shader.h"
+#include"RenderAPI.h"
 using namespace std;
 void GLClearError()
 {
@@ -35,7 +36,22 @@ void Renderer::DrawArray(const VertexArray& va, const Shader& shader) const
 	//cout <<"Vertex Count"<< va.GetCount() << endl;
 }
 
-void Renderer::Clear() const
+void Renderer::Clear() 
 {
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+}
+
+void Renderer::BeginScene()
+{
+}
+
+void Renderer::EndScene()
+{
+}
+
+void Renderer::Submission(Ref<VertexArray>& vertexArray,Ref<Shader>& shader)
+{
+	shader->Bind();
+	vertexArray->Bind();
+	RenderAPI(GLCall(glDrawArrays(GL_TRIANGLES, 0, vertexArray->GetCount())))
 }
