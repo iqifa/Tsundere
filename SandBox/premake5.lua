@@ -33,6 +33,7 @@ project "SandBox"
         "../bin"
     }
 
+    dependson{"T_Core"}
     filter "system:windows" --对特定的系统(windows、OS..)、配置(Debug/Release)、平台(x64、x86)的项目属性
     cppdialect "C++17"  --C++特性版本
     staticruntime "On"  
