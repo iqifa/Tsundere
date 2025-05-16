@@ -11,21 +11,23 @@ public:
 	entt::registry m_Registry;
 	template<typename T>
 	void OnaddComponent(Entity& entity, T& Component) {}
-	void DestoryEntity(Entity entity)
+	void DestoryEntity(Entity Destory)
 	{
-		entity.setparenwithdelself(null);
+		Destory.setparenwithdelself(null);
 
-		DestoryChild(entity);
-		m_Registry.destroy(entity);
+		DestoryChild(Destory);
+		Info_Core("Delete {}", Destory.GetComponent<Tag>().tag);
+		m_Registry.destroy(Destory);
 	}
-	void DestoryChild(Entity entity)
+	void DestoryChild(Entity parent)
 	{
-		auto& child = entity.GetComponent<Child>();
-		for (auto childID : child.children)
+		auto& child_componrnt = parent.GetComponent<Child>();
+		for (auto childID : child_componrnt.children)
 		{
-			Entity child{ this,childID };
-			DestoryChild(child);
-			m_Registry.destroy(child);
+			Entity child_entity{ this,childID };
+			DestoryChild(child_entity);
+			Info_Core("Delete {}", child_entity.GetComponent<Tag>().tag);
+			m_Registry.destroy(child_entity);
 		}
 	}
 	Entity CreateEntity(const std::string& name)
