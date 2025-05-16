@@ -47,7 +47,8 @@ project "T_Core"
     defines
     {
         "T_PLATFORM_WINDOWS",
-        "T_BUILD_DLL"
+        "T_BUILD_DLL",
+        "OpenGL_For_Render"
     }
 
 
