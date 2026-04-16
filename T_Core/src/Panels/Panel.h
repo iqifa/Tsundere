@@ -8,7 +8,7 @@
 #include"Scene/Component.h"
 #include <Widget.h>
 using namespace Component;
-
+extern 	entt::entity m_SelectedContext;
 
 class BasePanel :public Engine::Layer{
 public:

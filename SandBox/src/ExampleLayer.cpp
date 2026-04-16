@@ -149,7 +149,7 @@ void ExampleLayer::OnImGuiRender()
 		glViewport(0, 0, m_ViewPortSize.x, m_ViewPortSize.y);
 		framebuffer->Rsetsize(m_ViewPortSize);
 	}
-	ImGui::Image((void*)framebuffer->GetClolorAttachmentRenderID(), ImVec2{ m_ViewPortSize.x,m_ViewPortSize.y }, ImVec2{ 0,1 }, ImVec2{ 1,0 });
+	ImGui::Image((ImTextureID)(uintptr_t)framebuffer->GetClolorAttachmentRenderID(), ImVec2(m_ViewPortSize.x, m_ViewPortSize.y), ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
 	ImGui::End();
 	ImGui::PopStyleVar();
 }

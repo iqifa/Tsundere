@@ -4,7 +4,7 @@
 #include"Scene/Scene.h"
 #include"Panels/Panel.h"
 #include"GLHead.h"
-extern 	entt::entity m_SelectedContext;
+
 class ExampleLayer :public BasePanel {
 public:
 public:
