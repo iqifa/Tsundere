@@ -26,9 +26,11 @@ private:
 	Ptr<Shader>shader;
 
 	Ptr<FrameBuffer> framebuffer;
+	Ptr<FrameBuffer> Msaaframebuffer;
 	vec2 m_ViewPortSize;
 
-	mat4 proj, view;
+	bool open_Msaa = false;
+	mat4 proj, view,model;
 																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																										
 	std::deque<Entity>destory;
 };

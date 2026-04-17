@@ -71,6 +71,10 @@ ExampleLayer::ExampleLayer(Ref<Scene>scene, std::string name) : BasePanel(name)
 	proj = ortho(0.0f, 1080.0f, 0.0f, 960.0f, -1.0f, 1.0f);
 	view = translate(mat4(1.0f), vec3(-100, 0, 0));
 
+	FrameBufferSpecification orispec = { 1080,960,1 };
+	FrameBufferSpecification Msaaspec = { 1080,960,16 };
+	framebuffer = CreatePtr<FrameBuffer>(orispec);
+	Msaaframebuffer = CreatePtr<MsaaFrameBuffer>(Msaaspec);
 
 	framebuffer = CreatePtr<FrameBuffer>();
 }
@@ -80,6 +84,11 @@ ExampleLayer::ExampleLayer(Ref<Scene>scene, std::string name) : BasePanel(name)
 void ExampleLayer::OnUpdate()
 {
 	Renderer renderer;
+	if (open_Msaa)
+	{
+		Msaaframebuffer->Bind();
+	}
+	else {
 	framebuffer->Bind();
 	renderer.Clear();
 	{
@@ -89,6 +98,16 @@ void ExampleLayer::OnUpdate()
 		//shader->SetUniformMat4f("u_MVP", mvp);
 		renderer.DrawElement(*va, *ibo, *shader);
 	}
+	if (open_Msaa)
+	{
+		glBindFramebuffer(GL_READ_FRAMEBUFFER, Msaaframebuffer->GetFrameID());
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer->GetFrameID());
+		glBlitFramebuffer(0, 0, m_ViewPortSize.x, m_ViewPortSize.y,
+			0, 0, m_ViewPortSize.x, m_ViewPortSize.y,
+			GL_COLOR_BUFFER_BIT, GL_NEAREST);
+		Msaaframebuffer->UnBind();
+	}
+	else
 	framebuffer->UnBind();
 }
 
@@ -96,7 +115,7 @@ void ExampleLayer::OnImGuiRender()
 {
 	ShowDockSpace();
 	ImGui::Begin(m_HeadTitle.c_str());
-
+	ImGui::Checkbox("OpenMsaa?", &open_Msaa);
 	if (ImGui::IsMouseDown(0) && ImGui::IsWindowHovered())
 		m_SelectedContext = null;
 
@@ -148,6 +167,8 @@ void ExampleLayer::OnImGuiRender()
 		m_ViewPortSize = { viewportPanelSize.x,viewportPanelSize.y };
 		glViewport(0, 0, m_ViewPortSize.x, m_ViewPortSize.y);
 		framebuffer->Rsetsize(m_ViewPortSize);
+		Msaaframebuffer->Rsetsize(m_ViewPortSize);
+
 	}
 	ImGui::Image((ImTextureID)(uintptr_t)framebuffer->GetClolorAttachmentRenderID(), ImVec2(m_ViewPortSize.x, m_ViewPortSize.y), ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
 	ImGui::End();
