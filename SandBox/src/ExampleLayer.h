@@ -33,4 +33,8 @@ private:
 	mat4 proj, view,model;
 																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																										
 	std::deque<Entity>destory;
+
+	GLFWwindow* m_WindowHandle = nullptr;
+private:
+	bool m_ViewportFocused = false;
 };

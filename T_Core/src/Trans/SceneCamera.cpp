@@ -4,7 +4,7 @@
 const vec3 WorldUp = vec3(0.0f,1.0f,0.0f);
 
 
-SceneCamera* currentcamera = new SceneCamera(vec3(0.0f, 1.0f, -3.0f));
+SceneCamera* currentcamera = new SceneCamera(vec3(0.0f, 0.0f, -3.0f));
 
 SceneCamera::SceneCamera()
 {

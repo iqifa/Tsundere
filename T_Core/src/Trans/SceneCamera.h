@@ -8,7 +8,7 @@
 
 using namespace glm;
 
-class SceneCamera {
+class T_API SceneCamera {
 public:
 	SceneCamera();
 	~SceneCamera();
@@ -44,11 +44,11 @@ private:
 	vec3 cameraTarget;
 	vec3 cameraFront;
 	vec3 cameraUp;
-	float yaw=90.0f, pitch=0.0f, roll = 0.0f,fov=1.0f;
+	float yaw=90.0f, pitch=0.0f, roll = 0.0f,fov=45.0f;
 	float sensitive=0.1f;
 	
 public:
 	Ref<SkyBox>skybox;
 };
-extern SceneCamera* currentcamera;
+extern T_API SceneCamera* currentcamera;
 #endif // !CAMERA

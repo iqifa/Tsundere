@@ -1,5 +1,9 @@
 #include "ExampleLayer.h"
 #include <Debug/Debug.h>
+#include<Trans/SceneCamera.h>
+#include<Core/Application.h>
+
+
 entt::entity m_SelectedContext = null;
 void ShowDockSpace()
 {
@@ -46,26 +50,75 @@ ExampleLayer::ExampleLayer(Ref<Scene>scene, std::string name) : BasePanel(name)
 {
 	this->m_Context = scene;
 	m_SelectedContext = null;
+	auto& app = Engine::Application::Get();
+	m_WindowHandle = static_cast<GLFWwindow*>(app.GetWindow().GetWindow());
 
+	if (!m_WindowHandle) {
+		Error_Core(false, "ExampleLayer: 无法从 Application 获取到窗口句柄！");
+	}
 	va = CreatePtr<VertexArray>(36);
-	float position[] = {
-			1.0f,1.0f,0.0f,
-			0.0f,1.0f,0.0f,
-			1.0f,0.0f,0.0f,
+	float position[] =
+	{
+	-0.5f, -0.5f, -0.5f,  0.0f, 0.0f,
+	 0.5f, -0.5f, -0.5f,  1.0f, 0.0f,
+	 0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
+	 0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
+	-0.5f,  0.5f, -0.5f,  0.0f, 1.0f,
+	-0.5f, -0.5f, -0.5f,  0.0f, 0.0f,
+
+	-0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
+	 0.5f, -0.5f,  0.5f,  1.0f, 0.0f,
+	 0.5f,  0.5f,  0.5f,  1.0f, 1.0f,
+	 0.5f,  0.5f,  0.5f,  1.0f, 1.0f,
+	-0.5f,  0.5f,  0.5f,  0.0f, 1.0f,
+	-0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
+
+	-0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
+	-0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
+	-0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
+	-0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
+	-0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
+	-0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
+
+	 0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
+	 0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
+	 0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
+	 0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
+	 0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
+	 0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
+
+	-0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
+	 0.5f, -0.5f, -0.5f,  1.0f, 1.0f,
+	 0.5f, -0.5f,  0.5f,  1.0f, 0.0f,
+	 0.5f, -0.5f,  0.5f,  1.0f, 0.0f,
+	-0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
+	-0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
+
+	-0.5f,  0.5f, -0.5f,  0.0f, 1.0f,
+	 0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
+	 0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
+	 0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
+	-0.5f,  0.5f,  0.5f,  0.0f, 0.0f,
+	-0.5f,  0.5f, -0.5f,  0.0f, 1.0f
 	};
 
 	unsigned int indices[] = {
-			1,2,3,
-			1,2,3
+		0,  1,  2,  3,  4,  5,
+		6,  7,  8,  9,  10, 11,
+		12, 13, 14, 15, 16, 17,
+		18, 19, 20, 21, 22, 23,
+		24, 25, 26, 27, 28, 29,
+		30, 31, 32, 33, 34, 35
 	};
-	vb = CreatePtr<VertexBuffer>(position, 4 * sizeof(float) * 4);
-	ibo = CreatePtr<IndexBuffer>(indices, 6);
+	/*vb = CreatePtr<VertexBuffer>(position, 4 * sizeof(float) * 4);*/
+	vb = CreatePtr<VertexBuffer>(position, 36 * 5 * sizeof(float));
+	ibo = CreatePtr<IndexBuffer>(indices, 36);
 	VertexBufferLayout layout;
 	layout.Push<float>(3);
-	//layout.Push<float>(2);
+	layout.Push<float>(2);
 	va->AddBuffer(*vb, layout);
 
-	shader = CreatePtr<Shader>("D:\\Code\\C++\\Tsunder\\Graduate\\res\\shaders/Basic.shader");
+	shader = CreatePtr<Shader>("D:\\Code\\C++\\Tsundere\\res\\shaders\\Basic.shader");
 
 
 	proj = ortho(0.0f, 1080.0f, 0.0f, 960.0f, -1.0f, 1.0f);
@@ -76,26 +129,34 @@ ExampleLayer::ExampleLayer(Ref<Scene>scene, std::string name) : BasePanel(name)
 	framebuffer = CreatePtr<FrameBuffer>(orispec);
 	Msaaframebuffer = CreatePtr<MsaaFrameBuffer>(Msaaspec);
 
-	framebuffer = CreatePtr<FrameBuffer>();
 }
 
 
 
 void ExampleLayer::OnUpdate()
 {
+	if (m_ViewPortSize.x <= 0.0f || m_ViewPortSize.y <= 0.0f)
+		return;
 	Renderer renderer;
 	if (open_Msaa)
 	{
 		Msaaframebuffer->Bind();
 	}
 	else {
-	framebuffer->Bind();
+		framebuffer->Bind();
+	}
+
+	view = currentcamera->GetViewFront();
+	proj = currentcamera->GetProj();
+	model = scale(mat4(1.0f), vec3(1.0f, 1.0f, 1.0f));
 	renderer.Clear();
 	{
-		mat4 model = mat4(1.0f);
+		if (m_ViewportFocused)
+			currentcamera->GLPrecessInput(m_WindowHandle, 0.1f);
+
 		mat4 mvp = proj * view * model;
 		shader->Bind();
-		//shader->SetUniformMat4f("u_MVP", mvp);
+		shader->SetUniformMat4f("MVP_matrix", mvp);
 		renderer.DrawElement(*va, *ibo, *shader);
 	}
 	if (open_Msaa)
@@ -108,7 +169,7 @@ void ExampleLayer::OnUpdate()
 		Msaaframebuffer->UnBind();
 	}
 	else
-	framebuffer->UnBind();
+		framebuffer->UnBind();
 }
 
 void ExampleLayer::OnImGuiRender()
@@ -141,7 +202,7 @@ void ExampleLayer::OnImGuiRender()
 			{
 				Entity{ m_Context.get(),m_SelectedContext }.addchildwithchangeparent(entity);
 			}
-			
+
 		}
 		if (m_SelectedContext != null) {
 			if (ImGui::MenuItem("Delete"))
@@ -150,7 +211,7 @@ void ExampleLayer::OnImGuiRender()
 				{
 					Info_Core((int)entityID);
 				}
-				m_Context->DestoryEntity(Entity{ m_Context.get(),m_SelectedContext});
+				m_Context->DestoryEntity(Entity{ m_Context.get(),m_SelectedContext });
 			}
 		}
 
@@ -161,6 +222,28 @@ void ExampleLayer::OnImGuiRender()
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{ 0,0 });
 
 	ImGui::Begin("ViewPort");
+	m_ViewportFocused = ImGui::IsWindowFocused();
+	ImGuiIO& io = ImGui::GetIO();
+
+#pragma region MouseInput
+	if (m_ViewportFocused && ImGui::IsMouseDown(ImGuiMouseButton_Right))
+	{
+		// io.MouseDelta 自动帮我们算好了这一帧和上一帧的差值，自带 firstMouse 效果！
+		float xoffset = io.MouseDelta.x;
+		float yoffset = -io.MouseDelta.y; // Y 轴需要翻转
+
+		if (currentcamera)
+			currentcamera->GLMouseInput(xoffset, yoffset, true);
+	}
+
+	// 2. 处理鼠标滚轮缩放
+	if (m_ViewportFocused && io.MouseWheel != 0.0f)
+	{
+		if (currentcamera)
+			currentcamera->GLScrollInput(0.0f, io.MouseWheel);
+	}
+#pragma endregion
+
 	ImVec2 viewportPanelSize = ImGui::GetContentRegionAvail();
 	if (m_ViewPortSize != *((vec2*)&viewportPanelSize))
 	{

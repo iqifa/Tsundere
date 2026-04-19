@@ -77,7 +77,13 @@ Ref<Shader> Shader::Create(const string& filepath)
 ShaderProgramSource Shader::ParseShader(const string& filepath)
 {
 	ifstream stream(filepath);
-
+	if (!stream.is_open())
+	{
+		string info = "Failed to open shader file at path: " + filepath;
+		debugerror(info); // 使用你引擎的报错宏打印出来
+		// cout << info << endl; 
+		return { "", "" };
+	}
 	enum  class ShaderType
 	{
 		NONE = -1, VERTEX = 0, FRAGMENT = 1
