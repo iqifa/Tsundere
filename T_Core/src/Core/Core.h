@@ -1,8 +1,8 @@
 #ifdef T_PLATFORM_WINDOWS
 	#ifdef T_BUILD_DLL
-		#define T_API _declspec(dllexport)
+		#define T_API __declspec(dllexport)
 	#else
-		#define T_API _declspec(dllimport)
+		#define T_API __declspec(dllimport)
 	#endif // T_BUILD_DLL
 
 #else 

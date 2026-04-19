@@ -33,7 +33,6 @@ public:
 	virtual void UnBind();
 
 	virtual void BindTexture(Texture& tex);
-	virtual void BindRenderBuffer(RenderBufferObject& rbo);
 
 	// Rsetsize 内部会调用多态的 InValidate()
 	virtual void Rsetsize(const vec2& size);
@@ -44,36 +43,16 @@ public:
 
 	unsigned int GetFrameID() { return m_RenderID; }
 	unsigned int GetClolorAttachmentRenderID() { return m_ColorAttachment; }
+	unsigned int GetDepthAttachmentRenderID() { return m_Depth_StencilAttachment; }
 	FrameBufferSpecification& GetSpecification() { return m_Specfication; }
 protected:
 	virtual void InValidate();
 	FrameBuffer(const FrameBufferSpecification& spec, bool autoInit);
 	unsigned int m_RenderID = 0;
 	unsigned int m_ColorAttachment = 0;
-	Ref<RenderBufferObject> m_rbo;
+	unsigned int m_Depth_StencilAttachment = 0; // 将 RenderBufferObject 替换为深度纹理附件
 	FrameBufferSpecification m_Specfication;
 };
-class RenderBufferObject {
-public:
-	RenderBufferObject() {
-		glGenRenderbuffers(1, &m_RenderID);
-	}
-	~RenderBufferObject() {
-		glDeleteRenderbuffers(1, &m_RenderID);
-	}
-	void Bind()
-	{
-		glBindRenderbuffer(GL_RENDERBUFFER, m_RenderID);
-	}
-	void UnBind()
-	{
-		glBindRenderbuffer(GL_RENDERBUFFER, 0);
-	}
-	unsigned int GetRenderBufferID() { return m_RenderID; }
-private:
-	unsigned int m_RenderID;
-};
-
 
 class T_API MsaaFrameBuffer : public FrameBuffer
 {

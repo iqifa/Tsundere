@@ -2,7 +2,7 @@
 #include"ExternalFiles.h"
 #include"HeadLine.h"
 #include"Debug/Debug.h"
-class CubeMap
+class T_API CubeMap
 {
 public:
 	CubeMap() = default;

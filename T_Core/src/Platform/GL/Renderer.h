@@ -28,7 +28,7 @@ public:
 	void DrawElement(const VertexArray& va, const IndexBuffer& ib, const Shader& shader) const;
 	void DrawArray(const VertexArray& va, const Shader& shader)const;
 	static void Clear();
-
+	static void Clear_Color();
 	static void BeginScene();
 	static void EndScene();
 

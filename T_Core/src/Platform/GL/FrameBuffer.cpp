@@ -19,6 +19,11 @@ FrameBuffer::~FrameBuffer() {
 		glDeleteTextures(1, &m_ColorAttachment);
 		m_ColorAttachment = 0;
 	}
+	if (m_Depth_StencilAttachment)
+	{
+		glDeleteTextures(1, &m_Depth_StencilAttachment);
+		m_Depth_StencilAttachment = 0;
+	}
 }
 void FrameBuffer::Bind()
 {
@@ -35,15 +40,6 @@ void FrameBuffer::BindTexture(Texture& tex)
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex.GetTextureID(), 0);
 }
 
-void FrameBuffer::BindRenderBuffer(RenderBufferObject& rbo)
-{
-	rbo.Bind();
-	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, m_Specfication.Width, m_Specfication.Height);
-	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, rbo.GetRenderBufferID());
-	if (!IsComplete())
-		debugerror("Error:FrameBuffer isn't Complete!");
-	rbo.UnBind();
-}
 
 void FrameBuffer::Rsetsize(const vec2& size)
 {
@@ -84,15 +80,20 @@ void FrameBuffer::InValidate()
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_ColorAttachment, 0);
 
-	m_rbo = CreateRef<RenderBufferObject>();
-	m_rbo->Bind();
-	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, m_Specfication.Width, m_Specfication.Height);
-	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, m_rbo->GetRenderBufferID());
+	glGenTextures(1, &m_Depth_StencilAttachment);
+	glBindTexture(GL_TEXTURE_2D, m_Depth_StencilAttachment);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH24_STENCIL8, m_Specfication.Width, m_Specfication.Height, 0, GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8, NULL);
+	// 深度纹理通常使用 GL_NEAREST，避免插值产生错误的深度值
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	// 为了防止在边缘采样时越界导致错误，可以设置包装模式为 Clamp To Edge
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, m_Depth_StencilAttachment, 0);
 
 	if (!IsComplete())
 		debugerror("Error:FrameBuffer isn't Complete!");
-
-	m_rbo->UnBind();
 	UnBind();
 }
 
@@ -125,14 +126,14 @@ void MsaaFrameBuffer::InValidate()
 	glTexImage2DMultisample(GL_TEXTURE_2D_MULTISAMPLE, m_Specfication.Samples, GL_RGBA8, m_Specfication.Width, m_Specfication.Height, GL_TRUE);
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D_MULTISAMPLE, m_ColorAttachment, 0);
 
-	m_rbo = CreateRef<RenderBufferObject>();
-	m_rbo->Bind();
-	glRenderbufferStorageMultisample(GL_RENDERBUFFER, m_Specfication.Samples, GL_DEPTH24_STENCIL8, m_Specfication.Width, m_Specfication.Height);
-	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, m_rbo->GetRenderBufferID());
+	glGenTextures(1, &m_Depth_StencilAttachment);
+	glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, m_Depth_StencilAttachment);
+	glTexImage2DMultisample(GL_TEXTURE_2D_MULTISAMPLE, m_Specfication.Samples, GL_DEPTH24_STENCIL8, m_Specfication.Width, m_Specfication.Height, GL_TRUE);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D_MULTISAMPLE, m_Depth_StencilAttachment, 0);
+
 
 	if (!IsComplete())
 		debugerror("Error:MsaaFrameBuffer isn't Complete!");
 
-	m_rbo->UnBind();
 	UnBind();
 }

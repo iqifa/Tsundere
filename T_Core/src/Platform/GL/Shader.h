@@ -41,6 +41,7 @@ public:
 	void SetUniform1i(const std::string& name, int value) const;
 	void SetUniformMat4f(const std::string& name, const  mat4& mat4)const;
 	void SetUniformVec3(const std::string& name, const vec3& value)const;
+	void SetUniformVec2(const std::string& name, const vec2& value)const;
 
 	static Ref<Shader>Create(const std::string& filepath, const std::string& name);
 	static Ref<Shader>Create(const std::string& filepath);

@@ -200,7 +200,10 @@ void Shader::SetUniformVec3(const string& name, const vec3& value) const
 {
 	glUniform3fv(GetUniformLocation(name), 1, &value[0]);
 }
-
+void Shader::SetUniformVec2(const string& name, const vec2& value) const
+{
+	glUniform2fv(GetUniformLocation(name), 1, &value[0]);
+}
 
 
 int Shader::GetUniformLocation(const string& name)  const
