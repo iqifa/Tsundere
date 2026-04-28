@@ -54,90 +54,30 @@ ExampleLayer::ExampleLayer(Ref<Scene>scene, std::string name) : BasePanel(name)
 	m_WindowHandle = static_cast<GLFWwindow*>(app.GetWindow().GetWindow());
 
 	if (!m_WindowHandle) {
-		Error_Core(false, "ExampleLayer: ÎŞ·¨´Ó Application »ñÈ¡µ½´°¿Ú¾ä±ú£¡");
+		Error_Core(false, "ExampleLayer: æ— æ³•ä» Application è·å–åˆ°çª—å£å¥æŸ„ï¼");
 	}
-	va = CreatePtr<VertexArray>(36);
-	float position[] =
-	{
-	-0.5f, -0.5f, -0.5f,  0.0f, 0.0f,
-	 0.5f, -0.5f, -0.5f,  1.0f, 0.0f,
-	 0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
-	 0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
-	-0.5f,  0.5f, -0.5f,  0.0f, 1.0f,
-	-0.5f, -0.5f, -0.5f,  0.0f, 0.0f,
 
-	-0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
-	 0.5f, -0.5f,  0.5f,  1.0f, 0.0f,
-	 0.5f,  0.5f,  0.5f,  1.0f, 1.0f,
-	 0.5f,  0.5f,  0.5f,  1.0f, 1.0f,
-	-0.5f,  0.5f,  0.5f,  0.0f, 1.0f,
-	-0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
 
-	-0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
-	-0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
-	-0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
-	-0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
-	-0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
-	-0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
+	shader = CreatePtr<Shader>("D:/Code/C++/Tsundere/res/shaders/Basic.shader");
 
-	 0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
-	 0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
-	 0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
-	 0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
-	 0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
-	 0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
-
-	-0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
-	 0.5f, -0.5f, -0.5f,  1.0f, 1.0f,
-	 0.5f, -0.5f,  0.5f,  1.0f, 0.0f,
-	 0.5f, -0.5f,  0.5f,  1.0f, 0.0f,
-	-0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
-	-0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
-
-	-0.5f,  0.5f, -0.5f,  0.0f, 1.0f,
-	 0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
-	 0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
-	 0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
-	-0.5f,  0.5f,  0.5f,  0.0f, 0.0f,
-	-0.5f,  0.5f, -0.5f,  0.0f, 1.0f
-	};
-
-	unsigned int indices[] = {
-		0,  1,  2,  3,  4,  5,
-		6,  7,  8,  9,  10, 11,
-		12, 13, 14, 15, 16, 17,
-		18, 19, 20, 21, 22, 23,
-		24, 25, 26, 27, 28, 29,
-		30, 31, 32, 33, 34, 35
-	};
-	/*vb = CreatePtr<VertexBuffer>(position, 4 * sizeof(float) * 4);*/
-	vb = CreatePtr<VertexBuffer>(position, 36 * 5 * sizeof(float));
-	ibo = CreatePtr<IndexBuffer>(indices, 36);
-	VertexBufferLayout layout;
-	layout.Push<float>(3);
-	layout.Push<float>(2);
-	va->AddBuffer(*vb, layout);
-
-	shader = CreatePtr<Shader>("D:\\Code\\C++\\Tsundere\\res\\shaders\\Basic.shader");
-
+	
+	
 
 	proj = ortho(0.0f, 1080.0f, 0.0f, 960.0f, -1.0f, 1.0f);
 	view = translate(mat4(1.0f), vec3(-100, 0, 0));
 
-	FrameBufferSpecification orispec = { 1080,960,1 };
-	FrameBufferSpecification Msaaspec = { 1080,960,16 };
-	framebuffer = CreatePtr<FrameBuffer>(orispec);
-	Msaaframebuffer = CreatePtr<MsaaFrameBuffer>(Msaaspec);
+	m_BaseFboSpec = { 1080, 960, 1 };
+	m_MsaaFboSpec = { 1080, 960, 16 };
+	framebuffer = CreateRef<FrameBuffer>(m_BaseFboSpec);
 
 
-	// --- ³õÊ¼»¯ TAA ĞèÒªµÄ Buffers ---
-	m_VelocityFrameBuffer = CreatePtr<FrameBuffer>(orispec);
-	m_TaaFrameBuffers[0] = CreatePtr<FrameBuffer>(orispec);
-	m_TaaFrameBuffers[1] = CreatePtr<FrameBuffer>(orispec);
-	m_PrevDepthFrameBuffer = CreatePtr<FrameBuffer>(orispec); // ĞÂÔö
+
+	geometrypass = CreateRef<GeometryPass>();
+	geometrypass->Init(framebuffer);
 
 
-	// --- ³õÊ¼»¯È«ÆÁËÄ±ßĞÎÓÃÓÚºó´¦Àí ---
+
+	// --- åˆå§‹åŒ–å…¨å±å››è¾¹å½¢ç”¨äºåå¤„ç† ---
 	float quadVertices[] = {
 		// pos         // tex
 		-1.0f,  1.0f,  0.0f, 1.0f,
@@ -153,7 +93,6 @@ ExampleLayer::ExampleLayer(Ref<Scene>scene, std::string name) : BasePanel(name)
 	quadLayout.Push<float>(2); // pos
 	quadLayout.Push<float>(2); // tex
 	m_QuadVA->AddBuffer(*m_QuadVB, quadLayout);
-	m_VelocityShader = CreatePtr<Shader>("D:\\Code\\C++\\Tsundere\\res\\shaders\\Velocity.shader");
 	m_TaaShader = CreatePtr<Shader>("D:\\Code\\C++\\Tsundere\\res\\shaders\\TAA.shader");
 
 
@@ -176,24 +115,24 @@ void ExampleLayer::OnUpdate()
 	if (m_ViewPortSize.x <= 0.0f || m_ViewPortSize.y <= 0.0f)
 		return;
 	Renderer renderer;
+
+	// æŒ‰éœ€åˆ›å»º / é‡Šæ”¾ MSAA FBO
+	if (open_Msaa && !Msaaframebuffer)
+		Msaaframebuffer = CreatePtr<MsaaFrameBuffer>(m_MsaaFboSpec);
+	else if (!open_Msaa && Msaaframebuffer)
+		Msaaframebuffer.reset();
+
 	if (open_Msaa)
-	{
 		Msaaframebuffer->Bind();
-	}
-	else {
+	else
 		framebuffer->Bind();
-	}
 
 	view = currentcamera->GetViewFront();
-
-	//m_UnjitteredProjMatrix = currentcamera->GetProj();
-	//mat4 currentViewProj = m_UnjitteredProjMatrix * view; // ¸É¾»µÄ VP ¾ØÕó£¬¸ø Velocity ËãËÙ¶ÈÓÃ
-	//proj = Jittering(m_UnjitteredProjMatrix, m_ViewPortSize.x, m_ViewPortSize.y);
 
 	proj = currentcamera->GetProj();
 	mat4 currentViewProj = proj * view;
 
-	if(open_TAA)
+	if (open_TAA)
 		proj = Jittering(proj, m_ViewPortSize.x, m_ViewPortSize.y);
 
 	model = scale(mat4(1.0f), vec3(1.0f, 2.0f, 1.0f));
@@ -202,21 +141,10 @@ void ExampleLayer::OnUpdate()
 		if (m_ViewportFocused)
 			currentcamera->GLPrecessInput(m_WindowHandle, 0.1f);
 		currentcamera->RenderSkyBox();
-		mat4 mvp_jittered = proj * view ;
-		shader->Bind();
-		shader->SetUniformMat4f("MVP_matrix", mvp_jittered * model);
-		shader->SetUniformVec3("print_color", vec3(0,.5,.3));
-		renderer.DrawElement(*va, *ibo, *shader);
 
-		if (rendertow)
-		{
-			mat4 model2 = scale(mat4(1.0f), vec3(1.0f, 1.0f, 2.0f));
-			shader->SetUniformMat4f("MVP_matrix", mvp_jittered * model2);
-			shader->SetUniformVec3("print_color", vec3(1, .5, .3));
-			renderer.DrawElement(*va, *ibo, *shader);
-		}
+		geometrypass->Execute(m_Context, renderResources);
 	}
-	if (open_Msaa&&!open_TAA)
+	if (open_Msaa && !open_TAA)
 	{
 		glBindFramebuffer(GL_READ_FRAMEBUFFER, Msaaframebuffer->GetFrameID());
 		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer->GetFrameID());
@@ -228,96 +156,76 @@ void ExampleLayer::OnUpdate()
 	else
 		framebuffer->UnBind();
 
-	glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer->GetFrameID());
-	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_VelocityFrameBuffer->GetFrameID());
-	glBlitFramebuffer(0, 0, m_ViewPortSize.x, m_ViewPortSize.y, 0, 0, m_ViewPortSize.x, m_ViewPortSize.y, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
-
-	m_VelocityFrameBuffer->Bind();
-	renderer.Clear_Color();
-
-
-	glDepthFunc(GL_LEQUAL); // Éî¶ÈĞ¡ÓÚµÈÓÚÖ÷»º³å²ÅĞ´ÈëËÙ¶È
-	glDepthMask(GL_FALSE);  // ¹Ø±ÕÉî¶ÈĞ´Èë
-
-
-	if (m_VelocityShader) {
-		m_VelocityShader->Bind();
-		m_VelocityShader->SetUniformMat4f("viewProj", currentViewProj); // ±ØĞëÊÇ¸É¾»¾ØÕó
-		m_VelocityShader->SetUniformMat4f("prevViewProj", m_PrevViewProjMatrix);
-
-		mat4 currentModel = model;
-		mat4 prevModel = model; // Êµ¼ÊÒıÇæÖĞĞèÒª±£´æÉÏÒ»Ö¡µÄ Model
-		m_VelocityShader->SetUniformMat4f("model", currentModel);
-		m_VelocityShader->SetUniformMat4f("prevModel", prevModel);
-
-		renderer.DrawElement(*va, *ibo, *m_VelocityShader);
-	}
-
-	glDepthMask(GL_TRUE); // »Ö¸´Éî¶È×´Ì¬
-	glDepthFunc(GL_LESS);
-	m_VelocityFrameBuffer->UnBind();
-
-
-	int nextFrameIndex = (m_CurrentFrameIndex + 1) % 2;
-	m_TaaFrameBuffers[nextFrameIndex]->Bind();
-	glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-	if (m_TaaShader)
+	// TAA æŒ‰éœ€åˆ›å»ºä¸æ‰§è¡Œ
+	if (open_TAA)
 	{
-		m_TaaShader->Bind();
+		if (!m_TaaFrameBuffers[0])
+		{
+			m_TaaFrameBuffers[0] = CreatePtr<FrameBuffer>(m_BaseFboSpec);
+			m_TaaFrameBuffers[1] = CreatePtr<FrameBuffer>(m_BaseFboSpec);
+		}
+		if (!m_PrevDepthFrameBuffer)
+			m_PrevDepthFrameBuffer = CreatePtr<FrameBuffer>(m_BaseFboSpec);
 
-		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_2D, framebuffer->GetClolorAttachmentRenderID());
-		m_TaaShader->SetUniform1i("u_CurrentColor", 0);
+		int nextFrameIndex = (m_CurrentFrameIndex + 1) % 2;
+		m_TaaFrameBuffers[nextFrameIndex]->Bind();
+		glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-		glActiveTexture(GL_TEXTURE1);
-		glBindTexture(GL_TEXTURE_2D, m_TaaFrameBuffers[m_CurrentFrameIndex]->GetClolorAttachmentRenderID());
-		m_TaaShader->SetUniform1i("u_HistoryColor", 1);
+		if (m_TaaShader)
+		{
+			m_TaaShader->Bind();
 
-		glActiveTexture(GL_TEXTURE2);
-		glBindTexture(GL_TEXTURE_2D, m_VelocityFrameBuffer->GetClolorAttachmentRenderID());
-		m_TaaShader->SetUniform1i("u_VelocityTex", 2);
+			glActiveTexture(GL_TEXTURE0);
+			glBindTexture(GL_TEXTURE_2D, framebuffer->GetClolorAttachmentRenderID());
+			m_TaaShader->SetUniform1i("u_CurrentColor", 0);
 
-		glActiveTexture(GL_TEXTURE3);
-		glBindTexture(GL_TEXTURE_2D, framebuffer->GetDepthAttachmentRenderID());
-		m_TaaShader->SetUniform1i("u_DepthTex", 3);
+			glActiveTexture(GL_TEXTURE1);
+			glBindTexture(GL_TEXTURE_2D, m_TaaFrameBuffers[m_CurrentFrameIndex]->GetClolorAttachmentRenderID());
+			m_TaaShader->SetUniform1i("u_HistoryColor", 1);
 
-		glActiveTexture(GL_TEXTURE4);
-		glBindTexture(GL_TEXTURE_2D, m_PrevDepthFrameBuffer->GetDepthAttachmentRenderID());
-		m_TaaShader->SetUniform1i("u_HistoryDepthTex", 4);
+			glActiveTexture(GL_TEXTURE2);
+			glBindTexture(GL_TEXTURE_2D, renderResources.VelocityTexture);
+			m_TaaShader->SetUniform1i("u_VelocityTex", 2);
 
-		m_TaaShader->SetUniformMat4f("u_InverseViewProj", glm::inverse(currentViewProj));
-		m_TaaShader->SetUniformMat4f("u_PrevViewProj", m_PrevViewProjMatrix);
+			glActiveTexture(GL_TEXTURE3);
+			glBindTexture(GL_TEXTURE_2D, framebuffer->GetDepthAttachmentRenderID());
+			m_TaaShader->SetUniform1i("u_DepthTex", 3);
 
+			glActiveTexture(GL_TEXTURE4);
+			glBindTexture(GL_TEXTURE_2D, m_PrevDepthFrameBuffer->GetDepthAttachmentRenderID());
+			m_TaaShader->SetUniform1i("u_HistoryDepthTex", 4);
 
-		int jitterIndex = m_FrameCount % 16;
-		vec2 currentJitter = GetHaltonJitter(jitterIndex);
-		vec2 jitterUV = vec2(currentJitter.x / m_ViewPortSize.x, currentJitter.y / m_ViewPortSize.y);
-		m_TaaShader->SetUniformVec2("u_JitterUV", { jitterUV.x, jitterUV.y });
+			m_TaaShader->SetUniformMat4f("u_InverseViewProj", glm::inverse(currentViewProj));
+			m_TaaShader->SetUniformMat4f("u_PrevViewProj", m_PrevViewProjMatrix);
 
-		renderer.DrawElement(*m_QuadVA, *m_QuadIB, *m_TaaShader);
+			int jitterIndex = m_FrameCount % 16;
+			vec2 currentJitter = GetHaltonJitter(jitterIndex);
+			vec2 jitterUV = vec2(currentJitter.x / m_ViewPortSize.x, currentJitter.y / m_ViewPortSize.y);
+			m_TaaShader->SetUniformVec2("u_JitterUV", { jitterUV.x, jitterUV.y });
+
+			renderer.DrawElement(*m_QuadVA, *m_QuadIB, *m_TaaShader);
+		}
+		m_TaaFrameBuffers[nextFrameIndex]->UnBind();
+
+		glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer->GetFrameID());
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_PrevDepthFrameBuffer->GetFrameID());
+		glBlitFramebuffer(0, 0, m_ViewPortSize.x, m_ViewPortSize.y,
+			0, 0, m_ViewPortSize.x, m_ViewPortSize.y,
+			GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+		glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+
+		m_PrevViewProjMatrix = currentViewProj;
+		m_CurrentFrameIndex = nextFrameIndex;
+		m_FrameCount++;
 	}
 	else
 	{
-		glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer->GetFrameID());
-		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_TaaFrameBuffers[nextFrameIndex]->GetFrameID());
-		glBlitFramebuffer(0, 0, m_ViewPortSize.x, m_ViewPortSize.y, 0, 0, m_ViewPortSize.x, m_ViewPortSize.y, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+		m_TaaFrameBuffers[0].reset();
+		m_TaaFrameBuffers[1].reset();
+		m_PrevDepthFrameBuffer.reset();
 	}
-	m_TaaFrameBuffers[nextFrameIndex]->UnBind();
-	
-
-	glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer->GetFrameID());
-	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_PrevDepthFrameBuffer->GetFrameID());
-	glBlitFramebuffer(0, 0, m_ViewPortSize.x, m_ViewPortSize.y,
-		0, 0, m_ViewPortSize.x, m_ViewPortSize.y,
-		GL_DEPTH_BUFFER_BIT, GL_NEAREST);
-	glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
-	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-
-	m_PrevViewProjMatrix = currentViewProj;
-	m_CurrentFrameIndex = nextFrameIndex;
-	m_FrameCount++;
 }
 
 void ExampleLayer::OnImGuiRender()
@@ -326,6 +234,7 @@ void ExampleLayer::OnImGuiRender()
 	ImGui::Begin(m_HeadTitle.c_str());
 	ImGui::Checkbox("OpenMsaa?", &open_Msaa);
 	ImGui::Checkbox("OpenTaa?", &open_TAA);
+	ImGui::Checkbox("Jitter?", &geometrypass->EnableJitter);
 	ImGui::Checkbox("rendew?", &rendertow);
 	if (ImGui::IsMouseDown(0) && ImGui::IsWindowHovered())
 		m_SelectedContext = null;
@@ -362,6 +271,7 @@ void ExampleLayer::OnImGuiRender()
 					Info_Core((int)entityID);
 				}
 				m_Context->DestoryEntity(Entity{ m_Context.get(),m_SelectedContext });
+				m_SelectedContext = null;
 			}
 		}
 
@@ -378,15 +288,15 @@ void ExampleLayer::OnImGuiRender()
 #pragma region MouseInput
 	if (m_ViewportFocused && ImGui::IsMouseDown(ImGuiMouseButton_Right))
 	{
-		// io.MouseDelta ×Ô¶¯°ïÎÒÃÇËãºÃÁËÕâÒ»Ö¡ºÍÉÏÒ»Ö¡µÄ²îÖµ£¬×Ô´ø firstMouse Ğ§¹û£¡
+		// io.MouseDelta è‡ªåŠ¨å¸®æˆ‘ä»¬ç®—å¥½äº†è¿™ä¸€å¸§å’Œä¸Šä¸€å¸§çš„å·®å€¼ï¼Œè‡ªå¸¦ firstMouse æ•ˆæœï¼
 		float xoffset = io.MouseDelta.x;
-		float yoffset = -io.MouseDelta.y; // Y ÖáĞèÒª·­×ª
+		float yoffset = -io.MouseDelta.y; // Y è½´éœ€è¦ç¿»è½¬
 
 		if (currentcamera)
 			currentcamera->GLMouseInput(xoffset, yoffset, true);
 	}
 
-	// 2. ´¦ÀíÊó±ê¹öÂÖËõ·Å
+	// 2. å¤„ç†é¼ æ ‡æ»šè½®ç¼©æ”¾
 	if (m_ViewportFocused && io.MouseWheel != 0.0f)
 	{
 		if (currentcamera)
@@ -399,20 +309,21 @@ void ExampleLayer::OnImGuiRender()
 	{
 		m_ViewPortSize = { viewportPanelSize.x,viewportPanelSize.y };
 		glViewport(0, 0, m_ViewPortSize.x, m_ViewPortSize.y);
+		m_BaseFboSpec.Width = m_ViewPortSize.x;
+		m_BaseFboSpec.Height = m_ViewPortSize.y;
+		m_MsaaFboSpec.Width = m_ViewPortSize.x;
+		m_MsaaFboSpec.Height = m_ViewPortSize.y;
 		framebuffer->Rsetsize(m_ViewPortSize);
-		Msaaframebuffer->Rsetsize(m_ViewPortSize);
-
-
-		m_VelocityFrameBuffer->Rsetsize(m_ViewPortSize);
-		m_TaaFrameBuffers[0]->Rsetsize(m_ViewPortSize);
-		m_TaaFrameBuffers[1]->Rsetsize(m_ViewPortSize);
+		if (Msaaframebuffer) Msaaframebuffer->Rsetsize(m_ViewPortSize);
+		if (m_TaaFrameBuffers[0]) m_TaaFrameBuffers[0]->Rsetsize(m_ViewPortSize);
+		if (m_TaaFrameBuffers[1]) m_TaaFrameBuffers[1]->Rsetsize(m_ViewPortSize);
 	}
 
 
-	if(open_TAA)
+	if(open_TAA && m_TaaFrameBuffers[m_CurrentFrameIndex])
 		ImGui::Image((ImTextureID)(uintptr_t)m_TaaFrameBuffers[m_CurrentFrameIndex]->GetClolorAttachmentRenderID(), ImVec2(m_ViewPortSize.x, m_ViewPortSize.y), ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
 	else
-		ImGui::Image((ImTextureID)(uintptr_t)framebuffer->GetClolorAttachmentRenderID(), ImVec2(m_ViewPortSize.x, m_ViewPortSize.y), ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
+		ImGui::Image((ImTextureID)(uintptr_t)renderResources.SceneColorTexture, ImVec2(m_ViewPortSize.x, m_ViewPortSize.y), ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
 	
 	ImGui::End();
 	ImGui::PopStyleVar();
@@ -476,7 +387,7 @@ void ExampleLayer::DrawEntityNode(Entity entity)
 
 vec2 ExampleLayer::GetHaltonJitter(int index)
 {
-	// ¼ÆËã Halton ĞòÁĞ (Base 2 ºÍ Base 3)
+	// è®¡ç®— Halton åºåˆ— (Base 2 å’Œ Base 3)
 	auto halton = [](int index, int base) -> float {
 		float f = 1.0f;
 		float r = 0.0f;
@@ -489,23 +400,23 @@ vec2 ExampleLayer::GetHaltonJitter(int index)
 		return r;
 		};
 
-	// ·µ»ØÓ³Éäµ½ [-0.5, 0.5] µÄÆ«ÒÆ
+	// è¿”å›æ˜ å°„åˆ° [-0.5, 0.5] çš„åç§»
 	return vec2(halton(index + 1, 2) - 0.5f, halton(index + 1, 3) - 0.5f);
 }
 
 mat4 ExampleLayer::Jittering(const mat4& originalProj, float width, float height)
 {
-	// ²ÉÓÃ 16 ÏàÎ»µÄ Halton ĞòÁĞ
+	// é‡‡ç”¨ 16 ç›¸ä½çš„ Halton åºåˆ—
 	int jitterIndex = m_FrameCount % 16;
 	vec2 currentJitter = GetHaltonJitter(jitterIndex);
 
-	// ×ª»»Îª NDC ¿Õ¼äÆ«ÒÆ (-1 µ½ 1 µÄ¿Õ¼ä£¬ËùÒÔ³ËÒÔ 2.0 / ·Ö±æÂÊ)
+	// è½¬æ¢ä¸º NDC ç©ºé—´åç§» (-1 åˆ° 1 çš„ç©ºé—´ï¼Œæ‰€ä»¥ä¹˜ä»¥ 2.0 / åˆ†è¾¨ç‡)
 	float deltaX = currentJitter.x * 2.0f / width;
 	float deltaY = currentJitter.y * 2.0f / height;
 
 	mat4 jitteredProjMatrix = originalProj;
-	jitteredProjMatrix[2][0] += deltaX; // OpenGL ¾ØÕóÁĞÖ÷Ğò£¬ĞŞ¸ÄµÚÈıÁĞµÚÒ»ĞĞ
-	jitteredProjMatrix[2][1] += deltaY; // ĞŞ¸ÄµÚÈıÁĞµÚ¶şĞĞ
+	jitteredProjMatrix[2][0] += deltaX; // OpenGL çŸ©é˜µåˆ—ä¸»åºï¼Œä¿®æ”¹ç¬¬ä¸‰åˆ—ç¬¬ä¸€è¡Œ
+	jitteredProjMatrix[2][1] += deltaY; // ä¿®æ”¹ç¬¬ä¸‰åˆ—ç¬¬äºŒè¡Œ
 
 	return jitteredProjMatrix;
 }

@@ -4,7 +4,7 @@
 #include"Scene/Scene.h"
 #include"Panels/Panel.h"
 #include"GLHead.h"
-
+#include<Pipeline/RenderPass.h>
 class ExampleLayer :public BasePanel {
 public:
 public:
@@ -23,9 +23,9 @@ private:
 	Ptr<VertexArray>va;
 	Ptr<VertexBuffer>vb;
 	Ptr<IndexBuffer>ibo;
-	Ptr<Shader>shader;
+	Ref<Shader>shader;
 
-	Ptr<FrameBuffer> framebuffer;
+	Ref<FrameBuffer> framebuffer;
 	Ptr<FrameBuffer> Msaaframebuffer;
 
 	Ptr<FrameBuffer> m_VelocityFrameBuffer;
@@ -35,6 +35,8 @@ private:
 
 
 	vec2 m_ViewPortSize;
+	FrameBufferSpecification m_BaseFboSpec;
+	FrameBufferSpecification m_MsaaFboSpec;
 
 	bool open_Msaa = false;
 	bool rendertow = false;
@@ -43,24 +45,27 @@ private:
 	std::deque<Entity>destory;
 
 	GLFWwindow* m_WindowHandle = nullptr;
+
+
+	Ref<GeometryPass> geometrypass;
+	RenderResources renderResources;
 private:
 	bool m_ViewportFocused = false;
 
 
 
 	bool open_TAA = false;
-	// --- TAA Ïà¹Ø×´Ì¬Óë¾ØÕó ---
+	// --- TAA ï¿½ï¿½ï¿½×´Ì¬ï¿½ï¿½ï¿½ï¿½ï¿½ ---
 	int m_CurrentFrameIndex = 0;
 	int m_FrameCount = 0;
 	mat4 m_PrevViewProjMatrix = mat4(1.0f);
 	mat4 m_UnjitteredProjMatrix = mat4(1.0f);
 
-	// --- È«ÆÁËÄ±ßÐÎ (ÓÃÓÚ TAA ºó´¦Àí) ---
+	// --- È«ï¿½ï¿½ï¿½Ä±ï¿½ï¿½ï¿½ (ï¿½ï¿½ï¿½ï¿½ TAA ï¿½ï¿½ï¿½ï¿½) ---
 	Ptr<VertexArray> m_QuadVA;
 	Ptr<VertexBuffer> m_QuadVB;
 	Ptr<IndexBuffer> m_QuadIB;
 
-	Ptr<Shader> m_VelocityShader;
 	Ptr<Shader> m_TaaShader;
 
 	vec2 GetHaltonJitter(int index);
