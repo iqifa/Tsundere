@@ -55,7 +55,7 @@ unsigned int  Shader::CompileShader(unsigned int type, const string& source)
 		char* message = new char[lenth];
 		glGetShaderInfoLog(id, lenth, &lenth, message);
 		//cout << "Failed to Compile " << (type == GL_VERTEX_SHADER ? "vertex" : "fragment") << "Shader!" << endl;
-		string info = "Failed to Compile " + (string)(type == GL_VERTEX_SHADER ? "vertex" : "fragment") + "Shader!";
+		string info = "Failed to Compile ["+m_Name +"] " + (string)(type == GL_VERTEX_SHADER ? "vertex" : "fragment") + "Shader!";
 		debugerror(info)
 		cout << message << endl;
 		glDeleteShader(id);
