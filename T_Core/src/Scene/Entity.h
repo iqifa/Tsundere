@@ -29,10 +29,10 @@ public:
 		GetComponent<Child>().removeChild(childID);
 	}
 	void changeparent(entt::entity parentID)
-	{	
+	{
 		GetComponent<Parent>().ChangeParent(parentID);
 	}
-	
+
 	void addchildwithchangeparent(entt::entity childID)
 	{
 		addchild(childID);
@@ -70,6 +70,8 @@ public:
 		}
 		prepar.ChangeParent(parentID);
 	}
+
+	void Draw() {}
 
 	template<typename T, typename...Args>
 	T& AddComponent(Args&&...args)

@@ -66,7 +66,7 @@
 			m_Cmp = std::make_unique<CubeMap>(texpaths);
 			m_Cmp->Bind();
 
-			m_Shader = std::make_unique<Shader>("res/shaders/SkyBox.shader");
+			m_Shader = std::make_unique<Shader>("D:\\Code\\C++\\Tsundere\\res/shaders/SkyBox.shader");
 			m_Shader->Bind();
 
 			m_vao = std::make_unique<VertexArray>(36);

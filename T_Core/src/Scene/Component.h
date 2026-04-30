@@ -112,6 +112,14 @@ namespace Component
 	struct MeshRender {
 		std::vector<Ref<Material>> materials;
 	};
+
+	struct DirectionalLight
+	{
+		vec3 Direction = { -0.5f, -1.0f, -0.5f };
+		vec3 Color = { 1.0f, 1.0f, 1.0f };
+		float Intensity = 1.0f;
+		float Ambient = 0.1f;
+	};
 }
 
 #endif // !COMPONENT

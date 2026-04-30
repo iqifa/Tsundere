@@ -80,7 +80,7 @@ ShaderProgramSource Shader::ParseShader(const string& filepath)
 	if (!stream.is_open())
 	{
 		string info = "Failed to open shader file at path: " + filepath;
-		debugerror(info); // Ê¹ÓÃÄãÒıÇæµÄ±¨´íºê´òÓ¡³öÀ´
+		debugerror(info); // ä½¿ç”¨ä½ å¼•æ“çš„æŠ¥é”™å®æ‰“å°å‡ºæ¥
 		// cout << info << endl; 
 		return { "", "" };
 	}
@@ -184,6 +184,11 @@ unsigned int Shader::CreateShader(const string& vertexShader, const string& frag
 void Shader::SetUniform4f(const string& name, float v0, float v1, float v2, float v3)const
 {
 	glUniform4f(GetUniformLocation(name), v0, v1, v2, v3);
+}
+
+void Shader::SetUniform1f(const string& name, float value)const
+{
+	glUniform1f(GetUniformLocation(name), value);
 }
 
 void Shader::SetUniform1i(const string& name, int value)const

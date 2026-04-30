@@ -38,6 +38,7 @@ public:
 
 	//Set Uniforms
 	void SetUniform4f(const std::string& name, float v0, float v1, float v2, float v3) const;
+	void SetUniform1f(const std::string& name, float value) const;
 	void SetUniform1i(const std::string& name, int value) const;
 	void SetUniformMat4f(const std::string& name, const  mat4& mat4)const;
 	void SetUniformVec3(const std::string& name, const vec3& value)const;

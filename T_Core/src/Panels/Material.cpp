@@ -75,10 +75,10 @@ void Material::Render()
 		switch (std::get<1>(value))
 		{
 		case ValueType::INT:ValueChange<int>(std::get<2>(value), std::get<0>(value), shader);break;
-		case ValueType::FLOAT:	  break;
-		case ValueType::DOUBLE:	  break;
-		case ValueType::VEC2:	  break;
-		case ValueType::VEC3:	  break;
+		case ValueType::FLOAT: { float* v = (float*)std::get<0>(value); shader->SetUniform1f(std::get<2>(value), *v); break; }
+		case ValueType::DOUBLE: { float v = (float)*(double*)std::get<0>(value); shader->SetUniform1f(std::get<2>(value), v); break; }
+		case ValueType::VEC2: { vec2* v = (vec2*)std::get<0>(value); shader->SetUniformVec2(std::get<2>(value), *v); break; }
+		case ValueType::VEC3: { vec3* v = (vec3*)std::get<0>(value); shader->SetUniformVec3(std::get<2>(value), *v); break; }
 		case ValueType::TEXTURE:
 			ValueChange<Texture>(std::get<2>(value), std::get<0>(value), shader, count++); break;
 		default:
@@ -100,12 +100,12 @@ void Material::Save()
 		string lable = std::get<2>(var);
 		switch (std::get<1>(var))
 		{
-		case ValueType::INT:	fs << "int" << endl << lable << endl << (int*)value << endl;
-		case ValueType::FLOAT:	fs << "float" << endl << lable << endl << (float*)value << endl;
-		case ValueType::DOUBLE:	fs << "double" << endl << lable << endl << (double*)value << endl;
-		case ValueType::VEC2:	fs << "vec2" << endl << lable << endl << (vec2*)value << endl;
-		case ValueType::VEC3:	fs << "vec3" << endl << lable << endl << (vec3*)value << endl;
-		case ValueType::TEXTURE:fs << "texture" << endl << lable << endl << (Texture*)value << endl;
+		case ValueType::INT:	fs << "int" << endl << lable << endl << *(int*)value << endl; break;
+		case ValueType::FLOAT:	fs << "float" << endl << lable << endl << *(float*)value << endl; break;
+		case ValueType::DOUBLE:	fs << "double" << endl << lable << endl << *(double*)value << endl; break;
+		case ValueType::VEC2: { vec2* v = (vec2*)value; fs << "vec2" << endl << lable << endl << v->x << " " << v->y << endl; break; }
+		case ValueType::VEC3: { vec3* v = (vec3*)value; fs << "vec3" << endl << lable << endl << v->x << " " << v->y << " " << v->z << endl; break; }
+		case ValueType::TEXTURE:{ Texture* t = (Texture*)value; fs << "texture" << endl << lable << endl << t->GetPath() << endl; break; }
 		case ValueType::HEADER:
 		default:
 			break;

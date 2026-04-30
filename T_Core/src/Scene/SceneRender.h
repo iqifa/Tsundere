@@ -4,10 +4,11 @@
 
 #include"HeadLine.h"
 #include"Scene.h"
+#include"Pipeline/RenderPass.h"
 
 
 
-class  SceneRender
+class  T_API SceneRender
 {
 public:
 	SceneRender(const Ref<Scene>& Scene)
@@ -20,26 +21,36 @@ public:
 	{
 		m_Context = Scene;
 	}
+
+
+	void AddPass(Ref<RenderPass> pass){
+		pass->Init();
+		m_Passes.push_back(pass);
+	}
+
 	void OnRender() {
-		if (m_Context)
-			//DPI has Deprecated ,can refer https://github.com/skypjack/entt/issues/1116
-			//m_Context->m_Registry.each([&](auto entityID)
-			//	{
-			//		Entity entity{ m_Context.get(),entityID };
-			//		if (entity.HasComponent<MeshFile>() && entity.HasComponent<Material>())
-			//			entity.Draw();
-			//	});
-			for (auto entityID : m_Context->m_Registry.view<entt::entity>())
-			{
-				Entity entity{ m_Context.get(),entityID };
-				if (entity.HasComponent<MeshFile>() && entity.HasComponent<Material>())
-					entity.Draw();
-			}
+		if (!m_Context) return;
+
+		unsigned int currentInputTexture = 0;
+
+		for (size_t i = 0; i < m_Passes.size(); i++) {
+			Ref<FrameBuffer> targetFBO = GetNextFrameBuffer();
+			targetFBO->Bind();
+			Renderer::Clear();
+
+			m_Passes[i]->Execute(m_Context, currentInputTexture, targetFBO);
+
+			targetFBO->UnBind();
+
+			currentInputTexture = targetFBO->GetClolorAttachmentRenderID();
+		}
+		PresentToScreen(currentInputTexture);
 	}
 
 private:
 
 	Ref<Scene> m_Context;
 	friend class Scene;
+	std::vector<Ref<RenderPass>>m_Passes;
 };
 #endif
