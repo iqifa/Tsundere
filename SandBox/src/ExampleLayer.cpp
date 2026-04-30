@@ -61,10 +61,6 @@ ExampleLayer::ExampleLayer(Ref<Scene>scene, std::string name) : BasePanel(name)
 	shader = CreatePtr<Shader>("D:/Code/C++/Tsundere/res/shaders/Basic.shader");
 
 	
-	
-
-	proj = ortho(0.0f, 1080.0f, 0.0f, 960.0f, -1.0f, 1.0f);
-	view = translate(mat4(1.0f), vec3(-100, 0, 0));
 
 	m_BaseFboSpec = { 1080, 960, 1 };
 	m_MsaaFboSpec = { 1080, 960, 16 };
@@ -75,25 +71,9 @@ ExampleLayer::ExampleLayer(Ref<Scene>scene, std::string name) : BasePanel(name)
 	geometrypass = CreateRef<GeometryPass>();
 	geometrypass->Init(framebuffer);
 
+	taaPass = CreateRef<TAAPass>();
+	taaPass->Init(framebuffer);
 
-
-	// --- 初始化全屏四边形用于后处理 ---
-	float quadVertices[] = {
-		// pos         // tex
-		-1.0f,  1.0f,  0.0f, 1.0f,
-		-1.0f, -1.0f,  0.0f, 0.0f,
-		 1.0f, -1.0f,  1.0f, 0.0f,
-		 1.0f,  1.0f,  1.0f, 1.0f
-	};
-	unsigned int quadIndices[] = { 0, 1, 2, 2, 3, 0 };
-	m_QuadVA = CreatePtr<VertexArray>(4);
-	m_QuadVB = CreatePtr<VertexBuffer>(quadVertices, sizeof(quadVertices));
-	m_QuadIB = CreatePtr<IndexBuffer>(quadIndices, 6);
-	VertexBufferLayout quadLayout;
-	quadLayout.Push<float>(2); // pos
-	quadLayout.Push<float>(2); // tex
-	m_QuadVA->AddBuffer(*m_QuadVB, quadLayout);
-	m_TaaShader = CreatePtr<Shader>("D:\\Code\\C++\\Tsundere\\res\\shaders\\TAA.shader");
 
 
 	std::vector<std::string> texpaths{
@@ -105,6 +85,10 @@ ExampleLayer::ExampleLayer(Ref<Scene>scene, std::string name) : BasePanel(name)
 		"D:\\Code\\C++\\Tsundere\\res/texture/CubeMap/back.jpg"
 	};
 	currentcamera->skybox = CreateRef<SkyBox>(texpaths);
+
+	// Create default directional light
+	auto lightEntity = scene->CreateEntity("Directional Light");
+	lightEntity.AddComponent<Component::DirectionalLight>();
 
 }
 
@@ -127,15 +111,6 @@ void ExampleLayer::OnUpdate()
 	else
 		framebuffer->Bind();
 
-	view = currentcamera->GetViewFront();
-
-	proj = currentcamera->GetProj();
-	mat4 currentViewProj = proj * view;
-
-	if (open_TAA)
-		proj = Jittering(proj, m_ViewPortSize.x, m_ViewPortSize.y);
-
-	model = scale(mat4(1.0f), vec3(1.0f, 2.0f, 1.0f));
 	renderer.Clear();
 	{
 		if (m_ViewportFocused)
@@ -144,7 +119,7 @@ void ExampleLayer::OnUpdate()
 
 		geometrypass->Execute(m_Context, renderResources);
 	}
-	if (open_Msaa && !open_TAA)
+	if (open_Msaa)
 	{
 		glBindFramebuffer(GL_READ_FRAMEBUFFER, Msaaframebuffer->GetFrameID());
 		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer->GetFrameID());
@@ -156,86 +131,26 @@ void ExampleLayer::OnUpdate()
 	else
 		framebuffer->UnBind();
 
-	// TAA 按需创建与执行
-	if (open_TAA)
-	{
-		if (!m_TaaFrameBuffers[0])
-		{
-			m_TaaFrameBuffers[0] = CreatePtr<FrameBuffer>(m_BaseFboSpec);
-			m_TaaFrameBuffers[1] = CreatePtr<FrameBuffer>(m_BaseFboSpec);
-		}
-		if (!m_PrevDepthFrameBuffer)
-			m_PrevDepthFrameBuffer = CreatePtr<FrameBuffer>(m_BaseFboSpec);
+	renderResources.SourceFBO = framebuffer->GetFrameID();
 
-		int nextFrameIndex = (m_CurrentFrameIndex + 1) % 2;
-		m_TaaFrameBuffers[nextFrameIndex]->Bind();
-		glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-		if (m_TaaShader)
-		{
-			m_TaaShader->Bind();
-
-			glActiveTexture(GL_TEXTURE0);
-			glBindTexture(GL_TEXTURE_2D, framebuffer->GetClolorAttachmentRenderID());
-			m_TaaShader->SetUniform1i("u_CurrentColor", 0);
-
-			glActiveTexture(GL_TEXTURE1);
-			glBindTexture(GL_TEXTURE_2D, m_TaaFrameBuffers[m_CurrentFrameIndex]->GetClolorAttachmentRenderID());
-			m_TaaShader->SetUniform1i("u_HistoryColor", 1);
-
-			glActiveTexture(GL_TEXTURE2);
-			glBindTexture(GL_TEXTURE_2D, renderResources.VelocityTexture);
-			m_TaaShader->SetUniform1i("u_VelocityTex", 2);
-
-			glActiveTexture(GL_TEXTURE3);
-			glBindTexture(GL_TEXTURE_2D, framebuffer->GetDepthAttachmentRenderID());
-			m_TaaShader->SetUniform1i("u_DepthTex", 3);
-
-			glActiveTexture(GL_TEXTURE4);
-			glBindTexture(GL_TEXTURE_2D, m_PrevDepthFrameBuffer->GetDepthAttachmentRenderID());
-			m_TaaShader->SetUniform1i("u_HistoryDepthTex", 4);
-
-			m_TaaShader->SetUniformMat4f("u_InverseViewProj", glm::inverse(currentViewProj));
-			m_TaaShader->SetUniformMat4f("u_PrevViewProj", m_PrevViewProjMatrix);
-
-			int jitterIndex = m_FrameCount % 16;
-			vec2 currentJitter = GetHaltonJitter(jitterIndex);
-			vec2 jitterUV = vec2(currentJitter.x / m_ViewPortSize.x, currentJitter.y / m_ViewPortSize.y);
-			m_TaaShader->SetUniformVec2("u_JitterUV", { jitterUV.x, jitterUV.y });
-
-			renderer.DrawElement(*m_QuadVA, *m_QuadIB, *m_TaaShader);
-		}
-		m_TaaFrameBuffers[nextFrameIndex]->UnBind();
-
-		glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer->GetFrameID());
-		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_PrevDepthFrameBuffer->GetFrameID());
-		glBlitFramebuffer(0, 0, m_ViewPortSize.x, m_ViewPortSize.y,
-			0, 0, m_ViewPortSize.x, m_ViewPortSize.y,
-			GL_DEPTH_BUFFER_BIT, GL_NEAREST);
-		glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
-		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-
-		m_PrevViewProjMatrix = currentViewProj;
-		m_CurrentFrameIndex = nextFrameIndex;
-		m_FrameCount++;
-	}
-	else
-	{
-		m_TaaFrameBuffers[0].reset();
-		m_TaaFrameBuffers[1].reset();
-		m_PrevDepthFrameBuffer.reset();
-	}
+	// TAA Pass
+	if (taaPass)
+		taaPass->Execute(m_Context, renderResources);
 }
 
 void ExampleLayer::OnImGuiRender()
 {
 	ShowDockSpace();
-	ImGui::Begin(m_HeadTitle.c_str());
+
+	ImGui::Begin("State");
 	ImGui::Checkbox("OpenMsaa?", &open_Msaa);
-	ImGui::Checkbox("OpenTaa?", &open_TAA);
+	ImGui::Checkbox("TAA?", &taaPass->Enabled);
 	ImGui::Checkbox("Jitter?", &geometrypass->EnableJitter);
 	ImGui::Checkbox("rendew?", &rendertow);
+	ImGui::End();
+
+	ImGui::Begin(m_HeadTitle.c_str());
+	
 	if (ImGui::IsMouseDown(0) && ImGui::IsWindowHovered())
 		m_SelectedContext = null;
 
@@ -315,15 +230,12 @@ void ExampleLayer::OnImGuiRender()
 		m_MsaaFboSpec.Height = m_ViewPortSize.y;
 		framebuffer->Rsetsize(m_ViewPortSize);
 		if (Msaaframebuffer) Msaaframebuffer->Rsetsize(m_ViewPortSize);
-		if (m_TaaFrameBuffers[0]) m_TaaFrameBuffers[0]->Rsetsize(m_ViewPortSize);
-		if (m_TaaFrameBuffers[1]) m_TaaFrameBuffers[1]->Rsetsize(m_ViewPortSize);
+		if (taaPass) taaPass->OnResize(m_ViewPortSize.x, m_ViewPortSize.y);
+		currentcamera->SetAspect(m_ViewPortSize.x, m_ViewPortSize.y);
 	}
 
 
-	if(open_TAA && m_TaaFrameBuffers[m_CurrentFrameIndex])
-		ImGui::Image((ImTextureID)(uintptr_t)m_TaaFrameBuffers[m_CurrentFrameIndex]->GetClolorAttachmentRenderID(), ImVec2(m_ViewPortSize.x, m_ViewPortSize.y), ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
-	else
-		ImGui::Image((ImTextureID)(uintptr_t)renderResources.SceneColorTexture, ImVec2(m_ViewPortSize.x, m_ViewPortSize.y), ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
+	ImGui::Image((ImTextureID)(uintptr_t)renderResources.SceneColorTexture, ImVec2(m_ViewPortSize.x, m_ViewPortSize.y), ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
 	
 	ImGui::End();
 	ImGui::PopStyleVar();
@@ -385,39 +297,4 @@ void ExampleLayer::DrawEntityNode(Entity entity)
 }
 
 
-vec2 ExampleLayer::GetHaltonJitter(int index)
-{
-	// 计算 Halton 序列 (Base 2 和 Base 3)
-	auto halton = [](int index, int base) -> float {
-		float f = 1.0f;
-		float r = 0.0f;
-		int current = index;
-		while (current > 0) {
-			f = f / base;
-			r = r + f * (current % base);
-			current = current / base;
-		}
-		return r;
-		};
-
-	// 返回映射到 [-0.5, 0.5] 的偏移
-	return vec2(halton(index + 1, 2) - 0.5f, halton(index + 1, 3) - 0.5f);
-}
-
-mat4 ExampleLayer::Jittering(const mat4& originalProj, float width, float height)
-{
-	// 采用 16 相位的 Halton 序列
-	int jitterIndex = m_FrameCount % 16;
-	vec2 currentJitter = GetHaltonJitter(jitterIndex);
-
-	// 转换为 NDC 空间偏移 (-1 到 1 的空间，所以乘以 2.0 / 分辨率)
-	float deltaX = currentJitter.x * 2.0f / width;
-	float deltaY = currentJitter.y * 2.0f / height;
-
-	mat4 jitteredProjMatrix = originalProj;
-	jitteredProjMatrix[2][0] += deltaX; // OpenGL 矩阵列主序，修改第三列第一行
-	jitteredProjMatrix[2][1] += deltaY; // 修改第三列第二行
-
-	return jitteredProjMatrix;
-}
 #endif // Drop
