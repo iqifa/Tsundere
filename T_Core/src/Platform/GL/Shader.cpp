@@ -133,7 +133,13 @@ ShaderProgramSource Shader::ParseShader(const string& filepath)
 				index = endpos;
 				while (line[index] == ' ')
 					index++;
-				type[1] = line.substr(index, line.length()-index-1);
+				std::string rawName = line.substr(index, line.length() - index);
+				size_t semiPos = rawName.find(';');
+				if (semiPos != std::string::npos)
+					rawName = rawName.substr(0, semiPos);
+				while (!rawName.empty() && rawName.back() == ' ')
+					rawName.pop_back();
+				type[1] = rawName;
 
 				uniform.push_back({ type[1],type[0] });
 			}

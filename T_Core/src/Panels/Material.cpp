@@ -89,10 +89,12 @@ void Material::Render()
 
 void Material::Save()
 {
-	string filepath;
-
+	if (m_FilePath.empty()) {
+		debugwarring("Material::Save: no filepath set");
+		return;
+	}
 	fstream fs;
-	fs.open(filepath, ios::out);
+	fs.open(m_FilePath, ios::out);
 	fs << shader->GetPath() << endl;
 	for (auto var : varies)
 	{

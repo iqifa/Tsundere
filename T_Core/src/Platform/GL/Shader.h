@@ -56,7 +56,7 @@ private:
 	int GetUniformLocation(const std::string& name)const;
 
 };
-class ShaderLibiray {
+class T_API ShaderLibiray {
 public:
 
 	static void Add(const Ref<Shader>& shader);

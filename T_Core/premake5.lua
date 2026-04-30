@@ -12,7 +12,7 @@ project "T_Core"
         "src/**.cpp",
         "vender/**.**"
     }
-    removefiles{"src/Test/**.*","src/GL.cpp"}
+    removefiles{"src/Test/**.*","src/GL.cpp","*.cppm"}
 
     includedirs
     {

@@ -10,8 +10,9 @@ vector<string> ModlePaths = {
 	"D:/Download/Test/build/Build.fbx",
 	"D:/Download/Test/build/Build.obj",
 };
-vector<string> ShaderPaths
+static vector<string> ShaderPaths
 {
+	"D:/Code/C++/Tsundere/res/shaders/Lit.shader",
 	"res/shaders/default.shader",
 	"res/shaders/Basic.shader",
 	"res/shaders/Modle.shader",
@@ -19,6 +20,9 @@ vector<string> ShaderPaths
 	"res/shaders/Test.shader",
 	"res/shaders/StoneShader.shader",
 };
-SceneRender sr;
 unordered_map<string, Ref<Model>> My_map::m_ModleMap;
 unordered_map<string, Ref<Shader>> My_map::m_ShaderMap;
+
+const std::vector<std::string>& My_map::GetShaderPaths() {
+	return ShaderPaths;
+}

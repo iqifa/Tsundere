@@ -8,31 +8,31 @@ class  FrameBuffer;
 
 struct  RenderResources
 {
-    unsigned int SceneColorTexture = 0; // 上一阶段输出的场景颜色
-    unsigned int VelocityTexture = 0;   // 上一阶段输出的运动矢量缓存 (Motion Vectors)
-    unsigned int DepthTexture = 0;      // 深度图
+	unsigned int SceneColorTexture = 0; // 上一阶段输出的场景颜色
+	unsigned int VelocityTexture = 0;   // 上一阶段输出的运动矢量缓存 (Motion Vectors)
+	unsigned int DepthTexture = 0;      // 深度图
 
-    // 渲染目标尺寸
-    unsigned int SourceFBO = 0;        // 几何 Pass 的主 FBO（用于深度拷贝）
+	// 渲染目标尺寸
+	unsigned int SourceFBO = 0;        // 几何 Pass 的主 FBO（用于深度拷贝）
 };
 
 class  RenderPass
 {
 public:
-    virtual ~RenderPass() = default;
+	virtual ~RenderPass() = default;
 
-    virtual void Init(Ref<FrameBuffer>& m_GBuffer) {}
+	virtual void Init(Ref<FrameBuffer>& m_GBuffer) {}
 
-    virtual void Execute(Ref<Scene> scene, RenderResources& resources) = 0;
+	virtual void Execute(Ref<Scene> scene, RenderResources& resources) = 0;
 };
 
 class  GeometryPass : public RenderPass
 {
-    Ref<FrameBuffer> m_GBuffer;
+	Ref<FrameBuffer> m_GBuffer;
 
 	int m_FrameCount = 0;
 	unsigned int m_VelocityAttachment;
-		unsigned int m_DefaultTex = 0;
+	unsigned int m_DefaultTex = 0;
 	mat4 m_PrevViewProjMatrix = mat4(1.0f);
 
 	Ptr<VertexArray>va;
@@ -42,7 +42,7 @@ class  GeometryPass : public RenderPass
 
 
 public:
-    bool EnableJitter = true;
+	bool EnableJitter = true;
 
 	void Execute(Ref<Scene> scene, RenderResources& resources) override {
 		mat4 view = currentcamera->GetViewFront();
@@ -51,8 +51,6 @@ public:
 
 		if (EnableJitter)
 			proj = Jittering(proj, m_GBuffer->GetSpecification().Width, m_GBuffer->GetSpecification().Height);
-
-		shader->Bind();
 
 		vec3 lightDir = vec3(-0.5f, -1.0f, -0.5f);
 		vec3 lightColor = vec3(1.0f);
@@ -67,33 +65,55 @@ public:
 			break;
 		}
 
-		shader->SetUniformVec3("lightDir", lightDir);
-		shader->SetUniformVec3("lightColor", lightColor);
-		shader->SetUniform1f("ambientStrength", ambientStrength);
-		shader->SetUniformVec3("viewPos", viewPos);
-		shader->SetUniformMat4f("viewProj", currentViewProj);
-		shader->SetUniformMat4f("prevViewProj", m_PrevViewProjMatrix);
-
 		Renderer renderer;
 		bool drewSomething = false;
 
-		/*for (auto entityID : scene->m_Registry.view<Component::Transform, Component::MeshRender>())
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, m_DefaultTex);
+
+		for (auto [entityID, transform, meshrender] : scene->m_Registry.view<Component::Transform, Component::MeshRender>().each())
 		{
-			auto& transform = scene->m_Registry.get<Component::Transform>(entityID);
+			if (meshrender.materials.empty())
+				continue;
+
 			mat4 model = transform.GetTransform();
 			mat4 mvp = proj * view * model;
 
-			shader->SetUniformMat4f("MVP_matrix", mvp);
-			shader->SetUniformMat4f("model", model);
-			shader->SetUniformMat4f("prevModel", model);
-			shader->SetUniform1i("hasNormalMap", 0);
+			Ref<Material> mat = meshrender.materials[0];
 
-			renderer.DrawElement(*va, *ibo, *(this->shader));
-			drewSomething = true;
-		}*/
+			mat->Render();
+			//mat->shader->SetUniformMat4f("MVP_matrix", mvp);
+			//mat->shader->SetUniformMat4f("model", model);
+			//mat->shader->SetUniformMat4f("prevModel", model);
+			//mat->shader->SetUniformMat4f("viewProj", currentViewProj);
+			//mat->shader->SetUniformMat4f("prevViewProj", m_PrevViewProjMatrix);
+
+			//mat->shader->SetUniformVec3("lightDir", lightDir);
+			//mat->shader->SetUniformVec3("lightColor", lightColor);
+			//mat->shader->SetUniform1f("ambientStrength", ambientStrength);
+			//mat->shader->SetUniformVec3("viewPos", viewPos);
+			//mat->shader->SetUniform1i("hasNormalMap", 0);
+
+			mat->shader->SetUniformMat4f("viewProj", currentViewProj);
+			mat->shader->SetUniformMat4f("prevViewProj", m_PrevViewProjMatrix);
+			mat->shader->SetUniformVec3("lightDir", lightDir);
+			//mat->shader->SetUniformVec3("lightColor", lightColor);
+			mat->shader->SetUniform1f("ambientStrength", ambientStrength);
+			mat->shader->SetUniformVec3("viewPos", viewPos);
+
+			renderer.DrawElement(*va, *ibo, *(mat->shader));
+		}
 
 		if (!drewSomething)
 		{
+			shader->Bind();
+			shader->SetUniformMat4f("viewProj", currentViewProj);
+			shader->SetUniformMat4f("prevViewProj", m_PrevViewProjMatrix);
+			shader->SetUniformVec3("lightDir", lightDir);
+			shader->SetUniformVec3("lightColor", lightColor);
+			shader->SetUniform1f("ambientStrength", ambientStrength);
+			shader->SetUniformVec3("viewPos", viewPos);
+
 			glActiveTexture(GL_TEXTURE0);
 			glBindTexture(GL_TEXTURE_2D, m_DefaultTex);
 			glActiveTexture(GL_TEXTURE1);
@@ -110,68 +130,69 @@ public:
 
 		m_PrevViewProjMatrix = currentViewProj;
 		m_FrameCount++;
-	    resources.SceneColorTexture = m_GBuffer->GetClolorAttachmentRenderID();
-	    resources.VelocityTexture = m_VelocityAttachment;
-	    resources.DepthTexture = m_GBuffer->GetDepthAttachmentRenderID();
-	    }
+		resources.SceneColorTexture = m_GBuffer->GetClolorAttachmentRenderID();
+		resources.VelocityTexture = m_VelocityAttachment;
+		resources.DepthTexture = m_GBuffer->GetDepthAttachmentRenderID();
+	}
+
 	void Init(Ref<FrameBuffer>& m_GBuffer)override {
 		this->m_GBuffer = m_GBuffer;
-        glGenTextures(1, &m_VelocityAttachment);
+		glGenTextures(1, &m_VelocityAttachment);
 
-        glBindTexture(GL_TEXTURE_2D, m_VelocityAttachment);
+		glBindTexture(GL_TEXTURE_2D, m_VelocityAttachment);
 
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, m_GBuffer->GetSpecification().Width, m_GBuffer->GetSpecification().Height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, m_GBuffer->GetSpecification().Width, m_GBuffer->GetSpecification().Height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
 
 
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, m_VelocityAttachment, 0);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, m_VelocityAttachment, 0);
 
 
 		float position[] =
 		{
-		// Front face  (z=-0.5) normal(0,0,-1) tangent(1,0,0) bitangent(0,1,0)
-		-0.5f,-0.5f,-0.5f,  0,0,-1,  0,0,  1,0,0,  0,1,0,
-		 0.5f,-0.5f,-0.5f,  0,0,-1,  1,0,  1,0,0,  0,1,0,
-		 0.5f, 0.5f,-0.5f,  0,0,-1,  1,1,  1,0,0,  0,1,0,
-		 0.5f, 0.5f,-0.5f,  0,0,-1,  1,1,  1,0,0,  0,1,0,
-		-0.5f, 0.5f,-0.5f,  0,0,-1,  0,1,  1,0,0,  0,1,0,
-		-0.5f,-0.5f,-0.5f,  0,0,-1,  0,0,  1,0,0,  0,1,0,
-		// Back face   (z= 0.5) normal(0,0,1) tangent(-1,0,0) bitangent(0,1,0)
-		 0.5f,-0.5f, 0.5f,  0,0,1,  0,0,  -1,0,0,  0,1,0,
-		-0.5f,-0.5f, 0.5f,  0,0,1,  1,0,  -1,0,0,  0,1,0,
-		-0.5f, 0.5f, 0.5f,  0,0,1,  1,1,  -1,0,0,  0,1,0,
-		-0.5f, 0.5f, 0.5f,  0,0,1,  1,1,  -1,0,0,  0,1,0,
-		 0.5f, 0.5f, 0.5f,  0,0,1,  0,1,  -1,0,0,  0,1,0,
-		 0.5f,-0.5f, 0.5f,  0,0,1,  0,0,  -1,0,0,  0,1,0,
-		// Left face   (x=-0.5) normal(-1,0,0) tangent(0,0,1) bitangent(0,1,0)
-		-0.5f,-0.5f, 0.5f,  -1,0,0,  0,0,  0,0,1,  0,1,0,
-		-0.5f,-0.5f,-0.5f,  -1,0,0,  1,0,  0,0,1,  0,1,0,
-		-0.5f, 0.5f,-0.5f,  -1,0,0,  1,1,  0,0,1,  0,1,0,
-		-0.5f, 0.5f,-0.5f,  -1,0,0,  1,1,  0,0,1,  0,1,0,
-		-0.5f, 0.5f, 0.5f,  -1,0,0,  0,1,  0,0,1,  0,1,0,
-		-0.5f,-0.5f, 0.5f,  -1,0,0,  0,0,  0,0,1,  0,1,0,
-		// Right face  (x= 0.5) normal(1,0,0) tangent(0,0,-1) bitangent(0,1,0)
-		 0.5f,-0.5f,-0.5f,  1,0,0,  0,0,  0,0,-1,  0,1,0,
-		 0.5f,-0.5f, 0.5f,  1,0,0,  1,0,  0,0,-1,  0,1,0,
-		 0.5f, 0.5f, 0.5f,  1,0,0,  1,1,  0,0,-1,  0,1,0,
-		 0.5f, 0.5f, 0.5f,  1,0,0,  1,1,  0,0,-1,  0,1,0,
-		 0.5f, 0.5f,-0.5f,  1,0,0,  0,1,  0,0,-1,  0,1,0,
-		 0.5f,-0.5f,-0.5f,  1,0,0,  0,0,  0,0,-1,  0,1,0,
-		// Top face    (y= 0.5) normal(0,1,0) tangent(1,0,0) bitangent(0,0,-1)
-		-0.5f, 0.5f,-0.5f,  0,1,0,  0,0,  1,0,0,  0,0,-1,
-		 0.5f, 0.5f,-0.5f,  0,1,0,  1,0,  1,0,0,  0,0,-1,
-		 0.5f, 0.5f, 0.5f,  0,1,0,  1,1,  1,0,0,  0,0,-1,
-		 0.5f, 0.5f, 0.5f,  0,1,0,  1,1,  1,0,0,  0,0,-1,
-		-0.5f, 0.5f, 0.5f,  0,1,0,  0,1,  1,0,0,  0,0,-1,
-		-0.5f, 0.5f,-0.5f,  0,1,0,  0,0,  1,0,0,  0,0,-1,
-		// Bottom face (y=-0.5) normal(0,-1,0) tangent(1,0,0) bitangent(0,0,1)
-		-0.5f,-0.5f, 0.5f,  0,-1,0,  0,0,  1,0,0,  0,0,1,
-		 0.5f,-0.5f, 0.5f,  0,-1,0,  1,0,  1,0,0,  0,0,1,
-		 0.5f,-0.5f,-0.5f,  0,-1,0,  1,1,  1,0,0,  0,0,1,
-		 0.5f,-0.5f,-0.5f,  0,-1,0,  1,1,  1,0,0,  0,0,1,
-		-0.5f,-0.5f,-0.5f,  0,-1,0,  0,1,  1,0,0,  0,0,1,
-		-0.5f,-0.5f, 0.5f,  0,-1,0,  0,0,  1,0,0,  0,0,1
+			// Front face  (z=-0.5) normal(0,0,-1) tangent(1,0,0) bitangent(0,1,0)
+			-0.5f,-0.5f,-0.5f,  0,0,-1,  0,0,  1,0,0,  0,1,0,
+			 0.5f,-0.5f,-0.5f,  0,0,-1,  1,0,  1,0,0,  0,1,0,
+			 0.5f, 0.5f,-0.5f,  0,0,-1,  1,1,  1,0,0,  0,1,0,
+			 0.5f, 0.5f,-0.5f,  0,0,-1,  1,1,  1,0,0,  0,1,0,
+			-0.5f, 0.5f,-0.5f,  0,0,-1,  0,1,  1,0,0,  0,1,0,
+			-0.5f,-0.5f,-0.5f,  0,0,-1,  0,0,  1,0,0,  0,1,0,
+			// Back face   (z= 0.5) normal(0,0,1) tangent(-1,0,0) bitangent(0,1,0)
+			 0.5f,-0.5f, 0.5f,  0,0,1,  0,0,  -1,0,0,  0,1,0,
+			-0.5f,-0.5f, 0.5f,  0,0,1,  1,0,  -1,0,0,  0,1,0,
+			-0.5f, 0.5f, 0.5f,  0,0,1,  1,1,  -1,0,0,  0,1,0,
+			-0.5f, 0.5f, 0.5f,  0,0,1,  1,1,  -1,0,0,  0,1,0,
+			 0.5f, 0.5f, 0.5f,  0,0,1,  0,1,  -1,0,0,  0,1,0,
+			 0.5f,-0.5f, 0.5f,  0,0,1,  0,0,  -1,0,0,  0,1,0,
+			 // Left face   (x=-0.5) normal(-1,0,0) tangent(0,0,1) bitangent(0,1,0)
+			 -0.5f,-0.5f, 0.5f,  -1,0,0,  0,0,  0,0,1,  0,1,0,
+			 -0.5f,-0.5f,-0.5f,  -1,0,0,  1,0,  0,0,1,  0,1,0,
+			 -0.5f, 0.5f,-0.5f,  -1,0,0,  1,1,  0,0,1,  0,1,0,
+			 -0.5f, 0.5f,-0.5f,  -1,0,0,  1,1,  0,0,1,  0,1,0,
+			 -0.5f, 0.5f, 0.5f,  -1,0,0,  0,1,  0,0,1,  0,1,0,
+			 -0.5f,-0.5f, 0.5f,  -1,0,0,  0,0,  0,0,1,  0,1,0,
+			 // Right face  (x= 0.5) normal(1,0,0) tangent(0,0,-1) bitangent(0,1,0)
+			  0.5f,-0.5f,-0.5f,  1,0,0,  0,0,  0,0,-1,  0,1,0,
+			  0.5f,-0.5f, 0.5f,  1,0,0,  1,0,  0,0,-1,  0,1,0,
+			  0.5f, 0.5f, 0.5f,  1,0,0,  1,1,  0,0,-1,  0,1,0,
+			  0.5f, 0.5f, 0.5f,  1,0,0,  1,1,  0,0,-1,  0,1,0,
+			  0.5f, 0.5f,-0.5f,  1,0,0,  0,1,  0,0,-1,  0,1,0,
+			  0.5f,-0.5f,-0.5f,  1,0,0,  0,0,  0,0,-1,  0,1,0,
+			  // Top face    (y= 0.5) normal(0,1,0) tangent(1,0,0) bitangent(0,0,-1)
+			  -0.5f, 0.5f,-0.5f,  0,1,0,  0,0,  1,0,0,  0,0,-1,
+			   0.5f, 0.5f,-0.5f,  0,1,0,  1,0,  1,0,0,  0,0,-1,
+			   0.5f, 0.5f, 0.5f,  0,1,0,  1,1,  1,0,0,  0,0,-1,
+			   0.5f, 0.5f, 0.5f,  0,1,0,  1,1,  1,0,0,  0,0,-1,
+			  -0.5f, 0.5f, 0.5f,  0,1,0,  0,1,  1,0,0,  0,0,-1,
+			  -0.5f, 0.5f,-0.5f,  0,1,0,  0,0,  1,0,0,  0,0,-1,
+			  // Bottom face (y=-0.5) normal(0,-1,0) tangent(1,0,0) bitangent(0,0,1)
+			  -0.5f,-0.5f, 0.5f,  0,-1,0,  0,0,  1,0,0,  0,0,1,
+			   0.5f,-0.5f, 0.5f,  0,-1,0,  1,0,  1,0,0,  0,0,1,
+			   0.5f,-0.5f,-0.5f,  0,-1,0,  1,1,  1,0,0,  0,0,1,
+			   0.5f,-0.5f,-0.5f,  0,-1,0,  1,1,  1,0,0,  0,0,1,
+			  -0.5f,-0.5f,-0.5f,  0,-1,0,  0,1,  1,0,0,  0,0,1,
+			  -0.5f,-0.5f, 0.5f,  0,-1,0,  0,0,  1,0,0,  0,0,1
 		};
 
 		unsigned int indices[] = {
@@ -197,13 +218,13 @@ public:
 
 		shader = CreatePtr<Shader>("D:/Code/C++/Tsundere/res/shaders/Lit.shader");
 
-	        unsigned char white[4] = { 255, 255, 255, 255 };
-	        glGenTextures(1, &m_DefaultTex);
-	        glBindTexture(GL_TEXTURE_2D, m_DefaultTex);
-	        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, white);
-	        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    }
+		unsigned char white[4] = { 255, 255, 255, 255 };
+		glGenTextures(1, &m_DefaultTex);
+		glBindTexture(GL_TEXTURE_2D, m_DefaultTex);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, white);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	}
 
 	mat4 Jittering(const mat4& originalProj, float width, float height)
 	{

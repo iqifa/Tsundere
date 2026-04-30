@@ -13,18 +13,37 @@ enum class ValueType {
 
 
 
-class Material
+class T_API Material
 {
 public:
 	Ref<Shader> shader;
-	int shaderindex = -1;
+	int shaderindex = 0;
 	Texture texture;
-	Material(const Material&) = default;
+	std::string m_FilePath;
+	Material(const Material& other) : shader(other.shader), shaderindex(other.shaderindex), texture(other.texture), m_FilePath(other.m_FilePath) {
+		for (auto& var : other.varies) {
+			unsigned int oldPtr = std::get<0>(var);
+			ValueType type = std::get<1>(var);
+			std::string name = std::get<2>(var);
+			switch (type) {
+			case ValueType::INT:    { int* v = new int(*(int*)oldPtr); varies.push_back({ (unsigned int)v, type, name }); break; }
+			case ValueType::FLOAT:  { float* v = new float(*(float*)oldPtr); varies.push_back({ (unsigned int)v, type, name }); break; }
+			case ValueType::DOUBLE: { double* v = new double(*(double*)oldPtr); varies.push_back({ (unsigned int)v, type, name }); break; }
+			case ValueType::CHAR:   { char* v = new char(*(char*)oldPtr); varies.push_back({ (unsigned int)v, type, name }); break; }
+			case ValueType::VEC2:   { vec2* v = new vec2(*(vec2*)oldPtr); varies.push_back({ (unsigned int)v, type, name }); break; }
+			case ValueType::VEC3:   { vec3* v = new vec3(*(vec3*)oldPtr); varies.push_back({ (unsigned int)v, type, name }); break; }
+			case ValueType::TEXTURE:{ Texture* v = new Texture(*(Texture*)oldPtr); varies.push_back({ (unsigned int)v, type, name }); break; }
+			case ValueType::HEADER: varies.push_back({ 0, type, name }); break;
+			default: break;
+			}
+		}
+	}
 	Material(const Ref<Shader>&shader) :shader(shader) {}
 	Material(const Ref<Shader>&shader, const Texture & texture) :shader(shader), texture(texture) {}
-	Material(const std::string & path = "res/shaders/default.sahder")
+	Material(const std::string & path = "res/shaders/default.shader")
 	{
-		//shader = CreateRef<Shader>(path);
+		m_FilePath = path + ".mat";
+			m_FilePath = path + ".mat";
 		shader = ShaderLibiray::Get(path);
 		InitVaires();
 		

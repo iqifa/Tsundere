@@ -6,7 +6,7 @@
 using namespace glm;
 namespace Widget {
 	template<class T>
-	class __declspec(dllexport) Input :public Widget
+	class  Input :public Widget
 	{
 	public:
 		Input(std::string lable, unsigned int value) :Name(lable), value(value),Lable("##"+ lable) {

@@ -25,7 +25,7 @@ public:
 	void Setz(float z);
 	void SetPos(vec3 Pos);
 	void SetTarget(vec3 Target);
-
+	void SetAspect(float w, float h) { m_AspectRatio = w / h; }
 
 	float getx();
 	float gety();
@@ -37,7 +37,7 @@ public:
 	void GLPrecessInput(GLFWwindow* window,float speed);
 	void GLMouseInput(float xoffset, float yoffset, GLboolean constrainPitch);
 	void GLScrollInput(float xoffset, float yoffset);
-	
+	float m_AspectRatio = 1.125f;
 	void RenderSkyBox();
 private:
 	vec3 cameraPos;

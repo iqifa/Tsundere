@@ -60,7 +60,7 @@ ExampleLayer::ExampleLayer(Ref<Scene>scene, std::string name) : BasePanel(name)
 
 	shader = CreatePtr<Shader>("D:/Code/C++/Tsundere/res/shaders/Basic.shader");
 
-	
+
 
 	m_BaseFboSpec = { 1080, 960, 1 };
 	m_MsaaFboSpec = { 1080, 960, 16 };
@@ -90,6 +90,13 @@ ExampleLayer::ExampleLayer(Ref<Scene>scene, std::string name) : BasePanel(name)
 	auto lightEntity = scene->CreateEntity("Directional Light");
 	lightEntity.AddComponent<Component::DirectionalLight>();
 
+
+
+	// Create test entity with material for UI editing
+	//auto testEntity = m_Context->CreateEntity("Test Cube");
+	//auto& mr = testEntity.AddComponent<MeshRender>();
+	//Ref<Material> mat = CreateRef<Material>("res/shaders/Lit.shader");
+	//mr.materials.push_back(mat);
 }
 
 

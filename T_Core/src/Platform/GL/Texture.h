@@ -2,7 +2,7 @@
 #include"Renderer.h"
 #include"Debug/Debug.h"
 #include"HeadLine.h"
-class Texture
+class T_API Texture
 {
 private:
 	unsigned int m_RendererID;
@@ -24,7 +24,7 @@ public:
 	inline int GetWidth()const { return m_Width; }
 	inline int GetHeight()const { return m_Height; }
 };
-class TextureLibiary {
+class T_API TextureLibiary {
 public:
 	static std::unordered_map<std::string, Ref<Texture>> m_TextureMap;
 	static void Add(Ref<Texture>tex)

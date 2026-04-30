@@ -15,12 +15,12 @@ namespace Widget
 	/// <summary>
 	/// override _Draw() 
 	/// </summary>
-	class Widget {
+	class  Widget {
 	public:
 		virtual void _Draw() = 0;
 	};
 	/*template<class...Argstype>*/
-	class DiyWidget :public Widget {
+	class  DiyWidget :public Widget {
 	public:
 		using Callback = std::function<void()>;
 		DiyWidget(Callback lambda):m_lambda(lambda){}
@@ -32,12 +32,12 @@ namespace Widget
 		Callback m_lambda;
 	};
 
-	class Button:public	Widget {
+	class  Button:public	Widget {
 	public:
 		Eventing::Event<> ClickEvents;
 		std::string lable;
 	};
-	class  ImageRadioButton :public Button
+	class   ImageRadioButton :public Button
 	{
 	public:
 		ImageRadioButton(ImTextureID img, ImVec2 size, bool select = false):img_id(img),size(size),selected(select){}
@@ -64,7 +64,7 @@ namespace Widget
 		bool selected = false;
 	};
 
-	class Separator :public Widget {
+	class  Separator :public Widget {
 	public:
 		Separator(std::string Lable="") :Lable(Lable) {}
 		void _Draw() override {

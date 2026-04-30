@@ -64,7 +64,7 @@ namespace Widget {
 		int LastSelect = -1;
 		int* Selected;
 		using str = char*;
-		str* a;
+		str* a = nullptr;
 		std::vector<std::string>SelectLable;
 	public:
 
