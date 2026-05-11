@@ -3,7 +3,7 @@
 #include"Core/Application.h"
 
 namespace Engine {
-	ImGuiLayer::ImGuiLayer()
+	ImGuiLayer::ImGuiLayer(std::string name):Layer(name)
 	{
 	}
 

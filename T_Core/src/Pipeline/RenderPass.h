@@ -2,6 +2,7 @@
 #include<HeadLine.h>
 #include<Scene/Scene.h>
 #include<Scene/Mesh.h>
+#include<Panels/MeshFilePath.h>
 class Scene;
 class  FrameBuffer;
 
@@ -73,35 +74,38 @@ public:
 
 		for (auto [entityID, transform, meshrender] : scene->m_Registry.view<Component::Transform, Component::MeshRender>().each())
 		{
-			if (meshrender.materials.empty())
+			if (meshrender.ModelPath.empty() || meshrender.materials.empty())
 				continue;
 
-			mat4 model = transform.GetTransform();
-			mat4 mvp = proj * view * model;
+			Ref<Model> model = My_map::GetModel(meshrender.ModelPath);
+			if (!model || model->meshes.empty())
+				continue;
 
-			Ref<Material> mat = meshrender.materials[0];
+			mat4 modelMat = transform.GetTransform();
 
-			mat->Render();
-			//mat->shader->SetUniformMat4f("MVP_matrix", mvp);
-			//mat->shader->SetUniformMat4f("model", model);
-			//mat->shader->SetUniformMat4f("prevModel", model);
-			//mat->shader->SetUniformMat4f("viewProj", currentViewProj);
-			//mat->shader->SetUniformMat4f("prevViewProj", m_PrevViewProjMatrix);
+			for (size_t i = 0; i < model->meshes.size(); i++)
+			{
+				auto& mesh = model->meshes[i];
+				Ref<Material> mat = i < meshrender.materials.size()
+					? meshrender.materials[i]
+					: meshrender.materials[0];
 
-			//mat->shader->SetUniformVec3("lightDir", lightDir);
-			//mat->shader->SetUniformVec3("lightColor", lightColor);
-			//mat->shader->SetUniform1f("ambientStrength", ambientStrength);
-			//mat->shader->SetUniformVec3("viewPos", viewPos);
-			//mat->shader->SetUniform1i("hasNormalMap", 0);
+				mat->Render();
 
-			mat->shader->SetUniformMat4f("viewProj", currentViewProj);
-			mat->shader->SetUniformMat4f("prevViewProj", m_PrevViewProjMatrix);
-			mat->shader->SetUniformVec3("lightDir", lightDir);
-			//mat->shader->SetUniformVec3("lightColor", lightColor);
-			mat->shader->SetUniform1f("ambientStrength", ambientStrength);
-			mat->shader->SetUniformVec3("viewPos", viewPos);
+				mat->shader->SetUniformMat4f("MVP_matrix", proj * view * modelMat);
+				mat->shader->SetUniformMat4f("model", modelMat);
+				mat->shader->SetUniformMat4f("prevModel", modelMat);
+				mat->shader->SetUniformMat4f("viewProj", currentViewProj);
+				mat->shader->SetUniformMat4f("prevViewProj", m_PrevViewProjMatrix);
+				mat->shader->SetUniformVec3("lightDir", lightDir);
+				mat->shader->SetUniformVec3("lightColor", lightColor);
+				mat->shader->SetUniform1f("ambientStrength", ambientStrength);
+				mat->shader->SetUniformVec3("viewPos", viewPos);
+				mat->shader->SetUniform1i("hasNormalMap", 0);
 
-			renderer.DrawElement(*va, *ibo, *(mat->shader));
+				renderer.DrawElement(*mesh.vao, *mesh.ibo, *(mat->shader));
+				drewSomething = true;
+			}
 		}
 
 		if (!drewSomething)
@@ -137,16 +141,22 @@ public:
 
 	void Init(Ref<FrameBuffer>& m_GBuffer)override {
 		this->m_GBuffer = m_GBuffer;
+
+		m_GBuffer->Bind();
 		glGenTextures(1, &m_VelocityAttachment);
 
 		glBindTexture(GL_TEXTURE_2D, m_VelocityAttachment);
 
 		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, m_GBuffer->GetSpecification().Width, m_GBuffer->GetSpecification().Height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
 
-
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, m_VelocityAttachment, 0);
+
+		GLenum drawBufs[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
+		glDrawBuffers(2, drawBufs);
+
+		m_GBuffer->UnBind();
 
 
 		float position[] =
@@ -224,10 +234,10 @@ public:
 		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, white);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	}
+		}
 
 	mat4 Jittering(const mat4& originalProj, float width, float height)
-	{
+		{
 		// ���� 16 ��λ�� Halton ����
 		int jitterIndex = m_FrameCount % 16;
 		vec2 currentJitter = GetHaltonJitter(jitterIndex);
@@ -251,7 +261,7 @@ public:
 				f = f / base;
 				r = r + f * (current % base);
 				current = current / base;
-			}
+		}
 			return r;
 			};
 
@@ -291,6 +301,7 @@ public:
 
 	void Execute(Ref<Scene>, RenderResources& resources) override
 	{
+
 		if (!Enabled) return;
 
 		if (!m_HistoryFBOs[0])
@@ -314,6 +325,9 @@ public:
 		if (m_Shader)
 		{
 			m_Shader->Bind();
+
+
+
 
 			glActiveTexture(GL_TEXTURE0);
 			glBindTexture(GL_TEXTURE_2D, resources.SceneColorTexture);

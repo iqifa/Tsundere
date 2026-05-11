@@ -9,7 +9,7 @@ namespace Engine {
 	{
 	public:
 
-		ImGuiLayer();
+		ImGuiLayer(std::string name="Layer");
 		~ImGuiLayer() = default;
 
 		void OnAttach()override;

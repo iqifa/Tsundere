@@ -92,6 +92,7 @@ ShaderProgramSource Shader::ParseShader(const string& filepath)
 	string line;
 	stringstream ss[2];
 	ShaderType type = ShaderType::NONE;
+	bool inSystemBlock = false;
 	while (getline(stream, line))
 	{
 		if (line.find("#shader") != string::npos)
@@ -113,6 +114,10 @@ ShaderProgramSource Shader::ParseShader(const string& filepath)
 			type[1] = line.substr(index, line.length() - index-2);
 
 			uniform.push_back({ type[1],type[0] });
+		}
+		else if (line.find("[System]") != string::npos)
+		{
+			inSystemBlock = !inSystemBlock;
 		}
 		else
 		{
@@ -141,12 +146,12 @@ ShaderProgramSource Shader::ParseShader(const string& filepath)
 					rawName.pop_back();
 				type[1] = rawName;
 
-				uniform.push_back({ type[1],type[0] });
+				if (!inSystemBlock)
+					uniform.push_back({ type[1],type[0] });
 			}
 		}
 	}
 	cout << "\033[1;32mSuccessful Parse Shader:" + m_Name + "!\033[0m" << endl;
-	cout << ss[0].str() << ss[1].str();
 	return { ss[0].str(),ss[1].str() };
 }
 
@@ -224,7 +229,7 @@ int Shader::GetUniformLocation(const string& name)  const
 
 	int locatation = glGetUniformLocation(m_RendererID, name.c_str());
 	if (locatation == -1)
-		debuglog(m_Name+"Warning: uniform '" + name + "' doesnt exist!");
+		debugwarring(m_Name+"Warning: uniform '" + name + "' doesnt exist!");
 	m_UniformLocationCache[name] = locatation;
 	return locatation;
 }

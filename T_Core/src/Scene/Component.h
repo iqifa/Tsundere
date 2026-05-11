@@ -110,6 +110,7 @@ namespace Component
 	};
 
 	struct MeshRender {
+		std::string ModelPath;
 		std::vector<Ref<Material>> materials;
 	};
 

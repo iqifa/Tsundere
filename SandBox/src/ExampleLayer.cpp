@@ -245,6 +245,9 @@ void ExampleLayer::OnImGuiRender()
 	ImGui::Image((ImTextureID)(uintptr_t)renderResources.SceneColorTexture, ImVec2(m_ViewPortSize.x, m_ViewPortSize.y), ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
 	
 	ImGui::End();
+	ImGui::Begin("Velocity");
+	ImGui::Image((ImTextureID)(uintptr_t)renderResources.VelocityTexture, ImVec2(m_ViewPortSize.x, m_ViewPortSize.y), ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
+	ImGui::End();
 	ImGui::PopStyleVar();
 }
 

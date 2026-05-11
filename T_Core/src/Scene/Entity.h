@@ -11,7 +11,7 @@ class Scene;
 class  Entity
 {
 	friend class Scene;
-private:
+public:
 	Scene* m_Scene = nullptr;
 	entity m_EntityHandle{ null };
 public:

@@ -3,15 +3,19 @@
 #define MFP
 #include"HeadLine.h"
 #include"Scene/Modle.h"
-extern std::vector<std::string> ModlePaths;
+
+
 class T_API My_map
 {
 public:
 	static std::unordered_map<std::string, Ref<Model>> m_ModleMap;
 	static std::unordered_map<std::string, Ref<Shader>> m_ShaderMap;
 
+	static Ref<Model> LoadModel(const std::string& path);
+	static Ref<Model> GetModel(const std::string& path);
 
-	static const std::vector<std::string>& My_map::GetShaderPaths();
+	static const std::vector<std::string>& GetShaderPaths();
+	static const std::vector<std::string>& GetModelPaths();
 };
 
 #endif // !MFP
