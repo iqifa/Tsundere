@@ -4,7 +4,10 @@ using namespace std;
 Shader::Shader(const string& filepath, const string& name) :m_FilePath(filepath), m_RendererID(0), m_Name(name)
 {
 	ShaderProgramSource source = ParseShader(filepath);
-	m_RendererID = CreateShader(source.VertexSource, source.FragmentSource);
+	if (!source.ComputeSource.empty())
+		m_RendererID = CreateComputeShader(source.ComputeSource);
+	else
+		m_RendererID = CreateShader(source.VertexSource, source.FragmentSource);
 }
 
 Shader::Shader(const string& filepath) :m_FilePath(filepath), m_RendererID(0)
@@ -18,7 +21,10 @@ Shader::Shader(const string& filepath) :m_FilePath(filepath), m_RendererID(0)
 
 
 	ShaderProgramSource source = ParseShader(filepath);
-	m_RendererID = CreateShader(source.VertexSource, source.FragmentSource);
+	if (!source.ComputeSource.empty())
+		m_RendererID = CreateComputeShader(source.ComputeSource);
+	else
+		m_RendererID = CreateShader(source.VertexSource, source.FragmentSource);
 }
 
 
@@ -55,7 +61,7 @@ unsigned int  Shader::CompileShader(unsigned int type, const string& source)
 		char* message = new char[lenth];
 		glGetShaderInfoLog(id, lenth, &lenth, message);
 		//cout << "Failed to Compile " << (type == GL_VERTEX_SHADER ? "vertex" : "fragment") << "Shader!" << endl;
-		string info = "Failed to Compile ["+m_Name +"] " + (string)(type == GL_VERTEX_SHADER ? "vertex" : "fragment") + "Shader!";
+		string info = "Failed to Compile ["+m_Name +"] " + (string)(type == GL_VERTEX_SHADER ? "vertex" : (type == GL_FRAGMENT_SHADER ? "fragment" : "compute")) + " Shader!";
 		debugerror(info)
 		cout << message << endl;
 		glDeleteShader(id);
@@ -86,11 +92,11 @@ ShaderProgramSource Shader::ParseShader(const string& filepath)
 	}
 	enum  class ShaderType
 	{
-		NONE = -1, VERTEX = 0, FRAGMENT = 1
+		NONE = -1, VERTEX = 0, FRAGMENT = 1, COMPUTE = 2
 	};
 
 	string line;
-	stringstream ss[2];
+	stringstream ss[3];
 	ShaderType type = ShaderType::NONE;
 	bool inSystemBlock = false;
 	while (getline(stream, line))
@@ -104,6 +110,10 @@ ShaderProgramSource Shader::ParseShader(const string& filepath)
 			else if (line.find("fragment") != string::npos)
 			{
 				type = ShaderType::FRAGMENT;
+			}
+			else if (line.find("compute") != string::npos)
+			{
+				type = ShaderType::COMPUTE;
 			}
 		}
 		else if (line.find("[Header") != string::npos)
@@ -152,7 +162,7 @@ ShaderProgramSource Shader::ParseShader(const string& filepath)
 		}
 	}
 	cout << "\033[1;32mSuccessful Parse Shader:" + m_Name + "!\033[0m" << endl;
-	return { ss[0].str(),ss[1].str() };
+	return { ss[0].str(), ss[1].str(), ss[2].str() };
 }
 
 unsigned int Shader::CreateShader(const string& vertexShader, const string& fragmentShader)
@@ -173,24 +183,29 @@ unsigned int Shader::CreateShader(const string& vertexShader, const string& frag
 	return program;
 }
 
-//unsigned int Shader::CreateShader(const string& name, const string& vertexShader, const string& fragmentShader)
-//{
-//	this->name = name;
-//	unsigned int program = glCreateProgram();
-//	//unsigned int vs = glCreateShader(GL_VERTEX_SHADER);
-//	unsigned int vs = CompileShader(GL_VERTEX_SHADER, vertexShader);
-//	unsigned int fs = CompileShader(GL_FRAGMENT_SHADER, fragmentShader);
-//
-//	glAttachShader(program, vs);
-//	glAttachShader(program, fs);
-//	glLinkProgram(program);
-//	glValidateProgram(program);
-//
-//	glDeleteShader(vs);
-//	glDeleteShader(fs);
-//
-//	return program;
-//}
+unsigned int Shader::CreateComputeShader(const string& computeSource)
+{
+	unsigned int program = glCreateProgram();
+	unsigned int cs = CompileShader(GL_COMPUTE_SHADER, computeSource);
+
+	glAttachShader(program, cs);
+	glLinkProgram(program);
+	glValidateProgram(program);
+
+	glDeleteShader(cs);
+
+	return program;
+}
+
+void Shader::DispatchCompute(unsigned int groupsX, unsigned int groupsY, unsigned int groupsZ) const
+{
+	glDispatchCompute(groupsX, groupsY, groupsZ);
+}
+
+Ref<Shader> Shader::CreateCompute(const string& filepath)
+{
+	return CreateRef<Shader>(filepath);
+}
 
 void Shader::SetUniform4f(const string& name, float v0, float v1, float v2, float v3)const
 {

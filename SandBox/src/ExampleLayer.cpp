@@ -74,6 +74,12 @@ ExampleLayer::ExampleLayer(Ref<Scene>scene, std::string name) : BasePanel(name)
 	taaPass = CreateRef<TAAPass>();
 	taaPass->Init(framebuffer);
 
+	shadowPass = CreateRef<ShadowPass>();
+	shadowPass->Init(framebuffer);
+
+	shadowApplyPass = CreateRef<ShadowApplyPass>();
+	shadowApplyPass->Init(framebuffer);
+
 
 
 	std::vector<std::string> texpaths{
@@ -89,6 +95,9 @@ ExampleLayer::ExampleLayer(Ref<Scene>scene, std::string name) : BasePanel(name)
 	// Create default directional light
 	auto lightEntity = scene->CreateEntity("Directional Light");
 	lightEntity.AddComponent<Component::DirectionalLight>();
+
+	// Build static BVH for ray-traced shadows
+	shadowPass->BuildBVH(m_Context);
 
 
 
@@ -140,6 +149,24 @@ void ExampleLayer::OnUpdate()
 
 	renderResources.SourceFBO = framebuffer->GetFrameID();
 
+	// Shadow Pass (ray-traced)
+	if (shadowPass)
+	{
+		vec3 lightDir = vec3(-0.5f, -1.0f, -0.5f);
+		for (auto entityID : m_Context->m_Registry.view<Component::DirectionalLight>())
+		{
+			auto& dl = m_Context->m_Registry.get<Component::DirectionalLight>(entityID);
+			lightDir = dl.Direction;
+			break;
+		}
+		shadowPass->SetLightDir(lightDir);
+		shadowPass->Execute(m_Context, renderResources);
+	}
+
+	// Apply shadows to scene color
+	if (shadowApplyPass)
+		shadowApplyPass->Execute(m_Context, renderResources);
+
 	// TAA Pass
 	if (taaPass)
 		taaPass->Execute(m_Context, renderResources);
@@ -153,6 +180,9 @@ void ExampleLayer::OnImGuiRender()
 	ImGui::Checkbox("OpenMsaa?", &open_Msaa);
 	ImGui::Checkbox("TAA?", &taaPass->Enabled);
 	ImGui::Checkbox("Jitter?", &geometrypass->EnableJitter);
+	ImGui::Separator();
+	ImGui::Checkbox("Ray Traced Shadows?", &shadowPass->Enabled);
+	ImGui::SliderFloat("Shadow Distance", &shadowPass->LightDistance, 1.0f, 200.0f);
 	ImGui::End();
 
 	ImGui::Begin(m_HeadTitle.c_str());
@@ -238,6 +268,8 @@ void ExampleLayer::OnImGuiRender()
 		if (geometrypass) geometrypass->OnFboResize(m_ViewPortSize.x, m_ViewPortSize.y);
 		if (Msaaframebuffer) Msaaframebuffer->Rsetsize(m_ViewPortSize);
 		if (taaPass) taaPass->OnResize(m_ViewPortSize.x, m_ViewPortSize.y);
+		if (shadowPass) shadowPass->OnResize(m_ViewPortSize.x, m_ViewPortSize.y);
+		if (shadowApplyPass) shadowApplyPass->OnResize(m_ViewPortSize.x, m_ViewPortSize.y);
 		currentcamera->SetAspect(m_ViewPortSize.x, m_ViewPortSize.y);
 	}
 

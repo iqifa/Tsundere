@@ -2,6 +2,7 @@
 #include<HeadLine.h>
 #include<Scene/Scene.h>
 #include<Scene/Mesh.h>
+#include<Scene/BVHBuilder.h>
 #include<Panels/MeshFilePath.h>
 class Scene;
 class  FrameBuffer;
@@ -12,6 +13,7 @@ struct  RenderResources
 	unsigned int SceneColorTexture = 0; // 上一阶段输出的场景颜色
 	unsigned int VelocityTexture = 0;   // 上一阶段输出的运动矢量缓存 (Motion Vectors)
 	unsigned int DepthTexture = 0;      // 深度图
+	unsigned int ShadowMask = 0;        // 阴影遮罩纹理 (R8)
 
 	// 渲染目标尺寸
 	unsigned int SourceFBO = 0;        // 几何 Pass 的主 FBO（用于深度拷贝）
@@ -411,4 +413,183 @@ private:
 	int m_CurrentIdx = 0;
 	mat4 m_PrevViewProj = mat4(1.0f);
 	FrameBufferSpecification m_Spec;
+};
+
+class ShadowPass : public RenderPass
+{
+public:
+	bool Enabled = true;
+	float LightDistance = 50.0f;
+
+	void Init(Ref<FrameBuffer>& fb) override
+	{
+		m_Spec = fb->GetSpecification();
+		m_Shader = Shader::CreateCompute("D:/Code/C++/Tsundere/res/shaders/ShadowRay.shader");
+		CreateShadowMask(m_Spec.Width, m_Spec.Height);
+	}
+
+	void BuildBVH(Ref<Scene> scene)
+	{
+		m_BVHBuilder = CreateRef<BVHBuilder>();
+		m_BVHBuilder->GatherTriangles(scene);
+		m_BVHBuilder->BuildBVH(4);
+	}
+
+	void Execute(Ref<Scene>, RenderResources& resources) override
+	{
+		if (!Enabled || !m_BVHBuilder || !m_BVHBuilder->GetTriangleBuffer())
+			return;
+
+		m_Shader->Bind();
+
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, resources.DepthTexture);
+		m_Shader->SetUniform1i("u_DepthTex", 0);
+
+		glBindImageTexture(1, m_ShadowMask, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_R8);
+
+		mat4 view = currentcamera->GetViewFront();
+		mat4 proj = currentcamera->GetProj();
+		mat4 invViewProj = glm::inverse(proj * view);
+		m_Shader->SetUniformMat4f("u_InvViewProj", invViewProj);
+		m_Shader->SetUniformVec3("u_CameraPos", currentcamera->getpos());
+		m_Shader->SetUniformVec2("u_Resolution", glm::vec2((float)m_Spec.Width, (float)m_Spec.Height));
+
+		m_BVHBuilder->GetTriangleBuffer()->BindToSlot(3);
+		m_BVHBuilder->GetBVHNodeBuffer()->BindToSlot(4);
+
+		m_Shader->SetUniformVec3("u_LightDir", m_LightDir);
+		m_Shader->SetUniform1f("u_LightDistance", LightDistance);
+
+		unsigned int gx = (m_Spec.Width + 7) / 8;
+		unsigned int gy = (m_Spec.Height + 7) / 8;
+		m_Shader->DispatchCompute(gx, gy);
+
+		glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+
+		resources.ShadowMask = m_ShadowMask;
+	}
+
+	void OnResize(unsigned int w, unsigned int h)
+	{
+		m_Spec.Width = w;
+		m_Spec.Height = h;
+		CreateShadowMask(w, h);
+	}
+
+	void SetLightDir(const glm::vec3& dir) { m_LightDir = dir; }
+
+private:
+	void CreateShadowMask(unsigned int w, unsigned int h)
+	{
+		if (m_ShadowMask)
+			glDeleteTextures(1, &m_ShadowMask);
+		glGenTextures(1, &m_ShadowMask);
+		glBindTexture(GL_TEXTURE_2D, m_ShadowMask);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, w, h, 0, GL_RED, GL_UNSIGNED_BYTE, nullptr);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glBindTexture(GL_TEXTURE_2D, 0);
+	}
+
+	FrameBufferSpecification m_Spec;
+	Ref<Shader> m_Shader;
+	Ref<BVHBuilder> m_BVHBuilder;
+	unsigned int m_ShadowMask = 0;
+	glm::vec3 m_LightDir = glm::normalize(glm::vec3(-0.5f, -1.0f, -0.5f));
+};
+
+class ShadowApplyPass : public RenderPass
+{
+public:
+	void Init(Ref<FrameBuffer>& fb) override
+	{
+		m_Spec = fb->GetSpecification();
+
+		float quadVertices[] = {
+			-1.0f,  1.0f,  0.0f, 1.0f,
+			-1.0f, -1.0f,  0.0f, 0.0f,
+			 1.0f, -1.0f,  1.0f, 0.0f,
+			 1.0f,  1.0f,  1.0f, 1.0f
+		};
+		unsigned int quadIndices[] = { 0, 1, 2, 2, 3, 0 };
+
+		m_QuadVA = CreatePtr<VertexArray>(4);
+		m_QuadVB = CreatePtr<VertexBuffer>(quadVertices, sizeof(quadVertices));
+		m_QuadIB = CreatePtr<IndexBuffer>(quadIndices, 6);
+		VertexBufferLayout quadLayout;
+		quadLayout.Push<float>(2);
+		quadLayout.Push<float>(2);
+		m_QuadVA->AddBuffer(*m_QuadVB, quadLayout);
+
+		m_Shader = CreatePtr<Shader>("D:/Code/C++/Tsundere/res/shaders/ShadowApply.shader");
+		CreateOutputTex(m_Spec.Width, m_Spec.Height);
+	}
+
+	void Execute(Ref<Scene>, RenderResources& resources) override
+	{
+		if (!resources.ShadowMask)
+			return;
+
+		// Bind intermediate FBO for output (avoids reading+writing same texture)
+		glBindFramebuffer(GL_FRAMEBUFFER, m_OutputFBO);
+		glViewport(0, 0, m_Spec.Width, m_Spec.Height);
+
+		m_Shader->Bind();
+
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, resources.SceneColorTexture);
+		m_Shader->SetUniform1i("u_SceneColor", 0);
+
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_2D, resources.ShadowMask);
+		m_Shader->SetUniform1i("u_ShadowMask", 1);
+
+		Renderer renderer;
+		renderer.DrawElement(*m_QuadVA, *m_QuadIB, *m_Shader);
+
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+		resources.SceneColorTexture = m_OutputTex;
+	}
+
+	void OnResize(unsigned int w, unsigned int h)
+	{
+		m_Spec.Width = w;
+		m_Spec.Height = h;
+		CreateOutputTex(w, h);
+	}
+
+private:
+	void CreateOutputTex(unsigned int w, unsigned int h)
+	{
+		if (m_OutputTex)
+			glDeleteTextures(1, &m_OutputTex);
+		if (m_OutputFBO)
+			glDeleteFramebuffers(1, &m_OutputFBO);
+
+		glGenTextures(1, &m_OutputTex);
+		glBindTexture(GL_TEXTURE_2D, m_OutputTex);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+		glGenFramebuffers(1, &m_OutputFBO);
+		glBindFramebuffer(GL_FRAMEBUFFER, m_OutputFBO);
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_OutputTex, 0);
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		glBindTexture(GL_TEXTURE_2D, 0);
+	}
+
+	FrameBufferSpecification m_Spec;
+	Ptr<Shader> m_Shader;
+	Ptr<VertexArray> m_QuadVA;
+	Ptr<VertexBuffer> m_QuadVB;
+	Ptr<IndexBuffer> m_QuadIB;
+	unsigned int m_OutputTex = 0;
+	unsigned int m_OutputFBO = 0;
 };

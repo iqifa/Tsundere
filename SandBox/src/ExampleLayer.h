@@ -38,6 +38,8 @@ private:
 
 	Ref<GeometryPass> geometrypass;
 	Ref<TAAPass> taaPass;
+	Ref<ShadowPass> shadowPass;
+	Ref<ShadowApplyPass> shadowApplyPass;
 	RenderResources renderResources;
 
 	bool m_ViewportFocused = false;

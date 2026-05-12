@@ -14,6 +14,7 @@ struct ShaderProgramSource
 {
 	std::string VertexSource;
 	std::string FragmentSource;
+	std::string ComputeSource;
 };
 class T_API Shader
 {
@@ -33,6 +34,8 @@ public:
 	void Bind() const;
 	void UnBind() const;
 
+	void DispatchCompute(unsigned int groupsX, unsigned int groupsY = 1, unsigned int groupsZ = 1) const;
+
 	const std::string& GetName() { return m_Name; }
 	const std::string& GetPath() { return m_FilePath; }
 
@@ -46,12 +49,14 @@ public:
 
 	static Ref<Shader>Create(const std::string& filepath, const std::string& name);
 	static Ref<Shader>Create(const std::string& filepath);
+	static Ref<Shader>CreateCompute(const std::string& filepath);
 
 	inline unsigned int GetID()const { return m_RendererID; }
 private:
 	unsigned int CompileShader(unsigned int type, const std::string& source);
 	ShaderProgramSource ParseShader(const std::string& filepath);
 	unsigned int CreateShader(const std::string& vertexShader, const std::string& fragmentShader);
+	unsigned int CreateComputeShader(const std::string& computeSource);
 	//unsigned int CreateShader(const string& name, const string& vertexShader, const string& fragmentShader);
 	int GetUniformLocation(const std::string& name)const;
 
