@@ -31,7 +31,6 @@ private:
 	FrameBufferSpecification m_MsaaFboSpec;
 
 	bool open_Msaa = false;
-	bool rendertow = false;
 
 	std::deque<Entity>destory;
 

@@ -147,8 +147,8 @@ public:
 
 		glBindTexture(GL_TEXTURE_2D, m_VelocityAttachment);
 
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, m_GBuffer->GetSpecification().Width, m_GBuffer->GetSpecification().Height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-
+		//glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, m_GBuffer->GetSpecification().Width, m_GBuffer->GetSpecification().Height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RG16F, m_GBuffer->GetSpecification().Width, m_GBuffer->GetSpecification().Height, 0, GL_RG, GL_FLOAT, nullptr);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, m_VelocityAttachment, 0);
@@ -235,6 +235,22 @@ public:
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 		}
+
+	void OnFboResize(unsigned int width, unsigned int height)
+	{
+		glDeleteTextures(1, &m_VelocityAttachment);
+		glGenTextures(1, &m_VelocityAttachment);
+		glBindTexture(GL_TEXTURE_2D, m_VelocityAttachment);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RG16F, width, height, 0, GL_RG, GL_FLOAT, nullptr);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+		m_GBuffer->Bind();
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, m_VelocityAttachment, 0);
+		GLenum drawBufs[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
+		glDrawBuffers(2, drawBufs);
+		m_GBuffer->UnBind();
+	}
 
 	mat4 Jittering(const mat4& originalProj, float width, float height)
 		{

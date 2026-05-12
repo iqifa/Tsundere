@@ -153,7 +153,6 @@ void ExampleLayer::OnImGuiRender()
 	ImGui::Checkbox("OpenMsaa?", &open_Msaa);
 	ImGui::Checkbox("TAA?", &taaPass->Enabled);
 	ImGui::Checkbox("Jitter?", &geometrypass->EnableJitter);
-	ImGui::Checkbox("rendew?", &rendertow);
 	ImGui::End();
 
 	ImGui::Begin(m_HeadTitle.c_str());
@@ -236,6 +235,7 @@ void ExampleLayer::OnImGuiRender()
 		m_MsaaFboSpec.Width = m_ViewPortSize.x;
 		m_MsaaFboSpec.Height = m_ViewPortSize.y;
 		framebuffer->Rsetsize(m_ViewPortSize);
+		if (geometrypass) geometrypass->OnFboResize(m_ViewPortSize.x, m_ViewPortSize.y);
 		if (Msaaframebuffer) Msaaframebuffer->Rsetsize(m_ViewPortSize);
 		if (taaPass) taaPass->OnResize(m_ViewPortSize.x, m_ViewPortSize.y);
 		currentcamera->SetAspect(m_ViewPortSize.x, m_ViewPortSize.y);
