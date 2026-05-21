@@ -4,6 +4,7 @@
 #include "GLHead.h"
 #include "Panels/Material.h"
 #include "Panels/MeshFilePath.h"
+#include "Platform/GL/FileDialog.h"
 #include "Input/Input.h"
 #include "Widget.h"
 #include "Scene/Scene.h"
@@ -170,6 +171,18 @@ namespace {
 							if (ImGui::Selectable(path.c_str()))
 								*tex = *texture;
 						}
+						ImGui::Separator();
+						if (ImGui::Button("Browse..."))
+						{
+							std::string importPath = OpenTextureFileDialog();
+							if (!importPath.empty())
+							{
+								auto loaded = TextureLibiary::Load(importPath);
+								*tex = *loaded;
+								ImGui::CloseCurrentPopup();
+							}
+						}
+						ImGui::SameLine();
 						if (ImGui::Button("Close"))
 							ImGui::CloseCurrentPopup();
 						ImGui::EndPopup();
@@ -217,7 +230,7 @@ inline void RenderMeshRenderInspector(Entity& entity)
 	if (ImGui::SmallButton("+"))
 	{
 		meshrender.materials.push_back(CreateRef<Material>(
-			"D:/Code/C++/Tsundere/res/shaders/Lit.shader"));
+			"D:/Code/C++/Tsundere/res/shaders/Lamber.shader"));
 	}
 	ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - btnW_minus);
 	if (ImGui::SmallButton("-"))
@@ -258,7 +271,7 @@ inline void RenderMeshRenderInspector(Entity& entity)
 						{
 							if (!meshrender.materials[i])
 								meshrender.materials[i] = CreateRef<Material>(
-									"D:/Code/C++/Tsundere/res/shaders/Lit.shader");
+									"D:/Code/C++/Tsundere/res/shaders/Lamber.shader");
 						}
 					}
 					state.SelectedMaterialIdx = 0;
@@ -268,6 +281,31 @@ inline void RenderMeshRenderInspector(Entity& entity)
 					ImGui::SetItemDefaultFocus();
 			}
 			ImGui::EndCombo();
+		}
+		ImGui::SameLine();
+		if (ImGui::SmallButton("..."))
+		{
+			std::string importPath = OpenModelFileDialog();
+			if (!importPath.empty())
+			{
+				My_map::AddModelPath(importPath);
+				My_map::LoadModel(importPath);
+				meshrender.ModelPath = importPath;
+				Ref<Model> model = My_map::GetModel(importPath);
+				if (model)
+				{
+					size_t meshCount = model->meshes.size();
+					meshrender.materials.resize(meshCount);
+					for (size_t i = 0; i < meshCount; i++)
+					{
+						if (!meshrender.materials[i])
+							meshrender.materials[i] = CreateRef<Material>(
+								"D:/Code/C++/Tsundere/res/shaders/Lamber.shader");
+					}
+				}
+				state.SelectedMaterialIdx = 0;
+				ClearMaterialWidgets();
+			}
 		}
 		ImGui::Columns(1);
 
@@ -401,7 +439,7 @@ inline void AddMeshRenderComponent(Entity& entity)
 	if (!entity.HasComponent<MeshRender>())
 	{
 		auto& mr = entity.AddComponent<MeshRender>();
-		mr.materials.push_back(CreateRef<Material>("D:/Code/C++/Tsundere/res/shaders/Lit.shader"));
+		mr.materials.push_back(CreateRef<Material>("D:/Code/C++/Tsundere/res/shaders/Lamber.shader"));
 		debuglog("AddComponent: MeshRender with default material");
 	}
 }
@@ -411,7 +449,7 @@ inline void AddMaterialToMeshRender(Entity& entity)
 	if (entity.HasComponent<MeshRender>())
 	{
 		auto& mr = entity.GetComponent<MeshRender>();
-		mr.materials.push_back(CreateRef<Material>("res/shaders/Lit.shader"));
+		mr.materials.push_back(CreateRef<Material>("res/shaders/Lamber.shader"));
 		debuglog("AddComponent: Material added to MeshRender");
 	}
 	else

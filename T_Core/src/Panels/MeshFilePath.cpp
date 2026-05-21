@@ -7,9 +7,6 @@ static vector<string> ModlePaths = {
 	"res/Wood/WoodCrate.obj",
 	"res/Wood/WoodCrate.fbx",
 	"res/defaultmodle/default.obj",
-	"D:/Download/Test/Test.fbx",
-	"D:/Download/Test/build/Build.fbx",
-	"D:/Download/Test/build/Build.obj",
 };
 
 static vector<string> ShaderPaths
@@ -21,6 +18,7 @@ static vector<string> ShaderPaths
 	"res/shaders/SkyBox.shader",
 	"res/shaders/Test.shader",
 	"res/shaders/StoneShader.shader",
+	"D:/Code/C++/Tsundere/res/shaders/Lamber.shader",
 };
 
 unordered_map<string, Ref<Model>> My_map::m_ModleMap;
@@ -52,4 +50,18 @@ const std::vector<std::string>& My_map::GetShaderPaths() {
 }
 const std::vector<std::string>& My_map::GetModelPaths() {
 	return ModlePaths;
+}
+
+void My_map::AddModelPath(const std::string& path)
+{
+	for (auto& p : ModlePaths)
+		if (p == path) return;
+	ModlePaths.push_back(path);
+}
+
+void My_map::RemoveModelPath(const std::string& path)
+{
+	auto it = std::find(ModlePaths.begin(), ModlePaths.end(), path);
+	if (it != ModlePaths.end())
+		ModlePaths.erase(it);
 }

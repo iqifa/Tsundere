@@ -35,7 +35,7 @@ project "T_Core"
     systemversion "10.0.22621.0"    -- windows SKD版本
 
     links{
-        "glfw3.lib","opengl32.lib","glew32.lib","assimp-vc143-mtd.lib"
+        "glfw3.lib","opengl32.lib","glew32.lib","assimp-vc143-mtd.lib","comdlg32.lib"
     }
 
 

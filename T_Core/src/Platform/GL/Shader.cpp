@@ -6,7 +6,7 @@ Shader::Shader(const string& filepath, const string& name) :m_FilePath(filepath)
 	ShaderProgramSource source = ParseShader(filepath);
 	if (!source.ComputeSource.empty())
 		m_RendererID = CreateComputeShader(source.ComputeSource);
-	else
+	else if (!source.VertexSource.empty() || !source.FragmentSource.empty())
 		m_RendererID = CreateShader(source.VertexSource, source.FragmentSource);
 }
 
@@ -23,7 +23,7 @@ Shader::Shader(const string& filepath) :m_FilePath(filepath), m_RendererID(0)
 	ShaderProgramSource source = ParseShader(filepath);
 	if (!source.ComputeSource.empty())
 		m_RendererID = CreateComputeShader(source.ComputeSource);
-	else
+	else if (!source.VertexSource.empty() || !source.FragmentSource.empty())
 		m_RendererID = CreateShader(source.VertexSource, source.FragmentSource);
 }
 
@@ -185,9 +185,11 @@ unsigned int Shader::CreateShader(const string& vertexShader, const string& frag
 
 unsigned int Shader::CreateComputeShader(const string& computeSource)
 {
-	unsigned int program = glCreateProgram();
 	unsigned int cs = CompileShader(GL_COMPUTE_SHADER, computeSource);
+	if (cs == 0)
+		return 0;
 
+	unsigned int program = glCreateProgram();
 	glAttachShader(program, cs);
 	glLinkProgram(program);
 	glValidateProgram(program);

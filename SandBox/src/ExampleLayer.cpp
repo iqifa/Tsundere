@@ -99,6 +99,10 @@ ExampleLayer::ExampleLayer(Ref<Scene>scene, std::string name) : BasePanel(name)
 	// Build static BVH for ray-traced shadows
 	shadowPass->BuildBVH(m_Context);
 
+	pathTracePass = CreateRef<PathTracePass>();
+	pathTracePass->Init(framebuffer);
+	pathTracePass->SetBVHBuilder(shadowPass->GetBVHBuilder());
+
 
 
 	// Create test entity with material for UI editing
@@ -122,54 +126,71 @@ void ExampleLayer::OnUpdate()
 	else if (!open_Msaa && Msaaframebuffer)
 		Msaaframebuffer.reset();
 
-	if (open_Msaa)
-		Msaaframebuffer->Bind();
-	else
-		framebuffer->Bind();
-
-	renderer.Clear();
+	if (pathTracePass->Enabled)
 	{
+		// Path tracing mode — replace entire rasterization chain
+		framebuffer->Bind();
+		renderer.Clear();
+
 		if (m_ViewportFocused)
 			currentcamera->GLPrecessInput(m_WindowHandle, 0.1f);
-		currentcamera->RenderSkyBox();
 
-		geometrypass->Execute(m_Context, renderResources);
-	}
-	if (open_Msaa)
-	{
-		glBindFramebuffer(GL_READ_FRAMEBUFFER, Msaaframebuffer->GetFrameID());
-		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer->GetFrameID());
-		glBlitFramebuffer(0, 0, m_ViewPortSize.x, m_ViewPortSize.y,
-			0, 0, m_ViewPortSize.x, m_ViewPortSize.y,
-			GL_COLOR_BUFFER_BIT, GL_NEAREST);
-		Msaaframebuffer->UnBind();
+		pathTracePass->Execute(m_Context, renderResources);
+
+		framebuffer->UnBind();
 	}
 	else
-		framebuffer->UnBind();
-
-	renderResources.SourceFBO = framebuffer->GetFrameID();
-
-	// Shadow Pass (ray-traced)
-	if (shadowPass)
 	{
-		vec3 lightDir = vec3(-0.5f, -1.0f, -0.5f);
-		for (auto entityID : m_Context->m_Registry.view<Component::DirectionalLight>())
+		// Rasterization mode
+		if (open_Msaa)
+			Msaaframebuffer->Bind();
+		else
+			framebuffer->Bind();
+
+		renderer.Clear();
 		{
-			auto& dl = m_Context->m_Registry.get<Component::DirectionalLight>(entityID);
-			lightDir = dl.Direction;
-			break;
+			if (m_ViewportFocused)
+				currentcamera->GLPrecessInput(m_WindowHandle, 0.1f);
+			currentcamera->RenderSkyBox();
+
+			geometrypass->Execute(m_Context, renderResources);
 		}
-		shadowPass->SetLightDir(lightDir);
-		shadowPass->Execute(m_Context, renderResources);
+		if (open_Msaa)
+		{
+			glBindFramebuffer(GL_READ_FRAMEBUFFER, Msaaframebuffer->GetFrameID());
+			glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer->GetFrameID());
+			glBlitFramebuffer(0, 0, m_ViewPortSize.x, m_ViewPortSize.y,
+				0, 0, m_ViewPortSize.x, m_ViewPortSize.y,
+				GL_COLOR_BUFFER_BIT, GL_NEAREST);
+			Msaaframebuffer->UnBind();
+		}
+		else
+			framebuffer->UnBind();
+
+		renderResources.SourceFBO = framebuffer->GetFrameID();
+
+		// Shadow Pass (ray-traced)
+		if (shadowPass->Enabled)
+		{
+			vec3 lightDir = vec3(-0.5f, -1.0f, -0.5f);
+			for (auto entityID : m_Context->m_Registry.view<Component::DirectionalLight>())
+			{
+				auto& dl = m_Context->m_Registry.get<Component::DirectionalLight>(entityID);
+				lightDir = dl.Direction;
+				break;
+			}
+			shadowPass->SetLightDir(lightDir);
+			shadowPass->Execute(m_Context, renderResources);
+		}
+
+		// Apply shadows to scene color
+		if (shadowApplyPass)
+			shadowApplyPass->Execute(m_Context, renderResources);
+
+		// TAA Pass
+		if (taaPass)
+			taaPass->Execute(m_Context, renderResources);
 	}
-
-	// Apply shadows to scene color
-	if (shadowApplyPass)
-		shadowApplyPass->Execute(m_Context, renderResources);
-
-	// TAA Pass
-	if (taaPass)
-		taaPass->Execute(m_Context, renderResources);
 }
 
 void ExampleLayer::OnImGuiRender()
@@ -183,6 +204,14 @@ void ExampleLayer::OnImGuiRender()
 	ImGui::Separator();
 	ImGui::Checkbox("Ray Traced Shadows?", &shadowPass->Enabled);
 	ImGui::SliderFloat("Shadow Distance", &shadowPass->LightDistance, 1.0f, 200.0f);
+	ImGui::Separator();
+	ImGui::Checkbox("Path Trace?", &pathTracePass->Enabled);
+	if (pathTracePass->Enabled)
+	{
+		ImGui::Text("Samples: %u", pathTracePass->GetSampleCount());
+		if (ImGui::Button("Reset Accum"))
+			pathTracePass->ResetAccumulation();
+	}
 	ImGui::End();
 
 	ImGui::Begin(m_HeadTitle.c_str());
@@ -270,6 +299,7 @@ void ExampleLayer::OnImGuiRender()
 		if (taaPass) taaPass->OnResize(m_ViewPortSize.x, m_ViewPortSize.y);
 		if (shadowPass) shadowPass->OnResize(m_ViewPortSize.x, m_ViewPortSize.y);
 		if (shadowApplyPass) shadowApplyPass->OnResize(m_ViewPortSize.x, m_ViewPortSize.y);
+		if (pathTracePass) pathTracePass->OnResize(m_ViewPortSize.x, m_ViewPortSize.y);
 		currentcamera->SetAspect(m_ViewPortSize.x, m_ViewPortSize.y);
 	}
 

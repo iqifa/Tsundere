@@ -40,6 +40,7 @@ private:
 	Ref<TAAPass> taaPass;
 	Ref<ShadowPass> shadowPass;
 	Ref<ShadowApplyPass> shadowApplyPass;
+	Ref<PathTracePass> pathTracePass;
 	RenderResources renderResources;
 
 	bool m_ViewportFocused = false;

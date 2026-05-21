@@ -28,3 +28,10 @@ struct alignas(16) GPUBVHNode
 //   firstTriIndex = int(-bboxMin.w) - 1
 //   triCount       = int(bboxMax.w)
 // Internal node: bboxMin.w = leftChild, bboxMax.w = rightChild (both >= 0)
+
+// GPU material (std430 layout, 2 * vec4 = 32 bytes)
+struct alignas(16) GPUMaterial
+{
+	glm::vec4 albedo;   // rgb = base color, a = roughness
+	glm::vec4 emission; // rgb = emissive, a = metallic
+};

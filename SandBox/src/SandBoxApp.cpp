@@ -3,6 +3,8 @@
 #include"Panels/ImGuiLayer.h"
 #include"ExampleLayer.h"
 #include"Inspect.h"
+#include"Panels/ModelImportPanel.h"
+#include"Panels/TextureImportPanel.h"
 #include"HeadLine.h"
 class SandBox :public Engine::Application
 {
@@ -12,6 +14,8 @@ public:
 		PushLayer(new ExampleLayer(m_ActivateScene,"Example"));
 		PushLayer(new Engine::ImGuiLayer("IMGUI"));
 		PushLayer(new Inspect(m_ActivateScene, "Inspect"));
+		PushLayer(new ModelImportPanel("Model Import"));
+		PushLayer(new TextureImportPanel("Texture Import"));
 	}
 	~SandBox() {}
 

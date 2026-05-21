@@ -72,10 +72,10 @@ void BVHBuilder::BuildBVH(unsigned int leafSize)
 
 	if (m_BuildTriangles.empty())
 	{
-		// Create a dummy empty BVH to avoid crashes
+		// Leaf with 0 triangles (bboxMin.w < 0 = leaf, bboxMax.w = 0 = triCount)
 		GPUBVHNode root;
-		root.bboxMin = glm::vec4(0.0f);
-		root.bboxMax = glm::vec4(0.0f);
+		root.bboxMin = glm::vec4(0.0f, 0.0f, 0.0f, -1.0f);
+		root.bboxMax = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
 		m_BVHNodes.push_back(root);
 
 		GPUTriangle dummy;
