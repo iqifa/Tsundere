@@ -7,15 +7,18 @@ namespace Engine {
 
 	LayerStack::~LayerStack()
 	{
+		std::lock_guard<std::mutex> lock(m_Mutex);
 		for (Layer* layer : Layers)
 			delete layer;
 	}
 	void LayerStack::PushLayer(Layer* layer)
 	{
+		std::lock_guard<std::mutex> lock(m_Mutex);
 		Layers.push_back(layer);
 	}
 	void LayerStack::PopLayer(Layer* layer)
 	{
+		std::lock_guard<std::mutex> lock(m_Mutex);
 		deque<Layer*>temp;
 
 		while (!Layers.empty())

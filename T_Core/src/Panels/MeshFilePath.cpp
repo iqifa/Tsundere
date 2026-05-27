@@ -1,4 +1,5 @@
 #include"MeshFilePath.h"
+#include"Core/Threading/ResourceLoader.h"
 using namespace std;
 
 static vector<string> ModlePaths = {
@@ -23,26 +24,40 @@ static vector<string> ShaderPaths
 
 unordered_map<string, Ref<Model>> My_map::m_ModleMap;
 unordered_map<string, Ref<Shader>> My_map::m_ShaderMap;
+shared_mutex My_map::s_Mutex;
 
 Ref<Model> My_map::LoadModel(const std::string& path)
 {
-	auto it = m_ModleMap.find(path);
-	if (it != m_ModleMap.end())
 	{
-		debugwarring("Model: " + path + " already loaded");
-		return it->second;
+		shared_lock lock(s_Mutex);
+		auto it = m_ModleMap.find(path);
+		if (it != m_ModleMap.end())
+		{
+			debugwarring("Model: " + path + " already loaded");
+			return it->second;
+		}
 	}
+	// Load without holding lock (heavy Assimp work)
 	auto model = CreateRef<Model>(path);
-	m_ModleMap[path] = model;
+	{
+		unique_lock lock(s_Mutex);
+		m_ModleMap[path] = model;
+	}
 	return model;
 }
 
 Ref<Model> My_map::GetModel(const std::string& path)
 {
-	auto it = m_ModleMap.find(path);
-	if (it != m_ModleMap.end())
-		return it->second;
-	return LoadModel(path);
+	{
+		shared_lock lock(s_Mutex);
+		auto it = m_ModleMap.find(path);
+		if (it != m_ModleMap.end())
+			return it->second;
+	}
+	// Trigger async load — model will be available in a few frames.
+	// Dedup set in ResourceLoader prevents re-enqueuing every frame.
+	Engine::ResourceLoader::RequestModelLoad(path);
+	return nullptr;
 }
 
 const std::vector<std::string>& My_map::GetShaderPaths() {

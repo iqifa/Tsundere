@@ -4,6 +4,7 @@
 #include<Scene/Mesh.h>
 #include<Scene/BVHBuilder.h>
 #include<Panels/MeshFilePath.h>
+#include<Panels/Material.h>
 class Scene;
 class  FrameBuffer;
 
@@ -88,6 +89,9 @@ public:
 			for (size_t i = 0; i < model->meshes.size(); i++)
 			{
 				auto& mesh = model->meshes[i];
+				if (!mesh.IsGPUReady())
+					continue;
+
 				Ref<Material> mat = i < meshrender.materials.size()
 					? meshrender.materials[i]
 					: meshrender.materials[0];
@@ -431,8 +435,11 @@ public:
 	void BuildBVH(Ref<Scene> scene)
 	{
 		m_BVHBuilder = CreateRef<BVHBuilder>();
+		BVHBuilder::SetActiveInstance(m_BVHBuilder.get());
 		m_BVHBuilder->GatherTriangles(scene);
 		m_BVHBuilder->BuildBVH(4);
+		m_BVHBuilder->UploadToGPU();
+		m_BVHBuilder->MarkClean();
 	}
 
 	void Execute(Ref<Scene> scene, RenderResources& resources) override
@@ -440,11 +447,14 @@ public:
 		if (!Enabled)
 			return;
 
-		// Rebuild BVH from current scene (models may have been added/removed)
-		if (m_BVHBuilder)
+		// Rebuild BVH only when scene geometry changed (dirty-flag).
+		// Static scene = zero cost. One-frame stale BVH is imperceptible.
+		if (m_BVHBuilder && m_BVHBuilder->IsDirty())
 		{
 			m_BVHBuilder->GatherTriangles(scene);
 			m_BVHBuilder->BuildBVH(4);
+			m_BVHBuilder->UploadToGPU();
+			m_BVHBuilder->MarkClean();
 		}
 
 		if (!m_BVHBuilder->GetTriangleBuffer())
@@ -626,11 +636,63 @@ public:
 		m_AccumTex[0] = ImageTexture::Create(m_Spec.Width, m_Spec.Height, GL_RGBA32F);
 		m_AccumTex[1] = ImageTexture::Create(m_Spec.Width, m_Spec.Height, GL_RGBA32F);
 
-		// Default material: gray albedo, no emission
+		// Initial material SSBO (RebuildMaterialBuffer fills it properly)
 		GPUMaterial defMat;
 		defMat.albedo = glm::vec4(0.8f, 0.8f, 0.8f, 0.5f);
 		defMat.emission = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
 		m_MaterialSSBO = StorageBuffer::Create(sizeof(GPUMaterial), &defMat, 0);
+	}
+
+	// Rebuild the GPUMaterial SSBO from the scene's CPU materials.
+	// Returns the Material* → global index mapping (also stored internally).
+	void RebuildMaterialBuffer(Ref<Scene> scene)
+	{
+		m_MatToGlobalIndex.clear();
+		m_GPUMaterials.clear();
+
+		// Collect unique materials from all MeshRender entities
+		for (auto [entityID, meshrender] : scene->m_Registry.view<Component::MeshRender>().each())
+		{
+			for (auto& mat : meshrender.materials)
+			{
+				if (!mat) continue;
+				if (m_MatToGlobalIndex.find(mat.get()) != m_MatToGlobalIndex.end())
+					continue;
+
+				unsigned int idx = (unsigned int)m_GPUMaterials.size();
+				m_MatToGlobalIndex[mat.get()] = idx;
+
+				GPUMaterial gpu;
+				gpu.albedo = ExtractVec4(mat, "albedo",
+					glm::vec4(0.8f, 0.8f, 0.8f, 0.5f));
+				gpu.emission = ExtractVec4(mat, "emission",
+					glm::vec4(0.0f, 0.0f, 0.0f, 0.0f));
+
+				// If no explicit albedo uniform, derive color from texture path hash
+				if (!HasUniform(mat, "albedo"))
+				{
+					float hue = float(idx) * 0.618033988749895f; // golden ratio
+					hue = hue - std::floor(hue);
+					gpu.albedo = glm::vec4(HsvToRgb(hue, 0.6f, 0.85f), 0.5f);
+				}
+
+				m_GPUMaterials.push_back(gpu);
+			}
+		}
+
+		// Ensure at least one material
+		if (m_GPUMaterials.empty())
+		{
+			GPUMaterial defMat;
+			defMat.albedo = glm::vec4(0.8f, 0.8f, 0.8f, 0.5f);
+			defMat.emission = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
+			m_GPUMaterials.push_back(defMat);
+		}
+
+		// Upload
+		m_MaterialSSBO = StorageBuffer::Create(
+			m_GPUMaterials.size() * sizeof(GPUMaterial),
+			m_GPUMaterials.data(), 0);
 	}
 
 	void Execute(Ref<Scene> scene, RenderResources& resources) override
@@ -641,11 +703,19 @@ public:
 			return;
 		}
 
-		// Rebuild BVH from current scene (models may have been added/removed)
-		if (m_BVHBuilder)
+		// Rebuild material SSBO every frame (cheap, picks up UI uniform changes)
+		RebuildMaterialBuffer(scene);
+
+		// Rebuild BVH only when scene geometry changed (dirty-flag).
+		// Pass material map so triangles get global material indices.
+		if (m_BVHBuilder && m_BVHBuilder->IsDirty())
 		{
+			m_BVHBuilder->SetMaterialMap(&m_MatToGlobalIndex);
 			m_BVHBuilder->GatherTriangles(scene);
 			m_BVHBuilder->BuildBVH(4);
+			m_BVHBuilder->UploadToGPU();
+			m_BVHBuilder->MarkClean();
+			m_BVHBuilder->SetMaterialMap(nullptr);
 		}
 
 		// Reset accumulation on camera movement or viewport change
@@ -732,17 +802,84 @@ public:
 		m_SampleCount = 0;
 	}
 
-	void SetBVHBuilder(Ref<BVHBuilder> builder) { m_BVHBuilder = builder; }
+	void SetBVHBuilder(Ref<BVHBuilder> builder)
+	{
+		m_BVHBuilder = builder;
+		// Force BVH rebuild on first frame: ShadowPass built the BVH without
+		// material mapping, so triangle matIdx values are mesh-local (wrong).
+		if (m_BVHBuilder)
+			m_BVHBuilder->MarkDirty();
+	}
 	void ResetAccumulation() { m_SampleCount = 0; }
 	unsigned int GetSampleCount() const { return m_SampleCount; }
 
 private:
+	// Extract uniform value from Material::varies by name
+	bool HasUniform(Ref<Material> mat, const std::string& name) const
+	{
+		for (auto& var : mat->varies)
+			if (std::get<2>(var) == name)
+				return true;
+		return false;
+	}
+
+	float ExtractFloat(Ref<Material> mat, const std::string& name, float defVal) const
+	{
+		for (auto& var : mat->varies)
+		{
+			if (std::get<2>(var) == name)
+			{
+				if (std::get<1>(var) == ValueType::FLOAT)
+					return *(float*)std::get<0>(var);
+				if (std::get<1>(var) == ValueType::DOUBLE)
+					return (float)*(double*)std::get<0>(var);
+				if (std::get<1>(var) == ValueType::INT)
+					return (float)*(int*)std::get<0>(var);
+			}
+		}
+		return defVal;
+	}
+
+	glm::vec3 ExtractVec3(Ref<Material> mat, const std::string& name, glm::vec3 defVal) const
+	{
+		for (auto& var : mat->varies)
+			if (std::get<2>(var) == name && std::get<1>(var) == ValueType::VEC3)
+				return *(glm::vec3*)std::get<0>(var);
+		return defVal;
+	}
+
+	glm::vec4 ExtractVec4(Ref<Material> mat, const std::string& name, glm::vec4 defVal) const
+	{
+		for (auto& var : mat->varies)
+			if (std::get<2>(var) == name && std::get<1>(var) == ValueType::VEC3)
+				return glm::vec4(*(glm::vec3*)std::get<0>(var), defVal.a);
+		return defVal;
+	}
+
+	static glm::vec3 HsvToRgb(float h, float s, float v)
+	{
+		float c = v * s;
+		float x = c * (1.0f - std::abs(std::fmod(h * 6.0f, 2.0f) - 1.0f));
+		float m = v - c;
+		glm::vec3 rgb;
+		if (h < 1.0f / 6.0f)      rgb = glm::vec3(c, x, 0.0f);
+		else if (h < 2.0f / 6.0f) rgb = glm::vec3(x, c, 0.0f);
+		else if (h < 3.0f / 6.0f) rgb = glm::vec3(0.0f, c, x);
+		else if (h < 4.0f / 6.0f) rgb = glm::vec3(0.0f, x, c);
+		else if (h < 5.0f / 6.0f) rgb = glm::vec3(x, 0.0f, c);
+		else                       rgb = glm::vec3(c, 0.0f, x);
+		return rgb + glm::vec3(m);
+	}
+
 	FrameBufferSpecification m_Spec;
 	Ref<Shader> m_Shader;
 	Ref<ImageTexture> m_AccumTex[2];
 	int m_CurrentIdx = 0;
 	Ref<BVHBuilder> m_BVHBuilder;
 	Ref<StorageBuffer> m_MaterialSSBO;
+
+	std::vector<GPUMaterial> m_GPUMaterials;
+	std::unordered_map<Material*, unsigned int> m_MatToGlobalIndex;
 
 	unsigned int m_SampleCount = 0;
 	unsigned int m_FrameIdx = 0;

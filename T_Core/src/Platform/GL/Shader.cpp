@@ -1,5 +1,6 @@
 #include "Shader.h"
 #include"Debug/Debug.h"
+#include<shared_mutex>
 using namespace std;
 Shader::Shader(const string& filepath, const string& name) :m_FilePath(filepath), m_RendererID(0), m_Name(name)
 {
@@ -246,37 +247,61 @@ int Shader::GetUniformLocation(const string& name)  const
 
 	int locatation = glGetUniformLocation(m_RendererID, name.c_str());
 	if (locatation == -1)
-		debugwarring(m_Name+"Warning: uniform '" + name + "' doesnt exist!");
+		debugwarring("["+m_Name + "]:Warning: uniform '" + name + "' doesnt exist!");
 	m_UniformLocationCache[name] = locatation;
 	return locatation;
 }
 
+shared_mutex ShaderLibiray::s_Mutex;
+
 void ShaderLibiray::Add(const Ref<Shader>& shader)
 {
+	std::unique_lock lock(s_Mutex);
 	auto& path = shader->GetPath();
 	m_Shaders[path] = shader;
 }
 
 Ref<Shader> ShaderLibiray::Load(const string& FilePath)
 {
-	auto& shader = Shader::Create(FilePath);
-	Add(shader);
+	{
+		std::shared_lock lock(s_Mutex);
+		auto it = m_Shaders.find(FilePath);
+		if (it != m_Shaders.end())
+			return it->second;
+	}
+	auto shader = Shader::Create(FilePath);
+	{
+		std::unique_lock lock(s_Mutex);
+		m_Shaders[FilePath] = shader;
+	}
 	return shader;
 }
 
 Ref<Shader> ShaderLibiray::Load(const string& name, const string& FilePath)
 {
-	auto& shader = Shader::Create(FilePath,name);
-	Add(shader);
+	{
+		std::shared_lock lock(s_Mutex);
+		auto it = m_Shaders.find(FilePath);
+		if (it != m_Shaders.end())
+			return it->second;
+	}
+	auto shader = Shader::Create(FilePath, name);
+	{
+		std::unique_lock lock(s_Mutex);
+		m_Shaders[FilePath] = shader;
+	}
 	return shader;
 }
 
-Ref<Shader> ShaderLibiray::Get(const string& path) 
+Ref<Shader> ShaderLibiray::Get(const string& path)
 {
-	if(m_Shaders.find(path)!=m_Shaders.end())
-		return m_Shaders[path];
-	else
-		return Load(path);
+	{
+		std::shared_lock lock(s_Mutex);
+		auto it = m_Shaders.find(path);
+		if (it != m_Shaders.end())
+			return it->second;
+	}
+	return Load(path);
 }
 
 unordered_map<string, Ref<Shader>> ShaderLibiray::m_Shaders;

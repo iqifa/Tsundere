@@ -8,6 +8,7 @@
 #include "Input/Input.h"
 #include "Widget.h"
 #include "Scene/Scene.h"
+#include "Scene/BVHBuilder.h"
 
 // ============================================================================
 // Inspector free functions
@@ -169,7 +170,10 @@ namespace {
 						for (auto& [path, texture] : TextureLibiary::m_TextureMap)
 						{
 							if (ImGui::Selectable(path.c_str()))
+							{
 								*tex = *texture;
+								BVHBuilder::MarkActiveDirty();
+							}
 						}
 						ImGui::Separator();
 						if (ImGui::Button("Browse..."))
@@ -179,6 +183,7 @@ namespace {
 							{
 								auto loaded = TextureLibiary::Load(importPath);
 								*tex = *loaded;
+								BVHBuilder::MarkActiveDirty();
 								ImGui::CloseCurrentPopup();
 							}
 						}
@@ -231,11 +236,13 @@ inline void RenderMeshRenderInspector(Entity& entity)
 	{
 		meshrender.materials.push_back(CreateRef<Material>(
 			"D:/Code/C++/Tsundere/res/shaders/Lamber.shader"));
+		BVHBuilder::MarkActiveDirty();
 	}
 	ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - btnW_minus);
 	if (ImGui::SmallButton("-"))
 	{
 		entity.RemoveComponent<MeshRender>();
+		BVHBuilder::MarkActiveDirty();
 		ImGui::PopID();
 		return;
 	}
@@ -276,6 +283,7 @@ inline void RenderMeshRenderInspector(Entity& entity)
 					}
 					state.SelectedMaterialIdx = 0;
 					ClearMaterialWidgets();
+					BVHBuilder::MarkActiveDirty();
 				}
 				if (selected)
 					ImGui::SetItemDefaultFocus();
@@ -305,6 +313,7 @@ inline void RenderMeshRenderInspector(Entity& entity)
 				}
 				state.SelectedMaterialIdx = 0;
 				ClearMaterialWidgets();
+				BVHBuilder::MarkActiveDirty();
 			}
 		}
 		ImGui::Columns(1);
@@ -352,6 +361,7 @@ inline void RenderMeshRenderInspector(Entity& entity)
 						if (state.SelectedMaterialIdx >= (int)meshrender.materials.size())
 							state.SelectedMaterialIdx = (int)meshrender.materials.size() - 1;
 						ClearMaterialWidgets();
+						BVHBuilder::MarkActiveDirty();
 					}
 				}
 			}
@@ -406,6 +416,7 @@ inline void RenderMaterialInspector(Entity& entity)
 					mat->shaderindex = i;
 					mat->shader = ShaderLibiray::Get(My_map::GetShaderPaths()[i]);
 					state.NeedRebuild = true;
+					BVHBuilder::MarkActiveDirty();
 				}
 				if (selected)
 					ImGui::SetItemDefaultFocus();
@@ -441,6 +452,7 @@ inline void AddMeshRenderComponent(Entity& entity)
 		auto& mr = entity.AddComponent<MeshRender>();
 		mr.materials.push_back(CreateRef<Material>("D:/Code/C++/Tsundere/res/shaders/Lamber.shader"));
 		debuglog("AddComponent: MeshRender with default material");
+		BVHBuilder::MarkActiveDirty();
 	}
 }
 
@@ -451,6 +463,7 @@ inline void AddMaterialToMeshRender(Entity& entity)
 		auto& mr = entity.GetComponent<MeshRender>();
 		mr.materials.push_back(CreateRef<Material>("res/shaders/Lamber.shader"));
 		debuglog("AddComponent: Material added to MeshRender");
+		BVHBuilder::MarkActiveDirty();
 	}
 	else
 	{

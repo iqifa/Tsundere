@@ -1,5 +1,7 @@
 #include "BVHBuilder.h"
 
+BVHBuilder* BVHBuilder::s_ActiveInstance = nullptr;
+
 void BVHBuilder::GatherTriangles(Ref<Scene> scene)
 {
 	m_BuildTriangles.clear();
@@ -22,8 +24,21 @@ void BVHBuilder::GatherTriangles(Ref<Scene> scene)
 		for (size_t meshIdx = 0; meshIdx < model->meshes.size(); meshIdx++)
 		{
 			auto& mesh = model->meshes[meshIdx];
-			unsigned int matIdx = (unsigned int)(meshIdx < meshrender.materials.size()
-				? meshIdx : 0);
+
+			// Resolve material index: use global mapping if available (PathTracePass),
+			// otherwise fall back to mesh-local index (ShadowPass doesn't use it).
+			unsigned int matIdx = 0;
+			if (m_MaterialMap && meshIdx < meshrender.materials.size())
+			{
+				auto it = m_MaterialMap->find(meshrender.materials[meshIdx].get());
+				if (it != m_MaterialMap->end())
+					matIdx = it->second;
+			}
+			else
+			{
+				matIdx = (unsigned int)(meshIdx < meshrender.materials.size()
+					? meshIdx : 0);
+			}
 
 			for (size_t i = 0; i < mesh.indices.size(); i += 3)
 			{
@@ -72,7 +87,6 @@ void BVHBuilder::BuildBVH(unsigned int leafSize)
 
 	if (m_BuildTriangles.empty())
 	{
-		// Leaf with 0 triangles (bboxMin.w < 0 = leaf, bboxMax.w = 0 = triCount)
 		GPUBVHNode root;
 		root.bboxMin = glm::vec4(0.0f, 0.0f, 0.0f, -1.0f);
 		root.bboxMax = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
@@ -84,11 +98,13 @@ void BVHBuilder::BuildBVH(unsigned int leafSize)
 	}
 	else
 	{
-		// Build recursively, starting with all triangles
 		BuildNodeRecursive(0, (unsigned int)m_BuildTriangles.size(), 0);
 	}
+	// UploadToGPU() must be called separately (on main/GL thread after this)
+}
 
-	// Upload to GPU
+void BVHBuilder::UploadToGPU()
+{
 	m_TriSSBO = StorageBuffer::Create(
 		m_GPUTriangles.size() * sizeof(GPUTriangle),
 		m_GPUTriangles.data(), 0);

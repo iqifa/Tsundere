@@ -3,6 +3,7 @@
 #include "ExternalFiles.h"
 #include "Panels/MeshFilePath.h"
 #include "Platform/GL/FileDialog.h"
+#include "Core/Threading/ResourceLoader.h"
 #include "HeadLine.h"
 
 class ModelImportPanel : public Engine::Layer
@@ -21,7 +22,7 @@ public:
 			if (!path.empty())
 			{
 				My_map::AddModelPath(path);
-				My_map::LoadModel(path);
+				Engine::ResourceLoader::RequestModelLoad(path);
 			}
 		}
 
@@ -37,7 +38,7 @@ public:
 			if (!p.empty())
 			{
 				My_map::AddModelPath(p);
-				My_map::LoadModel(p);
+				Engine::ResourceLoader::RequestModelLoad(p);
 				pathBuf[0] = 0;
 			}
 		}

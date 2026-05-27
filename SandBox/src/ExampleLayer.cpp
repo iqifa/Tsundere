@@ -2,6 +2,7 @@
 #include <Debug/Debug.h>
 #include<Trans/SceneCamera.h>
 #include<Core/Application.h>
+#include<Scene/BVHBuilder.h>
 
 
 entt::entity m_SelectedContext = null;
@@ -252,6 +253,7 @@ void ExampleLayer::OnImGuiRender()
 				}
 				m_Context->DestoryEntity(Entity{ m_Context.get(),m_SelectedContext });
 				m_SelectedContext = null;
+				BVHBuilder::MarkActiveDirty();
 			}
 		}
 

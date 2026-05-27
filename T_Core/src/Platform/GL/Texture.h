@@ -2,6 +2,7 @@
 #include"Renderer.h"
 #include"Debug/Debug.h"
 #include"HeadLine.h"
+#include<shared_mutex>
 class T_API Texture
 {
 private:
@@ -23,45 +24,48 @@ public:
 	inline std::string GetPath()const { return m_FilePath; }
 	inline int GetWidth()const { return m_Width; }
 	inline int GetHeight()const { return m_Height; }
+
+	// Create from pre-loaded pixel data (for async loading).
+	// Takes ownership of pixelData and frees it after GPU upload.
+	static Ref<Texture> CreateFromPixels(const std::string& path,
+		unsigned char* pixelData, int width, int height, int channels);
 };
 class T_API TextureLibiary {
 public:
 	static std::unordered_map<std::string, Ref<Texture>> m_TextureMap;
+	static std::shared_mutex s_Mutex;
+
 	static void Add(Ref<Texture>tex)
 	{
+		std::unique_lock lock(s_Mutex);
 		auto& path = tex->GetPath();
 		m_TextureMap[path] = tex;
 	}
-	 
-	 
-	/// <summary>
-	/// 感觉有优化的空间
-	/// </summary>
-	/// <param name="filepath"></param>
-	/// <returns></returns>
+
 	static Ref<Texture> Load(const std::string& filepath)
 	{
-		if (m_TextureMap.find(filepath) != m_TextureMap.end())
 		{
-			debugwarring("Texture:" + filepath + "has Load")
-				return m_TextureMap[filepath];
+			std::shared_lock lock(s_Mutex);
+			auto it = m_TextureMap.find(filepath);
+			if (it != m_TextureMap.end())
+			{
+				debugwarring("Texture:" + filepath + "has Load")
+				return it->second;
+			}
 		}
-		else {
-			auto& tex = CreateRef<Texture>(filepath);
-			Add(tex);
-			return tex;
-		}
+		auto tex = CreateRef<Texture>(filepath);
+		Add(tex);
+		return tex;
 	}
+
 	static Ref<Texture> Get(const std::string& filepath)
 	{
-		if (m_TextureMap.find(filepath) != m_TextureMap.end())
 		{
-			auto& tex = m_TextureMap[filepath];
-			return tex;
+			std::shared_lock lock(s_Mutex);
+			auto it = m_TextureMap.find(filepath);
+			if (it != m_TextureMap.end())
+				return it->second;
 		}
-		else
-		{
-			return Load(filepath);
-		}
+		return Load(filepath);
 	}
 };

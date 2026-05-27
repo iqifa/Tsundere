@@ -1,4 +1,5 @@
 #include "Application.h"
+#include "Core/Threading/ResourceLoader.h"
 namespace Engine {
 
 #define BIND_EVENT_FN(x) std::bind(&Application::x, this, std::placeholders::_1)
@@ -19,23 +20,34 @@ namespace Engine {
 
 	void Application::Run()
 	{
+		// Start async resource loader worker thread
+		ResourceLoader::Init();
+
 		while (m_Running)
 		{
+			// Phase 0: Complete any async resource loads (GPU upload on main thread)
+			ResourceLoader::ProcessMainThreadCompletions();
+
+			// Phase 1: Dispatch queued load requests to worker thread
+			ResourceLoader::DispatchQueuedLoads();
+
+			// Phase 2: Normal frame
 			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-			
-			for (auto layer : layerStack)
+
+			for (auto layer : layerStack.GetLayerSnapshot())
 			{
 				layer->OnUpdate();
 			}
 			m_iml->Begin();
-			for (auto layer : layerStack)
+			for (auto layer : layerStack.GetLayerSnapshot())
 			{
 				layer->OnImGuiRender();
 			}
 			m_iml->End();
 			m_Window->OnUpdate();
 		}
-		
+
+		ResourceLoader::Shutdown();
 	}
 
 	void Application::OnEvents(Eventing::Event<>& ev) {

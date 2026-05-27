@@ -3,6 +3,7 @@
 #define MFP
 #include"HeadLine.h"
 #include"Scene/Modle.h"
+#include<shared_mutex>
 
 
 class T_API My_map
@@ -19,6 +20,8 @@ public:
 
 	static const std::vector<std::string>& GetShaderPaths();
 	static const std::vector<std::string>& GetModelPaths();
+
+	static std::shared_mutex s_Mutex;
 };
 
 #endif // !MFP

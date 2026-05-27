@@ -3,6 +3,7 @@
 #include "ExternalFiles.h"
 #include "Platform/GL/Texture.h"
 #include "Platform/GL/FileDialog.h"
+#include "Core/Threading/ResourceLoader.h"
 #include "HeadLine.h"
 
 class TextureImportPanel : public Engine::Layer
@@ -19,7 +20,7 @@ public:
 		{
 			std::string path = OpenTextureFileDialog();
 			if (!path.empty())
-				TextureLibiary::Load(path);
+				Engine::ResourceLoader::RequestTextureLoad(path);
 		}
 
 		ImGui::SameLine();
@@ -33,7 +34,7 @@ public:
 			std::string p(pathBuf);
 			if (!p.empty())
 			{
-				TextureLibiary::Load(p);
+				Engine::ResourceLoader::RequestTextureLoad(p);
 				pathBuf[0] = 0;
 			}
 		}

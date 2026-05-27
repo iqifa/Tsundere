@@ -3,6 +3,8 @@
 #include"HeadLine.h"
 #include"Layer.h"
 #include<deque>
+#include<mutex>
+#include<vector>
 namespace Engine {
 	class T_API LayerStack
 	{
@@ -12,11 +14,18 @@ namespace Engine {
 
 		void PushLayer(Layer* layer);
 		void PopLayer(Layer* layer);
-		
-		std::deque<Layer*>::iterator begin() { return Layers.begin(); }
-		std::deque<Layer*>::iterator end() { return Layers.end(); }
+
+		// Thread-safe snapshot for iteration.
+		// Copy is cheap (pointers only, typically 5-10 layers).
+		// Lock is released before returning — callbacks can safely Push/Pop.
+		std::vector<Layer*> GetLayerSnapshot() const
+		{
+			std::lock_guard<std::mutex> lock(m_Mutex);
+			return std::vector<Layer*>(Layers.begin(), Layers.end());
+		}
 
 	private:
 		std::deque<Layer*> Layers;
+		mutable std::mutex m_Mutex;
 	};
 }

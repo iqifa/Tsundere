@@ -3,6 +3,7 @@
 #include"HeadLine.h"
 #include"ExternalFiles.h"
 #include"Core/Core.h"
+#include<shared_mutex>
 using namespace glm;
 
 struct Uniform
@@ -69,8 +70,10 @@ public:
 	static Ref<Shader> Load(const std::string& name,const std::string& FilePath);
 
 	static Ref<Shader> Get(const std::string& path);
+
+	static std::shared_mutex s_Mutex;
 private:
 	static std::unordered_map<std::string, Ref<Shader>>m_Shaders;
-	
+
 };
 

@@ -37,12 +37,26 @@ public:
         setupMesh();
     }
 
+    // Create mesh data WITHOUT GPU upload (for async loading).
+    // Call setupMesh() later on the main/GL thread.
+    static Mesh CreatePending(std::vector<Vertex>& vertices, std::vector<unsigned int>& indices)
+    {
+        Mesh m;
+        m.vertices = std::move(vertices);
+        m.indices = std::move(indices);
+        return m;
+    }
+
+    bool IsGPUReady() const { return vao != nullptr; }
+
     void Bind()   const { vao->Bind(); }
     void UnBind() const { vao->UnBind(); }
 
-private:
+public:
     void setupMesh()
     {
+        if (vertices.empty()) return;
+
         vao = CreatePtr<VertexArray>(vertices.size());
         vbo = CreatePtr<VertexBuffer>(&vertices[0].Position.x, vertices.size() * sizeof(Vertex));
         ibo = CreatePtr<IndexBuffer>(&indices[0], indices.size());
