@@ -442,7 +442,7 @@ inline void AddDirectionalLightComponent(Entity& entity)
 	if (!entity.HasComponent<DirectionalLight>())
 		entity.AddComponent<DirectionalLight>();
 	else
-		debugwarring("Component DirectionalLight already exists");
+		Warn_Core("Component DirectionalLight already exists");
 }
 
 inline void AddMeshRenderComponent(Entity& entity)
@@ -451,7 +451,7 @@ inline void AddMeshRenderComponent(Entity& entity)
 	{
 		auto& mr = entity.AddComponent<MeshRender>();
 		mr.materials.push_back(CreateRef<Material>("D:/Code/C++/Tsundere/res/shaders/Lamber.shader"));
-		debuglog("AddComponent: MeshRender with default material");
+		Info_Core("AddComponent: MeshRender with default material");
 		BVHBuilder::MarkActiveDirty();
 	}
 }
@@ -462,12 +462,12 @@ inline void AddMaterialToMeshRender(Entity& entity)
 	{
 		auto& mr = entity.GetComponent<MeshRender>();
 		mr.materials.push_back(CreateRef<Material>("res/shaders/Lamber.shader"));
-		debuglog("AddComponent: Material added to MeshRender");
+		Info_Core("AddComponent: Material added to MeshRender");
 		BVHBuilder::MarkActiveDirty();
 	}
 	else
 	{
-		debugwarring("Add MeshRender first before adding Material");
+		Warn_Core("Add MeshRender first before adding Material");
 	}
 }
 

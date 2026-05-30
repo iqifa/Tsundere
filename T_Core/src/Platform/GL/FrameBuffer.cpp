@@ -93,7 +93,7 @@ void FrameBuffer::InValidate()
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, m_Depth_StencilAttachment, 0);
 
 	if (!IsComplete())
-		debugerror("Error:FrameBuffer isn't Complete!");
+		Error_Core("Error:FrameBuffer isn't Complete!");
 	UnBind();
 }
 
@@ -104,7 +104,7 @@ MsaaFrameBuffer::MsaaFrameBuffer(const FrameBufferSpecification& spec)
 	glGetIntegerv(GL_MAX_SAMPLES, &max_samples);
 	if (spec.Samples > max_samples)
 	{
-		debugwarring("FrameBuffer:Samples_Point maxValue is {},but setvalue is {},now has set as maxvalue", max_samples, spec.Samples);
+		Warn_Core("FrameBuffer:Samples_Point maxValue is {},but setvalue is {},now has set as maxvalue", max_samples, spec.Samples);
 		m_Specfication.Samples = max_samples;
 	}
 	InValidate(); // 手动调用自己重写的 MSAA 版本 InValidate
@@ -133,7 +133,7 @@ void MsaaFrameBuffer::InValidate()
 
 
 	if (!IsComplete())
-		debugerror("Error:MsaaFrameBuffer isn't Complete!");
+		Error_Core("Error:MsaaFrameBuffer isn't Complete!");
 
 	UnBind();
 }

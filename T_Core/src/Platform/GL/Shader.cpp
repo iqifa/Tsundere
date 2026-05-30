@@ -63,7 +63,7 @@ unsigned int  Shader::CompileShader(unsigned int type, const string& source)
 		glGetShaderInfoLog(id, lenth, &lenth, message);
 		//cout << "Failed to Compile " << (type == GL_VERTEX_SHADER ? "vertex" : "fragment") << "Shader!" << endl;
 		string info = "Failed to Compile ["+m_Name +"] " + (string)(type == GL_VERTEX_SHADER ? "vertex" : (type == GL_FRAGMENT_SHADER ? "fragment" : "compute")) + " Shader!";
-		debugerror(info)
+		Warn_Core(info)
 		cout << message << endl;
 		glDeleteShader(id);
 		return 0;
@@ -87,7 +87,7 @@ ShaderProgramSource Shader::ParseShader(const string& filepath)
 	if (!stream.is_open())
 	{
 		string info = "Failed to open shader file at path: " + filepath;
-		debugerror(info); // 使用你引擎的报错宏打印出来
+		Error_Core(info); // 使用你引擎的报错宏打印出来
 		// cout << info << endl; 
 		return { "", "" };
 	}
@@ -247,7 +247,7 @@ int Shader::GetUniformLocation(const string& name)  const
 
 	int locatation = glGetUniformLocation(m_RendererID, name.c_str());
 	if (locatation == -1)
-		debugwarring("["+m_Name + "]:Warning: uniform '" + name + "' doesnt exist!");
+		Warn_Core("["+m_Name + "]:Warning: uniform '" + name + "' doesnt exist!");
 	m_UniformLocationCache[name] = locatation;
 	return locatation;
 }

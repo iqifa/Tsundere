@@ -41,23 +41,24 @@ namespace Engine {
 		m_Data.Width = props.Width;
 		m_Data.Height = props.Height;
 
-		Info_Core("Creating window {0} ({1}, {2})", props.Title, props.Width, props.Height)
+		Info_Core("Creating window {0} ({1}, {2})", props.Title, props.Width, props.Height);
 
-			if (!s_GLFWInitialized)
+		if (!s_GLFWInitialized)
+		{
+			// TODO: glfwTerminate on system shutdown
+			int success = glfwInit();
+			if (!success)
 			{
-				// TODO: glfwTerminate on system shutdown
-				int success = glfwInit();
-				Error_Core(success, "Could not intialize GLFW!")
-
-
-					s_GLFWInitialized = true;
+				Error_Core("Could not intialize GLFW!")
 			}
+			s_GLFWInitialized = true;
+		}
 
 		glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+		glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+		glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-	m_Window = glfwCreateWindow((int)props.Width, (int)props.Height, m_Data.Title.c_str(), nullptr, nullptr);
+		m_Window = glfwCreateWindow((int)props.Width, (int)props.Height, m_Data.Title.c_str(), nullptr, nullptr);
 
 
 		glfwMakeContextCurrent(m_Window);
@@ -74,7 +75,7 @@ namespace Engine {
 			Eventing::Event<> ev1;
 			ev1 += [&]() {
 				Info_Core("MyEvent:Width {0},Height {1}", width, height)
-			};
+				};
 			data.callback(ev1);
 			});
 

@@ -14,7 +14,7 @@ private:
 public:
 	Texture(const std::string& path);
 	~Texture();
-	Texture() {}
+	Texture() : m_RendererID(0), m_LocalBuffer(nullptr), m_Width(0), m_Height(0), m_BPP(0) {}
 
 	void Bind(unsigned int slot=0) const;
 	void UnBind() const;
@@ -49,7 +49,7 @@ public:
 			auto it = m_TextureMap.find(filepath);
 			if (it != m_TextureMap.end())
 			{
-				debugwarring("Texture:" + filepath + "has Load")
+				Warn_Core("Texture:" + filepath + "has Load")
 				return it->second;
 			}
 		}

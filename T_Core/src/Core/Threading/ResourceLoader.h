@@ -135,7 +135,7 @@ inline void ResourceLoader::Init()
 	if (s_Running.load()) return;
 	s_Running.store(true);
 	s_WorkerThread = std::thread(WorkerLoop);
-	debuglog("ResourceLoader: Worker thread started");
+	Info_Core("ResourceLoader: Worker thread started");
 }
 
 inline void ResourceLoader::Shutdown()
@@ -145,7 +145,7 @@ inline void ResourceLoader::Shutdown()
 	s_WorkerCondition.notify_all();
 	if (s_WorkerThread.joinable())
 		s_WorkerThread.join();
-	debuglog("ResourceLoader: Worker thread stopped");
+	Info_Core("ResourceLoader: Worker thread stopped");
 }
 
 // ---- Request methods (main thread, non-blocking) ----
@@ -287,7 +287,7 @@ inline void ResourceLoader::ExecuteTextureLoad(AsyncLoadRequest& req)
 	req.pixelData = stbi_load(req.path.c_str(),
 		&req.texWidth, &req.texHeight, &req.texChannels, 4); // force RGBA
 	if (!req.pixelData)
-		debugerror("ResourceLoader: Failed to load texture: " + req.path);
+		Error_Core("ResourceLoader: Failed to load texture: " + req.path);
 }
 
 inline void ResourceLoader::ExecuteShaderParse(AsyncLoadRequest& req)
@@ -295,7 +295,7 @@ inline void ResourceLoader::ExecuteShaderParse(AsyncLoadRequest& req)
 	std::ifstream stream(req.path);
 	if (!stream.is_open())
 	{
-		debugerror("ResourceLoader: Failed to open shader: " + req.path);
+		Error_Core("ResourceLoader: Failed to open shader: " + req.path);
 		return;
 	}
 
@@ -339,7 +339,7 @@ inline void ResourceLoader::ExecuteModelLoad(AsyncLoadRequest& req)
 
 	if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode)
 	{
-		debugerror("ResourceLoader: Failed to load model: " + req.path);
+		Error_Core("ResourceLoader: Failed to load model: " + req.path);
 		return;
 	}
 
@@ -419,7 +419,7 @@ inline void ResourceLoader::CompleteTextureLoad(AsyncLoadRequest& req)
 		TextureLibiary::m_TextureMap[req.path] = tex;
 	}
 
-	debuglog("Texture loaded: " + req.path);
+	Info_Core("Texture loaded: " + req.path);
 }
 
 inline void ResourceLoader::CompleteShaderLoad(AsyncLoadRequest& req)
@@ -432,7 +432,7 @@ inline void ResourceLoader::CompleteShaderLoad(AsyncLoadRequest& req)
 	else
 		ShaderLibiray::Load(req.shaderName, req.path);
 
-	debuglog("Shader loaded: " + req.path);
+	Info_Core("Shader loaded: " + req.path);
 }
 
 inline void ResourceLoader::CompleteModelLoad(AsyncLoadRequest& req)
@@ -458,7 +458,7 @@ inline void ResourceLoader::CompleteModelLoad(AsyncLoadRequest& req)
 	pending.nextMeshIdx = 0;
 	s_PendingGPUModels.push_back(std::move(pending));
 
-	debuglog("Model data loaded (GPU upload pending): " + req.path
+	Info_Core("Model data loaded (GPU upload pending): " + req.path
 		+ " (" + std::to_string(model->meshes.size()) + " meshes)");
 }
 
@@ -485,7 +485,7 @@ inline void ResourceLoader::ProcessIncrementalGPUUploads()
 
 		if (pending.nextMeshIdx >= meshes.size())
 		{
-			debuglog("Model GPU upload complete: " + pending.path
+			Info_Core("Model GPU upload complete: " + pending.path
 				+ " (" + std::to_string(meshes.size()) + " meshes)");
 			s_PendingGPUModels.pop_front();
 		}

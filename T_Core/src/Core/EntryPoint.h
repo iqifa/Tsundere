@@ -11,7 +11,7 @@ int main(int argc,char** argv)
 	Engine::Log::Init();
 
 	auto app = Engine::CreateApplication();
-	debuglog("Start Tsundere!")
+	Info_Core("Start Tsundere!")
 	app->Run();
 
 

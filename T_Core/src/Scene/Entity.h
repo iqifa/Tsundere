@@ -80,7 +80,7 @@ public:
 		{
 
 			//TODO:
-			debugerror("Component Has Exist!!!");
+			Error_Core("Component Has Exist!!!");
 			T& component = m_Scene->m_Registry.get<T>(m_EntityHandle);
 			return component;
 		}

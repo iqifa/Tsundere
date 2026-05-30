@@ -33,7 +33,7 @@ Ref<Model> My_map::LoadModel(const std::string& path)
 		auto it = m_ModleMap.find(path);
 		if (it != m_ModleMap.end())
 		{
-			debugwarring("Model: " + path + " already loaded");
+			Warn_Core("Model: " + path + " already loaded");
 			return it->second;
 		}
 	}

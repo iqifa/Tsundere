@@ -55,7 +55,7 @@ ExampleLayer::ExampleLayer(Ref<Scene>scene, std::string name) : BasePanel(name)
 	m_WindowHandle = static_cast<GLFWwindow*>(app.GetWindow().GetWindow());
 
 	if (!m_WindowHandle) {
-		Error_Core(false, "ExampleLayer: 无法从 Application 获取到窗口句柄！");
+		Error_Core("ExampleLayer: 无法从 Application 获取到窗口句柄！");
 	}
 
 

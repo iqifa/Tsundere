@@ -22,7 +22,7 @@ CubeMap::CubeMap(vector<string> TexFilePaths):textures_face(TexFilePaths),m_Heig
 		{
 			stbi_image_free(m_LocalBuffer);
 			string errormsg = "CubeMap" + to_string(i) + "Can't Find\n" + "FilePath" + textures_face[i]+"\n";
-			debugerror(errormsg);
+			Error_Core(errormsg);
 		}
 		
 	}

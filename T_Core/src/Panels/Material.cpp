@@ -90,7 +90,7 @@ void Material::Render()
 void Material::Save()
 {
 	if (m_FilePath.empty()) {
-		debugwarring("Material::Save: no filepath set");
+		Warn_Core("Material::Save: no filepath set");
 		return;
 	}
 	fstream fs;

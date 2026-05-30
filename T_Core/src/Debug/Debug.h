@@ -11,10 +11,11 @@ using namespace glm;
 #ifndef DEBUG
 
 #define DEBUG
-#define debuglog(...)		::Engine::Log::GetCoreLogger()->info(__VA_ARGS__);
-#define debugerror(...)		::Engine::Log::GetCoreLogger()->error(__VA_ARGS__);
-#define debugwarring(...)	::Engine::Log::GetCoreLogger()->warn(__VA_ARGS__);
-#define Error_Core(x,...)	if(!x)::Engine::Log::GetCoreLogger()->error(__VA_ARGS__);
+//#define debuglog(...)		::Engine::Log::GetCoreLogger()->info(__VA_ARGS__);
+//#define debugerror(...)		::Engine::Log::GetCoreLogger()->error(__VA_ARGS__);
+//#define debugwarring(...)	::Engine::Log::GetCoreLogger()->warn(__VA_ARGS__);
+//#define Error_Core(x,...)	if(!x)::Engine::Log::GetCoreLogger()->error(__VA_ARGS__);
+#define Error_Core(...)		::Engine::Log::GetCoreLogger()->error(__VA_ARGS__);
 #define Warn_Core(...)		::Engine::Log::GetCoreLogger()->warn(__VA_ARGS__);
 #define Info_Core(...)		::Engine::Log::GetCoreLogger()->info(__VA_ARGS__);
 

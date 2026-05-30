@@ -35,7 +35,7 @@ Texture::Texture(const string& path)
 	}
 	else
 	{
-		debugerror("Texture failed to load at path:"+path);
+		Error_Core("Texture failed to load at path:"+path);
 		stbi_image_free(m_LocalBuffer);
 	}
 	
