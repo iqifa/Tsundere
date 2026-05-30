@@ -5,6 +5,8 @@
 #include<Scene/BVHBuilder.h>
 #include<Panels/MeshFilePath.h>
 #include<Panels/Material.h>
+#include<set>
+#include<Debug/Debug.h>
 class Scene;
 class  FrameBuffer;
 
@@ -629,7 +631,7 @@ public:
 		m_Shader = Shader::CreateCompute("D:/Code/C++/Tsundere/res/shaders/PathTrace.shader");
 		if (!m_Shader || m_Shader->GetID() == 0)
 		{
-			debugerror("PathTracePass: Failed to create compute shader!");
+			Error_Core("PathTracePass: Failed to create compute shader!");
 			Enabled = false;
 		}
 
@@ -640,6 +642,7 @@ public:
 		GPUMaterial defMat;
 		defMat.albedo = glm::vec4(0.8f, 0.8f, 0.8f, 0.5f);
 		defMat.emission = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
+		defMat.diffuseHandle = 0;
 		m_MaterialSSBO = StorageBuffer::Create(sizeof(GPUMaterial), &defMat, 0);
 	}
 
@@ -663,17 +666,37 @@ public:
 				m_MatToGlobalIndex[mat.get()] = idx;
 
 				GPUMaterial gpu;
-				gpu.albedo = ExtractVec4(mat, "albedo",
-					glm::vec4(0.8f, 0.8f, 0.8f, 0.5f));
+
+				// --- debug: dump material info once per material ---
+				{
+					static std::set<Material*> s_Logged;
+					if (s_Logged.insert(mat.get()).second)
+					{
+						std::string info = "PathTrace mat#" + std::to_string(idx)
+							+ " shader=" + mat->shader->GetPath() + " vars[";
+						for (auto& v : mat->varies)
+							info += " " + std::to_string((int)std::get<1>(v)) + ":" + std::get<2>(v);
+						info += " ] texID=" + std::to_string(mat->texture.GetTextureID());
+						Warn_Core(info);
+					}
+				}
+
+				// Try to extract base color from known uniform names
+				if (!ExtractBaseColor(mat, gpu.albedo))
+					gpu.albedo = glm::vec4(1.0f, 1.0f, 1.0f, 0.5f);
 				gpu.emission = ExtractVec4(mat, "emission",
 					glm::vec4(0.0f, 0.0f, 0.0f, 0.0f));
 
-				// If no explicit albedo uniform, derive color from texture path hash
-				if (!HasUniform(mat, "albedo"))
+				// Extract diffuse texture as bindless handle
+				gpu.diffuseHandle = ExtractTextureHandle(mat);
+
+				// If no base color AND no texture, derive from material index
+				if (!ExtractBaseColor(mat, gpu.albedo) && gpu.diffuseHandle == 0)
 				{
-					float hue = float(idx) * 0.618033988749895f; // golden ratio
+					float hue = float(idx) * 0.618033988749895f;
 					hue = hue - std::floor(hue);
 					gpu.albedo = glm::vec4(HsvToRgb(hue, 0.6f, 0.85f), 0.5f);
+					//Warn_Core("PathTrace mat#" + std::to_string(idx) + " -> HSV fallback");
 				}
 
 				m_GPUMaterials.push_back(gpu);
@@ -686,6 +709,7 @@ public:
 			GPUMaterial defMat;
 			defMat.albedo = glm::vec4(0.8f, 0.8f, 0.8f, 0.5f);
 			defMat.emission = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
+			defMat.diffuseHandle = 0;
 			m_GPUMaterials.push_back(defMat);
 		}
 
@@ -854,6 +878,87 @@ private:
 			if (std::get<2>(var) == name && std::get<1>(var) == ValueType::VEC3)
 				return glm::vec4(*(glm::vec3*)std::get<0>(var), defVal.a);
 		return defVal;
+	}
+
+	// Try to extract base color from known uniform names.
+	// Returns false if nothing found → caller uses fallback.
+	bool ExtractBaseColor(Ref<Material> mat, glm::vec4& outColor) const
+	{
+		static const char* kNames[] = { "albedo", "color", "baseColor", "diffuseColor", "tint", "diffuse" };
+		for (auto name : kNames)
+		{
+			for (auto& var : mat->varies)
+			{
+				if (std::get<2>(var) != name) continue;
+				if (std::get<1>(var) == ValueType::VEC3)
+					{ outColor = glm::vec4(*(glm::vec3*)std::get<0>(var), 0.5f); return true; }
+				if (std::get<1>(var) == ValueType::VEC2)
+					{ glm::vec2 v = *(glm::vec2*)std::get<0>(var); outColor = glm::vec4(v, 0.0f, 0.5f); return true; }
+				if (std::get<1>(var) == ValueType::FLOAT)
+					{ float v = *(float*)std::get<0>(var); outColor = glm::vec4(v, v, v, 0.5f); return true; }
+			}
+		}
+		return false;
+	}
+
+	// Extract diffuse texture as bindless handle (ARB_bindless_texture).
+	// Returns 0 if no valid texture found → shader falls back to albedo color.  
+	GLuint64 ExtractTextureHandle(Ref<Material> mat) const
+	{
+		static bool s_Checked = false, s_HasBindless = false;
+		if (!s_Checked)
+		{
+			s_HasBindless = GLEW_ARB_bindless_texture != GL_FALSE;
+			s_Checked = true;
+			if (!s_HasBindless)
+				Warn_Core("PathTrace: GL_ARB_bindless_texture not available");
+		}
+		if (!s_HasBindless)
+			return 0;
+
+		// 1) Try the material's direct texture member — only if loaded (default Texture
+		//    has uninitialized m_RendererID, so check GetPath() first to skip garbage)
+		unsigned int texID = 0;
+		if (!mat->texture.GetPath().empty())
+			texID = mat->texture.GetTextureID();
+		if (texID == 0)
+		{
+			// 2) Try the first "texture_diffuse1" in varies
+			for (auto& var : mat->varies)
+			{
+				if (std::get<1>(var) == ValueType::TEXTURE &&
+					std::get<2>(var).find("diffuse") != std::string::npos)
+				{
+					Texture* t = (Texture*)std::get<0>(var);
+					texID = t->GetTextureID();
+					break;
+				}
+			}
+		}
+		// 3) Fallback: any texture in varies
+		if (texID == 0)
+		{
+			for (auto& var : mat->varies)
+			{
+				if (std::get<1>(var) == ValueType::TEXTURE)
+				{
+					Texture* t = (Texture*)std::get<0>(var);
+					texID = t->GetTextureID();
+					break;
+				}
+			}
+		}
+
+		if (texID == 0)
+			return 0;
+
+		// Obtain bindless handle and make resident
+		GLuint64 handle = glGetTextureHandleARB(texID);
+		if (handle == 0)
+			return 0;
+
+		glMakeTextureHandleResidentARB(handle);
+		return handle;
 	}
 
 	static glm::vec3 HsvToRgb(float h, float s, float v)
