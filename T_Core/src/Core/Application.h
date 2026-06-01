@@ -5,6 +5,9 @@
 #include"HeadLine.h"
 #include"ExternalFiles.h"
 #include"Panels/ImGuiLayer.h"
+
+class RHIContext;
+
 namespace Engine {
 	class T_API Application
 	{
@@ -27,6 +30,7 @@ namespace Engine {
 		bool m_Running = true;
 		LayerStack layerStack;
 		ImGuiLayer *m_iml;
+		Ref<RHIContext> m_RHIContext;
 	};
 
 	Application* CreateApplication();

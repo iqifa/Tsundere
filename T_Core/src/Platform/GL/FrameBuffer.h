@@ -15,7 +15,7 @@
 
 struct FrameBufferSpecification {
 	unsigned int Width = 1080, Height = 960;
-	unsigned int Samples = 1; // ²ÉÑùÊý£¬´óÓÚ1Ôò¿ªÆô¶àÖØ²ÉÑù(MSAA)
+	unsigned int Samples = 1;
 };
 class RenderBufferObject;
 class T_API FrameBuffer
@@ -34,7 +34,7 @@ public:
 
 	virtual void BindTexture(Texture& tex);
 
-	// Rsetsize ÄÚ²¿»áµ÷ÓÃ¶àÌ¬µÄ InValidate()
+	// Rsetsize ï¿½Ú²ï¿½ï¿½ï¿½ï¿½ï¿½Ã¶ï¿½Ì¬ï¿½ï¿½ InValidate()
 	virtual void Rsetsize(const vec2& size);
 
 	bool IsComplete();
@@ -50,7 +50,7 @@ protected:
 	FrameBuffer(const FrameBufferSpecification& spec, bool autoInit);
 	unsigned int m_RenderID = 0;
 	unsigned int m_ColorAttachment = 0;
-	unsigned int m_Depth_StencilAttachment = 0; // ½« RenderBufferObject Ìæ»»ÎªÉî¶ÈÎÆÀí¸½¼þ
+	unsigned int m_Depth_StencilAttachment = 0; // ï¿½ï¿½ RenderBufferObject ï¿½æ»»Îªï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 	FrameBufferSpecification m_Specfication;
 };
 
@@ -60,8 +60,12 @@ public:
 	MsaaFrameBuffer(const FrameBufferSpecification& spec);
 	virtual ~MsaaFrameBuffer() = default;
 
+	// Resolve MSAA to a non-MSAA destination framebuffer
+	// Encapsulates glBlitFramebuffer â€” caller doesn't need GL knowledge
+	void ResolveTo(FrameBuffer& dst, int width, int height);
+
 protected:
-	// ÖØÐ´´´½¨Âß¼­£¬×¨ÓÃÓÚ MSAA
+	// ï¿½ï¿½Ð´ï¿½ï¿½ï¿½ï¿½ï¿½ß¼ï¿½ï¿½ï¿½×¨ï¿½ï¿½ï¿½ï¿½ MSAA
 	virtual void InValidate() override;
 };
 #endif // !FRAMEBUFFER

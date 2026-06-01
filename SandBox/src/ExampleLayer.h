@@ -24,7 +24,7 @@ private:
 	Ref<Shader>shader;
 
 	Ref<FrameBuffer> framebuffer;
-	Ptr<FrameBuffer> Msaaframebuffer;
+	Ptr<MsaaFrameBuffer> Msaaframebuffer;
 
 	vec2 m_ViewPortSize;
 	FrameBufferSpecification m_BaseFboSpec;

@@ -1,4 +1,4 @@
-#include"FrameBuffer.h"
+ï»¿#include"FrameBuffer.h"
 
 FrameBuffer::FrameBuffer()
 {
@@ -43,8 +43,8 @@ void FrameBuffer::BindTexture(Texture& tex)
 
 void FrameBuffer::Rsetsize(const vec2& size)
 {
-	m_Specfication.Width = size.x;
-	m_Specfication.Height = size.y;
+	m_Specfication.Width = static_cast<uint32_t>(size.x);
+	m_Specfication.Height = static_cast<uint32_t>(size.y);
 	InValidate();
 }
 
@@ -73,7 +73,7 @@ void FrameBuffer::InValidate()
 
 	glGenTextures(1, &m_ColorAttachment);
 
-	// »ùÀàÖ»¸ºÔğ±ê×¼µÄ GL_TEXTURE_2D
+	// åŸºç±»åªè´Ÿè´£æ ‡å‡†çš„ GL_TEXTURE_2D
 	glBindTexture(GL_TEXTURE_2D, m_ColorAttachment);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, m_Specfication.Width, m_Specfication.Height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -83,10 +83,10 @@ void FrameBuffer::InValidate()
 	glGenTextures(1, &m_Depth_StencilAttachment);
 	glBindTexture(GL_TEXTURE_2D, m_Depth_StencilAttachment);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH24_STENCIL8, m_Specfication.Width, m_Specfication.Height, 0, GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8, NULL);
-	// Éî¶ÈÎÆÀíÍ¨³£Ê¹ÓÃ GL_NEAREST£¬±ÜÃâ²åÖµ²úÉú´íÎóµÄÉî¶ÈÖµ
+	// æ·±åº¦çº¹ç†é€šå¸¸ä½¿ç”¨ GL_NEARESTï¼Œé¿å…æ’å€¼äº§ç”Ÿé”™è¯¯çš„æ·±åº¦å€¼
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	// ÎªÁË·ÀÖ¹ÔÚ±ßÔµ²ÉÑùÊ±Ô½½çµ¼ÖÂ´íÎó£¬¿ÉÒÔÉèÖÃ°ü×°Ä£Ê½Îª Clamp To Edge
+	// ä¸ºäº†é˜²æ­¢åœ¨è¾¹ç¼˜é‡‡æ ·æ—¶è¶Šç•Œå¯¼è‡´é”™è¯¯ï¼Œå¯ä»¥è®¾ç½®åŒ…è£…æ¨¡å¼ä¸º Clamp To Edge
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
@@ -98,16 +98,16 @@ void FrameBuffer::InValidate()
 }
 
 MsaaFrameBuffer::MsaaFrameBuffer(const FrameBufferSpecification& spec)
-	: FrameBuffer(spec, false) // ¸æËß¸¸Àà²»Òªµ÷ÓÃ¸¸ÀàµÄ InValidate£¬±ÜÃâ×ÊÔ´ÀË·Ñ
+	: FrameBuffer(spec, false) // å‘Šè¯‰çˆ¶ç±»ä¸è¦è°ƒç”¨çˆ¶ç±»çš„ InValidateï¼Œé¿å…èµ„æºæµªè´¹
 {
 	GLint max_samples = 1;
 	glGetIntegerv(GL_MAX_SAMPLES, &max_samples);
-	if (spec.Samples > max_samples)
+	if (spec.Samples > static_cast<uint32_t>(max_samples))
 	{
 		Warn_Core("FrameBuffer:Samples_Point maxValue is {},but setvalue is {},now has set as maxvalue", max_samples, spec.Samples);
 		m_Specfication.Samples = max_samples;
 	}
-	InValidate(); // ÊÖ¶¯µ÷ÓÃ×Ô¼ºÖØĞ´µÄ MSAA °æ±¾ InValidate
+	InValidate(); // æ‰‹åŠ¨è°ƒç”¨è‡ªå·±é‡å†™çš„ MSAA ç‰ˆæœ¬ InValidate
 }
 void MsaaFrameBuffer::InValidate()
 {
@@ -121,7 +121,7 @@ void MsaaFrameBuffer::InValidate()
 
 	glGenTextures(1, &m_ColorAttachment);
 
-	// ÅÉÉúÀà×¨ÃÅ¸ºÔğ GL_TEXTURE_2D_MULTISAMPLE
+	// æ´¾ç”Ÿç±»ä¸“é—¨è´Ÿè´£ GL_TEXTURE_2D_MULTISAMPLE
 	glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, m_ColorAttachment);
 	glTexImage2DMultisample(GL_TEXTURE_2D_MULTISAMPLE, m_Specfication.Samples, GL_RGBA8, m_Specfication.Width, m_Specfication.Height, GL_TRUE);
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D_MULTISAMPLE, m_ColorAttachment, 0);
@@ -137,3 +137,11 @@ void MsaaFrameBuffer::InValidate()
 
 	UnBind();
 }
+	void MsaaFrameBuffer::ResolveTo(FrameBuffer& dst, int width, int height)
+	{
+		glBindFramebuffer(GL_READ_FRAMEBUFFER, m_RenderID);
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, dst.GetFrameID());
+		glBlitFramebuffer(0, 0, width, height, 0, 0, width, height,
+			GL_COLOR_BUFFER_BIT, GL_NEAREST);
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	}

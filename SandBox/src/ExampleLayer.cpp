@@ -158,11 +158,7 @@ void ExampleLayer::OnUpdate()
 		}
 		if (open_Msaa)
 		{
-			glBindFramebuffer(GL_READ_FRAMEBUFFER, Msaaframebuffer->GetFrameID());
-			glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer->GetFrameID());
-			glBlitFramebuffer(0, 0, m_ViewPortSize.x, m_ViewPortSize.y,
-				0, 0, m_ViewPortSize.x, m_ViewPortSize.y,
-				GL_COLOR_BUFFER_BIT, GL_NEAREST);
+			Msaaframebuffer->ResolveTo(*framebuffer, (int)m_ViewPortSize.x, (int)m_ViewPortSize.y);
 			Msaaframebuffer->UnBind();
 		}
 		else
