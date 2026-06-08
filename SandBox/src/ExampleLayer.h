@@ -21,7 +21,7 @@ private:
 	Ptr<VertexArray>va;
 	Ptr<VertexBuffer>vb;
 	Ptr<IndexBuffer>ibo;
-	Ref<Shader>shader;
+	Ref<RHIShader>shader;
 
 	Ref<FrameBuffer> framebuffer;
 	Ptr<MsaaFrameBuffer> Msaaframebuffer;

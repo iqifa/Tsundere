@@ -1,6 +1,7 @@
 #pragma once
 #ifndef External
 #define External
+#define NOMINMAX
 #include"Windows.h"
 
 #include<GL/glew.h>

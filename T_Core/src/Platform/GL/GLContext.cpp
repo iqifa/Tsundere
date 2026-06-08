@@ -1,5 +1,6 @@
 #include "GLContext.h"
 #include "GLCommandBuffer.h"
+#include "GLSwapChain.h"
 #include "Renderer.h"       // GLCall, ASSERT
 #include "Debug/Debug.h"    // Info_Core, Error_Core
 #include "GL/glew.h"
@@ -60,6 +61,9 @@ void GLContext::Init(GLFWwindow* window)
     // Create the per-frame command buffer (GL: single reusable, executes immediately)
     m_CommandBuffer = CreateRef<GLCommandBuffer>();
 
+    // Create swap chain (GL: thin wrapper around GLFW window)
+    m_SwapChain = RHISwapChain::Create(window);
+
     m_Initialized = true;
     Info_Core("GLContext initialized");
 }
@@ -102,7 +106,6 @@ void GLContext::OnResize(uint32_t w, uint32_t h)
 
 Ref<RHISwapChain> GLContext::GetSwapChain()
 {
-    // Placeholder — GLSwapChain will be implemented in Chunk 4
     return m_SwapChain;
 }
 

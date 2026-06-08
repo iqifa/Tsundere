@@ -11,7 +11,7 @@
 
 class VertexArray;
 class IndexBuffer;
-class Shader;
+class RHIShader;
 
 #define ASSERT(x) if(!(x)) __debugbreak();
 #define GLCall(x) GLClearError();\
@@ -25,12 +25,12 @@ bool GLLogCall(const char* function, const char* file, int line);
 class T_API Renderer
 {
 public:
-	void DrawElement(const VertexArray& va, const IndexBuffer& ib, const Shader& shader) const;
-	void DrawArray(const VertexArray& va, const Shader& shader)const;
+	void DrawElement(const VertexArray& va, const IndexBuffer& ib, const RHIShader& shader) const;
+	void DrawArray(const VertexArray& va, const RHIShader& shader)const;
 	static void Clear();
 	static void Clear_Color();
 	static void BeginScene();
 	static void EndScene();
 
-	static void Submission(Ref<VertexArray>& vertexArray, Ref<Shader>& shader);
+	static void Submission(Ref<VertexArray>& vertexArray, Ref<RHIShader>& shader);
 };

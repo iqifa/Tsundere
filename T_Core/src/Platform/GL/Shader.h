@@ -3,77 +3,86 @@
 #include"HeadLine.h"
 #include"ExternalFiles.h"
 #include"Core/Core.h"
+#include"Platform/RHI/RHIShader.h"
 #include<shared_mutex>
 using namespace glm;
 
-struct Uniform
-{
-	std::string Name;
-	std::string Type;
-};
-struct ShaderProgramSource
-{
-	std::string VertexSource;
-	std::string FragmentSource;
-	std::string ComputeSource;
-};
-class T_API Shader
+// Uniform struct is now defined in RHIShader.h (shared RHI type).
+
+class T_API Shader : public RHIShader
 {
 private:
 	std::string m_Name;
-	unsigned int m_RendererID; 
+	unsigned int m_RendererID;
 	std::string m_FilePath;
 	mutable std::unordered_map<std::string, int> m_UniformLocationCache;
 public:
-	std::vector<Uniform> uniform;
+	std::vector<Uniform> uniform;   // kept public for backward compat; GetUniforms() returns this
 public:
 	Shader(const std::string& filepath, const std::string& name );
 	Shader(const std::string& filepath);
 	~Shader();
 	Shader(){}
 
-	void Bind() const;
-	void UnBind() const;
+	// RHIShader interface
+	void Bind() const override;
+	void UnBind() const override;
 
-	void DispatchCompute(unsigned int groupsX, unsigned int groupsY = 1, unsigned int groupsZ = 1) const;
+	void DispatchCompute(unsigned int groupsX, unsigned int groupsY = 1, unsigned int groupsZ = 1) const override;
 
-	const std::string& GetName() { return m_Name; }
-	const std::string& GetPath() { return m_FilePath; }
+	const std::string& GetName() const override { return m_Name; }
+	const std::string& GetPath() const override { return m_FilePath; }
+	uint32_t GetID() const override { return m_RendererID; }
+	const std::vector<Uniform>& GetUniforms() const override { return uniform; }
 
-	//Set Uniforms
-	void SetUniform4f(const std::string& name, float v0, float v1, float v2, float v3) const;
-	void SetUniform1f(const std::string& name, float value) const;
-	void SetUniform1i(const std::string& name, int value) const;
-	void SetUniformMat4f(const std::string& name, const  mat4& mat4)const;
-	void SetUniformVec3(const std::string& name, const vec3& value)const;
-	void SetUniformVec2(const std::string& name, const vec2& value)const;
+	// Uniform setters
+	void SetUniform4f(const std::string& name, float v0, float v1, float v2, float v3) const override;
+	void SetUniform1f(const std::string& name, float value) const override;
+	void SetUniform1i(const std::string& name, int value) const override;
+	void SetUniformMat4f(const std::string& name, const  glm::mat4& mat4)const override;
+	void SetUniformVec3(const std::string& name, const glm::vec3& value)const override;
+	void SetUniformVec2(const std::string& name, const glm::vec2& value)const override;
 
+	// Legacy static factories — return Ref<Shader> for code that hasn't migrated yet
 	static Ref<Shader>Create(const std::string& filepath, const std::string& name);
 	static Ref<Shader>Create(const std::string& filepath);
 	static Ref<Shader>CreateCompute(const std::string& filepath);
 
-	inline unsigned int GetID()const { return m_RendererID; }
 private:
 	unsigned int CompileShader(unsigned int type, const std::string& source);
-	ShaderProgramSource ParseShader(const std::string& filepath);
 	unsigned int CreateShader(const std::string& vertexShader, const std::string& fragmentShader);
 	unsigned int CreateComputeShader(const std::string& computeSource);
-	//unsigned int CreateShader(const string& name, const string& vertexShader, const string& fragmentShader);
 	int GetUniformLocation(const std::string& name)const;
-
 };
+
+// --- RHI Factory methods (inline) ---
+// Shader IS the GL implementation of RHIShader, so factories delegate to Shader::Create*.
+
+inline Ref<RHIShader> RHIShader::Create(const std::string& filepath)
+{
+	return Shader::Create(filepath);
+}
+inline Ref<RHIShader> RHIShader::Create(const std::string& filepath, const std::string& name)
+{
+	return Shader::Create(filepath, name);
+}
+inline Ref<RHIShader> RHIShader::CreateCompute(const std::string& filepath)
+{
+	return Shader::CreateCompute(filepath);
+}
+
+// ShaderLibiray — now stores RHIShader references
 class T_API ShaderLibiray {
 public:
 
-	static void Add(const Ref<Shader>& shader);
-	static Ref<Shader> Load(const std::string& FilePath);
-	static Ref<Shader> Load(const std::string& name,const std::string& FilePath);
+	static void Add(const Ref<RHIShader>& shader);
+	static Ref<RHIShader> Load(const std::string& FilePath);
+	static Ref<RHIShader> Load(const std::string& name,const std::string& FilePath);
 
-	static Ref<Shader> Get(const std::string& path);
+	static Ref<RHIShader> Get(const std::string& path);
 
 	static std::shared_mutex s_Mutex;
 private:
-	static std::unordered_map<std::string, Ref<Shader>>m_Shaders;
+	static std::unordered_map<std::string, Ref<RHIShader>>m_Shaders;
 
 };
-

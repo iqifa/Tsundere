@@ -1,6 +1,6 @@
 #include "Application.h"
 #include "Core/Threading/ResourceLoader.h"
-#include "Platform/GL/GLContext.h"
+#include "Platform/RHI/RHIRenderer.h"
 #include "Debug/Debug.h"
 namespace Engine {
 
@@ -14,21 +14,18 @@ namespace Engine {
 		m_Window->SetEventCallback(BIND_EVENT_FN(OnEvents));
 
 		m_iml = new ImGuiLayer();
-
-		// Initialize RHI context (GL: wraps GLEW init + frame management)
-		// Must be called after window creation (needs the GLFW window handle)
-		m_RHIContext = GLContext::Create(static_cast<GLFWwindow*>(m_Window->GetWindow()));
-		Info_Core("RHI Context created (OpenGL backend)");
 	}
 
 	Application::~Application()
 	{
-		if (m_RHIContext)
-			m_RHIContext->Shutdown();
 	}
 
 	void Application::Run()
 	{
+		// Initialize RHI (GL: wraps GLEW init + frame management)
+		RHIRenderer::Init(static_cast<GLFWwindow*>(m_Window->GetWindow()));
+		Info_Core("RHI Renderer initialized (OpenGL backend)");
+
 		// Start async resource loader worker thread
 		ResourceLoader::Init();
 
@@ -40,9 +37,8 @@ namespace Engine {
 			// Phase 1: Dispatch queued load requests to worker thread
 			ResourceLoader::DispatchQueuedLoads();
 
-			// Phase 2: Normal frame — use RHI context for begin/end
-			if (m_RHIContext)
-				m_RHIContext->BeginFrame();
+			// Phase 2: Normal frame
+			RHIRenderer::BeginFrame();
 
 			for (auto layer : layerStack.GetLayerSnapshot())
 			{
@@ -55,13 +51,11 @@ namespace Engine {
 			}
 			m_iml->End();
 
-			if (m_RHIContext)
-				m_RHIContext->EndFrame();
-			else
-				m_Window->OnUpdate();  // fallback if no RHI context
+			RHIRenderer::EndFrame();
 		}
 
 		ResourceLoader::Shutdown();
+		RHIRenderer::Shutdown();
 	}
 
 	void Application::OnEvents(Eventing::Event<>& ev) {

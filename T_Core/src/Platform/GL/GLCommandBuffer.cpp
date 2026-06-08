@@ -1,11 +1,10 @@
 #include "GLCommandBuffer.h"
 #include "GLBuffer.h"
+#include "GLFramebuffer.h"
+#include "GLPipeline.h"
+#include "GLDescriptorSet.h"
 #include "Renderer.h"   // GLCall, GLClearError, GLLogCall, ASSERT macros
 #include "GL/glew.h"
-
-// --- Stubs for methods that depend on RHI types from later chunks ---
-// These will be filled in when GLFramebuffer (Chunk 2), GLPipeline (Chunk 3),
-// and GLDescriptorSet (Chunk 4) are created.
 
 void GLCommandBuffer::Begin()
 {
@@ -24,21 +23,27 @@ void GLCommandBuffer::Submit()
 
 void GLCommandBuffer::BeginRenderPass(Ref<RHIFramebuffer> fb, const float clearColor[4])
 {
-    // TODO(Chunk 2): when GLFramebuffer exists, bind it via fb->Bind()
-    // For now, just clear the currently-bound framebuffer
+    if (fb)
+    {
+        fb->Bind();
+    }
+    else
+    {
+        GLCall(glBindFramebuffer(GL_FRAMEBUFFER, 0));
+    }
     GLCall(glClearColor(clearColor[0], clearColor[1], clearColor[2], clearColor[3]));
     GLCall(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
 }
 
 void GLCommandBuffer::EndRenderPass()
 {
-    // TODO(Chunk 2): unbind framebuffer via GLFramebuffer
     GLCall(glBindFramebuffer(GL_FRAMEBUFFER, 0));
 }
 
 void GLCommandBuffer::BindPipeline(Ref<RHIPipeline> pipeline)
 {
-    // TODO(Chunk 3): when GLPipeline exists, call pipeline->Bind()
+    if (pipeline)
+        pipeline->Bind();
 }
 
 void GLCommandBuffer::BindVertexBuffer(Ref<RHIBuffer> vb, uint32_t binding)
@@ -62,8 +67,8 @@ void GLCommandBuffer::BindIndexBuffer(Ref<RHIBuffer> ib)
 
 void GLCommandBuffer::BindDescriptorSet(Ref<RHIDescriptorSet> set, uint32_t slot)
 {
-    // TODO(Chunk 4): when GLDescriptorSet exists, call set->Apply(slot)
-    (void)set; (void)slot;
+    if (set)
+        set->Apply(slot);
 }
 
 void GLCommandBuffer::Draw(uint32_t vertexCount, uint32_t firstVertex)
@@ -106,6 +111,15 @@ void GLCommandBuffer::SetScissor(const Scissor& sc)
 
 void GLCommandBuffer::BlitDepth(Ref<RHIFramebuffer> src, Ref<RHIFramebuffer> dst)
 {
-    // TODO(Chunk 2): blit between GLFramebuffers
-    (void)src; (void)dst;
+    if (!src || !dst) return;
+
+    GLCall(glBindFramebuffer(GL_READ_FRAMEBUFFER,
+        static_cast<unsigned int>(src->GetFramebufferID())));
+    GLCall(glBindFramebuffer(GL_DRAW_FRAMEBUFFER,
+        static_cast<unsigned int>(dst->GetFramebufferID())));
+    GLCall(glBlitFramebuffer(
+        0, 0, src->GetWidth(), src->GetHeight(),
+        0, 0, dst->GetWidth(), dst->GetHeight(),
+        GL_DEPTH_BUFFER_BIT, GL_NEAREST));
+    GLCall(glBindFramebuffer(GL_FRAMEBUFFER, 0));
 }

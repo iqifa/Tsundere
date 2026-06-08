@@ -26,12 +26,25 @@
 #include "Platform/RHI/RHIBuffer.h"
 #include "Platform/RHI/RHICommandBuffer.h"
 #include "Platform/RHI/RHIContext.h"
+#include "Platform/RHI/RHITexture.h"
+#include "Platform/RHI/RHIFramebuffer.h"
+#include "Platform/RHI/RHIShader.h"
+#include "Platform/RHI/RHIPipeline.h"
+#include "Platform/RHI/RHIDescriptorSet.h"
+#include "Platform/RHI/RHISwapChain.h"
 
 // Include GL backend implementations
 #ifdef RenderAPI_OpenGL
     #include "Platform/GL/GLBuffer.h"
     #include "Platform/GL/GLCommandBuffer.h"
     #include "Platform/GL/GLContext.h"
+    #include "Platform/GL/GLTexture2D.h"
+    #include "Platform/GL/GLTextureCube.h"
+    #include "Platform/GL/GLStorageImage.h"
+    #include "Platform/GL/GLFramebuffer.h"
+    #include "Platform/GL/GLPipeline.h"
+    #include "Platform/GL/GLDescriptorSet.h"
+    #include "Platform/GL/GLSwapChain.h"
 #endif
 
 #pragma warning(pop)

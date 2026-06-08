@@ -59,7 +59,7 @@ ExampleLayer::ExampleLayer(Ref<Scene>scene, std::string name) : BasePanel(name)
 	}
 
 
-	shader = CreatePtr<Shader>("D:/Code/C++/Tsundere/res/shaders/Basic.shader");
+	shader = RHIShader::Create("D:/Code/C++/Tsundere/res/shaders/Basic.shader");
 
 
 

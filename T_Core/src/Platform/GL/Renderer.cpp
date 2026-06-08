@@ -20,7 +20,7 @@ bool GLLogCall(const char* function, const char* file, int line)
 	return true;
 }
 
-void Renderer::DrawElement(const VertexArray& va, const IndexBuffer& ib, const Shader& shader)const
+void Renderer::DrawElement(const VertexArray& va, const IndexBuffer& ib, const RHIShader& shader)const
 {
 	va.Bind();
 	ib.Bind();
@@ -28,7 +28,7 @@ void Renderer::DrawElement(const VertexArray& va, const IndexBuffer& ib, const S
 	GLCall(glDrawElements(GL_TRIANGLES, ib.GetCount(), GL_UNSIGNED_INT, nullptr));
 }
 
-void Renderer::DrawArray(const VertexArray& va, const Shader& shader) const
+void Renderer::DrawArray(const VertexArray& va, const RHIShader& shader) const
 {
 	va.Bind();
 	shader.Bind();
@@ -36,7 +36,7 @@ void Renderer::DrawArray(const VertexArray& va, const Shader& shader) const
 	//cout <<"Vertex Count"<< va.GetCount() << endl;
 }
 
-void Renderer::Clear() 
+void Renderer::Clear()
 {
 	glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -55,7 +55,7 @@ void Renderer::EndScene()
 {
 }
 
-void Renderer::Submission(Ref<VertexArray>& vertexArray,Ref<Shader>& shader)
+void Renderer::Submission(Ref<VertexArray>& vertexArray,Ref<RHIShader>& shader)
 {
 	shader->Bind();
 	vertexArray->Bind();

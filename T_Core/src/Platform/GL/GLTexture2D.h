@@ -1,0 +1,38 @@
+#pragma once
+
+#include "Platform/RHI/RHITexture.h"
+
+// GL implementation of RHITexture2D.
+// Wraps GL_TEXTURE_2D, uses stb_image for file loading.
+class T_API GLTexture2D : public RHITexture2D
+{
+public:
+    explicit GLTexture2D(const Texture2DDesc& desc);
+    ~GLTexture2D() override;
+
+    void Bind(uint32_t slot) override;
+    void Unbind() override;
+    void Resize(uint32_t w, uint32_t h) override;
+    uint32_t GetWidth() const override   { return m_Width; }
+    uint32_t GetHeight() const override  { return m_Height; }
+    uintptr_t GetNativeID() const override { return static_cast<uintptr_t>(m_RendererID); }
+
+    // GL-specific (used by legacy code interop)
+    unsigned int GetGLID() const { return m_RendererID; }
+
+private:
+    void CreateFromPixels(const void* data, uint32_t channels);
+    void ApplySamplerParams();
+
+    unsigned int m_RendererID = 0;
+    uint32_t m_Width = 0, m_Height = 0;
+    Format m_Format;
+    FilterMode m_MinFilter, m_MagFilter;
+    WrapMode m_WrapS, m_WrapT;
+};
+
+// Factory
+inline Ref<RHITexture2D> RHITexture2D::Create(const Texture2DDesc& desc)
+{
+    return CreateRef<GLTexture2D>(desc);
+}

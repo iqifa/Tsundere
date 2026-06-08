@@ -13,3 +13,4 @@
 #include "Platform/GL/FrameBuffer.h"
 #include "Platform/GL/StorageBuffer.h"
 #include "Platform/GL/ImageTexture.h"
+#include "Platform/GL/GBuffer.h"

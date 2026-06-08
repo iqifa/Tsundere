@@ -1,14 +1,31 @@
 #include "Shader.h"
 #include"Debug/Debug.h"
+#include"Platform/ShaderParser.h"
 #include<shared_mutex>
 using namespace std;
+
 Shader::Shader(const string& filepath, const string& name) :m_FilePath(filepath), m_RendererID(0), m_Name(name)
 {
-	ShaderProgramSource source = ParseShader(filepath);
-	if (!source.ComputeSource.empty())
-		m_RendererID = CreateComputeShader(source.ComputeSource);
-	else if (!source.VertexSource.empty() || !source.FragmentSource.empty())
-		m_RendererID = CreateShader(source.VertexSource, source.FragmentSource);
+	ParsedShader parsed = ParseShaderFile(filepath);
+	uniform = std::move(parsed.uniforms);
+
+	auto& sources = parsed.sources;
+	auto itComp = sources.find(ShaderStage::Compute);
+	if (itComp != sources.end())
+	{
+		m_RendererID = CreateComputeShader(itComp->second);
+	}
+	else
+	{
+		auto itVert = sources.find(ShaderStage::Vertex);
+		auto itFrag = sources.find(ShaderStage::Fragment);
+		string vertSrc = (itVert != sources.end()) ? itVert->second : "";
+		string fragSrc = (itFrag != sources.end()) ? itFrag->second : "";
+		if (!vertSrc.empty() || !fragSrc.empty())
+			m_RendererID = CreateShader(vertSrc, fragSrc);
+	}
+
+	cout << "\033[1;32mSuccessful Parse Shader:" + m_Name + "!\033[0m" << endl;
 }
 
 Shader::Shader(const string& filepath) :m_FilePath(filepath), m_RendererID(0)
@@ -20,12 +37,26 @@ Shader::Shader(const string& filepath) :m_FilePath(filepath), m_RendererID(0)
 	auto count = LastDot - LastSlash;
 	m_Name = filepath.substr(LastSlash, count);
 
+	ParsedShader parsed = ParseShaderFile(filepath);
+	uniform = std::move(parsed.uniforms);
 
-	ShaderProgramSource source = ParseShader(filepath);
-	if (!source.ComputeSource.empty())
-		m_RendererID = CreateComputeShader(source.ComputeSource);
-	else if (!source.VertexSource.empty() || !source.FragmentSource.empty())
-		m_RendererID = CreateShader(source.VertexSource, source.FragmentSource);
+	auto& sources = parsed.sources;
+	auto itComp = sources.find(ShaderStage::Compute);
+	if (itComp != sources.end())
+	{
+		m_RendererID = CreateComputeShader(itComp->second);
+	}
+	else
+	{
+		auto itVert = sources.find(ShaderStage::Vertex);
+		auto itFrag = sources.find(ShaderStage::Fragment);
+		string vertSrc = (itVert != sources.end()) ? itVert->second : "";
+		string fragSrc = (itFrag != sources.end()) ? itFrag->second : "";
+		if (!vertSrc.empty() || !fragSrc.empty())
+			m_RendererID = CreateShader(vertSrc, fragSrc);
+	}
+
+	cout << "\033[1;32mSuccessful Parse Shader:" + m_Name + "!\033[0m" << endl;
 }
 
 
@@ -61,14 +92,12 @@ unsigned int  Shader::CompileShader(unsigned int type, const string& source)
 		glGetShaderiv(id, GL_INFO_LOG_LENGTH, &lenth);
 		char* message = new char[lenth];
 		glGetShaderInfoLog(id, lenth, &lenth, message);
-		//cout << "Failed to Compile " << (type == GL_VERTEX_SHADER ? "vertex" : "fragment") << "Shader!" << endl;
 		string info = "Failed to Compile ["+m_Name +"] " + (string)(type == GL_VERTEX_SHADER ? "vertex" : (type == GL_FRAGMENT_SHADER ? "fragment" : "compute")) + " Shader!";
 		Warn_Core(info)
 		cout << message << endl;
 		glDeleteShader(id);
 		return 0;
 	}
-	//TODO: 
 	return id;
 }
 
@@ -81,95 +110,10 @@ Ref<Shader> Shader::Create(const string& filepath)
 {
 	return CreateRef<Shader>(filepath);
 }
-ShaderProgramSource Shader::ParseShader(const string& filepath)
-{
-	ifstream stream(filepath);
-	if (!stream.is_open())
-	{
-		string info = "Failed to open shader file at path: " + filepath;
-		Error_Core(info); // 使用你引擎的报错宏打印出来
-		// cout << info << endl; 
-		return { "", "" };
-	}
-	enum  class ShaderType
-	{
-		NONE = -1, VERTEX = 0, FRAGMENT = 1, COMPUTE = 2
-	};
-
-	string line;
-	stringstream ss[3];
-	ShaderType type = ShaderType::NONE;
-	bool inSystemBlock = false;
-	while (getline(stream, line))
-	{
-		if (line.find("#shader") != string::npos)
-		{
-			if (line.find("vertex") != string::npos)
-			{
-				type = ShaderType::VERTEX;
-			}
-			else if (line.find("fragment") != string::npos)
-			{
-				type = ShaderType::FRAGMENT;
-			}
-			else if (line.find("compute") != string::npos)
-			{
-				type = ShaderType::COMPUTE;
-			}
-		}
-		else if (line.find("[Header") != string::npos)
-		{
-			string type[2];
-			type[0] = "Head";
-			int index = line.find("[Header") + 8;
-			type[1] = line.substr(index, line.length() - index-2);
-
-			uniform.push_back({ type[1],type[0] });
-		}
-		else if (line.find("[System]") != string::npos)
-		{
-			inSystemBlock = !inSystemBlock;
-		}
-		else
-		{
-			ss[(int)type] << line << '\n';
-			int index = line.find("uniform");
-			int endpos;
-			if (index != string::npos)
-			{
-				while (line[index] != ' ')
-					index++;
-				endpos = index + 1;
-				while (line[endpos] != ' ')
-					endpos++;
-				string type[2];
-				type[0] = line.substr(index+1, endpos - index-1);
-
-
-				index = endpos;
-				while (line[index] == ' ')
-					index++;
-				std::string rawName = line.substr(index, line.length() - index);
-				size_t semiPos = rawName.find(';');
-				if (semiPos != std::string::npos)
-					rawName = rawName.substr(0, semiPos);
-				while (!rawName.empty() && rawName.back() == ' ')
-					rawName.pop_back();
-				type[1] = rawName;
-
-				if (!inSystemBlock)
-					uniform.push_back({ type[1],type[0] });
-			}
-		}
-	}
-	cout << "\033[1;32mSuccessful Parse Shader:" + m_Name + "!\033[0m" << endl;
-	return { ss[0].str(), ss[1].str(), ss[2].str() };
-}
 
 unsigned int Shader::CreateShader(const string& vertexShader, const string& fragmentShader)
 {
 	unsigned int program = glCreateProgram();
-	//unsigned int vs = glCreateShader(GL_VERTEX_SHADER);
 	unsigned int vs = CompileShader(GL_VERTEX_SHADER, vertexShader);
 	unsigned int fs = CompileShader(GL_FRAGMENT_SHADER, fragmentShader);
 
@@ -252,16 +196,19 @@ int Shader::GetUniformLocation(const string& name)  const
 	return locatation;
 }
 
-shared_mutex ShaderLibiray::s_Mutex;
+// --- ShaderLibiray ---
 
-void ShaderLibiray::Add(const Ref<Shader>& shader)
+shared_mutex ShaderLibiray::s_Mutex;
+unordered_map<string, Ref<RHIShader>> ShaderLibiray::m_Shaders;
+
+void ShaderLibiray::Add(const Ref<RHIShader>& shader)
 {
 	std::unique_lock lock(s_Mutex);
 	auto& path = shader->GetPath();
 	m_Shaders[path] = shader;
 }
 
-Ref<Shader> ShaderLibiray::Load(const string& FilePath)
+Ref<RHIShader> ShaderLibiray::Load(const string& FilePath)
 {
 	{
 		std::shared_lock lock(s_Mutex);
@@ -269,7 +216,7 @@ Ref<Shader> ShaderLibiray::Load(const string& FilePath)
 		if (it != m_Shaders.end())
 			return it->second;
 	}
-	auto shader = Shader::Create(FilePath);
+	auto shader = Shader::Create(FilePath);  // Ref<Shader> → Ref<RHIShader> implicit upcast
 	{
 		std::unique_lock lock(s_Mutex);
 		m_Shaders[FilePath] = shader;
@@ -277,7 +224,7 @@ Ref<Shader> ShaderLibiray::Load(const string& FilePath)
 	return shader;
 }
 
-Ref<Shader> ShaderLibiray::Load(const string& name, const string& FilePath)
+Ref<RHIShader> ShaderLibiray::Load(const string& name, const string& FilePath)
 {
 	{
 		std::shared_lock lock(s_Mutex);
@@ -285,7 +232,7 @@ Ref<Shader> ShaderLibiray::Load(const string& name, const string& FilePath)
 		if (it != m_Shaders.end())
 			return it->second;
 	}
-	auto shader = Shader::Create(FilePath, name);
+	auto shader = Shader::Create(FilePath, name);  // Ref<Shader> → Ref<RHIShader>
 	{
 		std::unique_lock lock(s_Mutex);
 		m_Shaders[FilePath] = shader;
@@ -293,7 +240,7 @@ Ref<Shader> ShaderLibiray::Load(const string& name, const string& FilePath)
 	return shader;
 }
 
-Ref<Shader> ShaderLibiray::Get(const string& path)
+Ref<RHIShader> ShaderLibiray::Get(const string& path)
 {
 	{
 		std::shared_lock lock(s_Mutex);
@@ -303,5 +250,3 @@ Ref<Shader> ShaderLibiray::Get(const string& path)
 	}
 	return Load(path);
 }
-
-unordered_map<string, Ref<Shader>> ShaderLibiray::m_Shaders;

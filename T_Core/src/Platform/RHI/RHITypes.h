@@ -107,6 +107,14 @@ enum class ImageAccess : uint8_t
     ReadWrite
 };
 
+// Vertex attribute formats — used by VertexLayout to describe buffer layout
+enum class VertexFormat : uint8_t
+{
+    Float, Float2, Float3, Float4,
+    Int, Int2, Int3, Int4,
+    UByte4Norm
+};
+
 struct Viewport
 {
     float x = 0.0f, y = 0.0f;
