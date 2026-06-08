@@ -16,7 +16,13 @@ struct  RenderResources
 	unsigned int SceneColorTexture = 0; // 上一阶段输出的场景颜色
 	unsigned int VelocityTexture = 0;   // 上一阶段输出的运动矢量缓存 (Motion Vectors)
 	unsigned int DepthTexture = 0;      // 深度图
-	unsigned int ShadowMask = 0;        // 阴影遮罩纹理 (R8)
+	unsigned int ShadowMask = 0;
+
+	// GBuffer textures (populated by GBufferPass, consumed by DeferredLightingPass)
+	unsigned int GBufferPosition = 0;
+	unsigned int GBufferNormal = 0;
+	unsigned int GBufferAlbedo = 0;
+	unsigned int GBufferSpecular = 0;        // 阴影遮罩纹理 (R8)
 
 	// 渲染目标尺寸
 	unsigned int SourceFBO = 0;        // 几何 Pass 的主 FBO（用于深度拷贝）
@@ -292,6 +298,398 @@ public:
 		// ����ӳ�䵽 [-0.5, 0.5] ��ƫ��
 		return vec2(halton(index + 1, 2) - 0.5f, halton(index + 1, 3) - 0.5f);
 	}
+};
+
+
+class  GBufferPass : public RenderPass
+{
+	Ptr<GBuffer> m_GBuffer;
+	Ref<RHIShader> m_GBufferShader;
+
+	int m_FrameCount = 0;
+	unsigned int m_DefaultTex = 0;
+	mat4 m_PrevViewProjMatrix = mat4(1.0f);
+
+	Ptr<VertexArray>va;
+	Ptr<VertexBuffer>vb;
+	Ptr<IndexBuffer>ibo;
+
+	GBufferSpecification m_Spec;
+
+public:
+	bool EnableJitter = true;
+
+	void Execute(Ref<Scene> scene, RenderResources& resources) override {
+		mat4 view = currentcamera->GetViewFront();
+		mat4 proj = currentcamera->GetProj();
+		mat4 currentViewProj = proj * view;
+
+		if (EnableJitter)
+			proj = Jittering(proj, m_Spec.Width, m_Spec.Height);
+
+		m_GBuffer->Bind();
+
+		Renderer renderer;
+		glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		glDisable(GL_BLEND);
+
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, m_DefaultTex);
+
+		m_GBufferShader->Bind();
+		bool drewSomething = false;
+
+		for (auto [entityID, transform, meshrender] : scene->m_Registry.view<Component::Transform, Component::MeshRender>().each())
+		{
+			if (meshrender.ModelPath.empty() || meshrender.materials.empty())
+				continue;
+
+			Ref<Model> model = My_map::GetModel(meshrender.ModelPath);
+			if (!model || model->meshes.empty())
+				continue;
+
+			mat4 modelMat = transform.GetTransform();
+
+			for (size_t i = 0; i < model->meshes.size(); i++)
+			{
+				auto& mesh = model->meshes[i];
+				if (!mesh.IsGPUReady())
+					continue;
+
+				Ref<Material> mat = i < meshrender.materials.size()
+					? meshrender.materials[i]
+					: meshrender.materials[0];
+
+				mat->Render(m_GBufferShader);
+
+				m_GBufferShader->SetUniformMat4f("MVP_matrix", proj * view * modelMat);
+				m_GBufferShader->SetUniformMat4f("model", modelMat);
+				m_GBufferShader->SetUniformMat4f("prevModel", modelMat);
+				m_GBufferShader->SetUniformMat4f("viewProj", currentViewProj);
+				m_GBufferShader->SetUniformMat4f("prevViewProj", m_PrevViewProjMatrix);
+
+				renderer.DrawElement(*mesh.vao, *mesh.ibo, *m_GBufferShader);
+				drewSomething = true;
+			}
+		}
+
+		if (!drewSomething)
+		{
+			m_GBufferShader->Bind();
+			m_GBufferShader->SetUniformMat4f("viewProj", currentViewProj);
+			m_GBufferShader->SetUniformMat4f("prevViewProj", m_PrevViewProjMatrix);
+
+			glActiveTexture(GL_TEXTURE0);
+			glBindTexture(GL_TEXTURE_2D, m_DefaultTex);
+			glActiveTexture(GL_TEXTURE1);
+			glBindTexture(GL_TEXTURE_2D, m_DefaultTex);
+
+			mat4 model = scale(mat4(1.0f), vec3(1.0f, 2.0f, 1.0f));
+			mat4 mvp = proj * view * model;
+			m_GBufferShader->SetUniformMat4f("MVP_matrix", mvp);
+			m_GBufferShader->SetUniformMat4f("model", model);
+			m_GBufferShader->SetUniformMat4f("prevModel", model);
+			m_GBufferShader->SetUniform1i("hasNormalMap", 0);
+			renderer.DrawElement(*va, *ibo, *m_GBufferShader);
+		}
+
+		glEnable(GL_BLEND);
+		m_GBuffer->UnBind();
+
+		m_PrevViewProjMatrix = currentViewProj;
+		m_FrameCount++;
+
+		resources.GBufferPosition = m_GBuffer->GetPositionTexture();
+		resources.GBufferNormal   = m_GBuffer->GetNormalTexture();
+		resources.GBufferAlbedo   = m_GBuffer->GetAlbedoTexture();
+		resources.GBufferSpecular = m_GBuffer->GetSpecularTexture();
+		resources.VelocityTexture = m_GBuffer->GetVelocityTexture();
+		resources.DepthTexture    = m_GBuffer->GetDepthTexture();
+		resources.SourceFBO       = m_GBuffer->GetFBO();
+	}
+
+	void Init(Ref<FrameBuffer>& fb)override {
+		m_Spec.Width  = fb->GetSpecification().Width;
+		m_Spec.Height = fb->GetSpecification().Height;
+		m_GBuffer = CreatePtr<GBuffer>(m_Spec);
+		m_GBufferShader = ShaderLibiray::Get("D:/Code/C++/Tsundere/res/shaders/GBuffer.shader");
+
+		float position[] =
+		{
+			// Front face
+			-0.5f,-0.5f,-0.5f,  0,0,-1,  0,0,  1,0,0,  0,1,0,
+			 0.5f,-0.5f,-0.5f,  0,0,-1,  1,0,  1,0,0,  0,1,0,
+			 0.5f, 0.5f,-0.5f,  0,0,-1,  1,1,  1,0,0,  0,1,0,
+			 0.5f, 0.5f,-0.5f,  0,0,-1,  1,1,  1,0,0,  0,1,0,
+			-0.5f, 0.5f,-0.5f,  0,0,-1,  0,1,  1,0,0,  0,1,0,
+			-0.5f,-0.5f,-0.5f,  0,0,-1,  0,0,  1,0,0,  0,1,0,
+			// Back face
+			 0.5f,-0.5f, 0.5f,  0,0,1,  0,0,  -1,0,0,  0,1,0,
+			-0.5f,-0.5f, 0.5f,  0,0,1,  1,0,  -1,0,0,  0,1,0,
+			-0.5f, 0.5f, 0.5f,  0,0,1,  1,1,  -1,0,0,  0,1,0,
+			-0.5f, 0.5f, 0.5f,  0,0,1,  1,1,  -1,0,0,  0,1,0,
+			 0.5f, 0.5f, 0.5f,  0,0,1,  0,1,  -1,0,0,  0,1,0,
+			 0.5f,-0.5f, 0.5f,  0,0,1,  0,0,  -1,0,0,  0,1,0,
+			// Left face
+			-0.5f,-0.5f, 0.5f,  -1,0,0,  0,0,  0,0,1,  0,1,0,
+			-0.5f,-0.5f,-0.5f,  -1,0,0,  1,0,  0,0,1,  0,1,0,
+			-0.5f, 0.5f,-0.5f,  -1,0,0,  1,1,  0,0,1,  0,1,0,
+			-0.5f, 0.5f,-0.5f,  -1,0,0,  1,1,  0,0,1,  0,1,0,
+			-0.5f, 0.5f, 0.5f,  -1,0,0,  0,1,  0,0,1,  0,1,0,
+			-0.5f,-0.5f, 0.5f,  -1,0,0,  0,0,  0,0,1,  0,1,0,
+			// Right face
+			 0.5f,-0.5f,-0.5f,  1,0,0,  0,0,  0,0,-1,  0,1,0,
+			 0.5f,-0.5f, 0.5f,  1,0,0,  1,0,  0,0,-1,  0,1,0,
+			 0.5f, 0.5f, 0.5f,  1,0,0,  1,1,  0,0,-1,  0,1,0,
+			 0.5f, 0.5f, 0.5f,  1,0,0,  1,1,  0,0,-1,  0,1,0,
+			 0.5f, 0.5f,-0.5f,  1,0,0,  0,1,  0,0,-1,  0,1,0,
+			 0.5f,-0.5f,-0.5f,  1,0,0,  0,0,  0,0,-1,  0,1,0,
+			// Top face
+			-0.5f, 0.5f,-0.5f,  0,1,0,  0,0,  1,0,0,  0,0,-1,
+			 0.5f, 0.5f,-0.5f,  0,1,0,  1,0,  1,0,0,  0,0,-1,
+			 0.5f, 0.5f, 0.5f,  0,1,0,  1,1,  1,0,0,  0,0,-1,
+			 0.5f, 0.5f, 0.5f,  0,1,0,  1,1,  1,0,0,  0,0,-1,
+			-0.5f, 0.5f, 0.5f,  0,1,0,  0,1,  1,0,0,  0,0,-1,
+			-0.5f, 0.5f,-0.5f,  0,1,0,  0,0,  1,0,0,  0,0,-1,
+			// Bottom face
+			-0.5f,-0.5f, 0.5f,  0,-1,0,  0,0,  1,0,0,  0,0,1,
+			 0.5f,-0.5f, 0.5f,  0,-1,0,  1,0,  1,0,0,  0,0,1,
+			 0.5f,-0.5f,-0.5f,  0,-1,0,  1,1,  1,0,0,  0,0,1,
+			 0.5f,-0.5f,-0.5f,  0,-1,0,  1,1,  1,0,0,  0,0,1,
+			-0.5f,-0.5f,-0.5f,  0,-1,0,  0,1,  1,0,0,  0,0,1,
+			-0.5f,-0.5f, 0.5f,  0,-1,0,  0,0,  1,0,0,  0,0,1
+		};
+
+		unsigned int indices[] = {
+			0,  1,  2,  3,  4,  5,
+			6,  7,  8,  9,  10, 11,
+			12, 13, 14, 15, 16, 17,
+			18, 19, 20, 21, 22, 23,
+			24, 25, 26, 27, 28, 29,
+			30, 31, 32, 33, 34, 35
+		};
+
+		va = CreatePtr<VertexArray>(36);
+		vb = CreatePtr<VertexBuffer>(position, 36 * 14 * sizeof(float));
+		ibo = CreatePtr<IndexBuffer>(indices, 36);
+		VertexBufferLayout layout;
+		layout.Push<float>(3);
+		layout.Push<float>(3);
+		layout.Push<float>(2);
+		layout.Push<float>(3);
+		layout.Push<float>(3);
+		va->AddBuffer(*vb, layout);
+
+		unsigned char white[4] = { 255, 255, 255, 255 };
+		glGenTextures(1, &m_DefaultTex);
+		glBindTexture(GL_TEXTURE_2D, m_DefaultTex);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, white);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	}
+
+	void OnFboResize(unsigned int width, unsigned int height)
+	{
+		m_Spec.Width = width;
+		m_Spec.Height = height;
+		m_GBuffer->Resize(width, height);
+	}
+
+	mat4 Jittering(const mat4& originalProj, float width, float height)
+	{
+		int jitterIndex = m_FrameCount % 16;
+		vec2 currentJitter = GetHaltonJitter(jitterIndex);
+		float deltaX = currentJitter.x * 2.0f / width;
+		float deltaY = currentJitter.y * 2.0f / height;
+		mat4 jitteredProjMatrix = originalProj;
+		jitteredProjMatrix[2][0] += deltaX;
+		jitteredProjMatrix[2][1] += deltaY;
+		return jitteredProjMatrix;
+	}
+	vec2 GetHaltonJitter(int index) {
+		auto halton = [](int index, int base) -> float {
+			float f = 1.0f;
+			float r = 0.0f;
+			int current = index;
+			while (current > 0) {
+				f = f / base;
+				r = r + f * (current % base);
+				current = current / base;
+			}
+			return r;
+		};
+		return vec2(halton(index + 1, 2) - 0.5f, halton(index + 1, 3) - 0.5f);
+	}
+};
+
+
+class  DeferredLightingPass : public RenderPass
+{
+public:
+	int DebugMode = 0;
+
+	void Init(Ref<FrameBuffer>& fb) override
+	{
+		m_Spec = fb->GetSpecification();
+
+		float quadVertices[] = {
+			-1.0f,  1.0f,  0.0f, 1.0f,
+			-1.0f, -1.0f,  0.0f, 0.0f,
+			 1.0f, -1.0f,  1.0f, 0.0f,
+			 1.0f,  1.0f,  1.0f, 1.0f
+		};
+		unsigned int quadIndices[] = { 0, 1, 2, 2, 3, 0 };
+
+		m_QuadVA = CreatePtr<VertexArray>(4);
+		m_QuadVB = CreatePtr<VertexBuffer>(quadVertices, sizeof(quadVertices));
+		m_QuadIB = CreatePtr<IndexBuffer>(quadIndices, 6);
+		VertexBufferLayout quadLayout;
+		quadLayout.Push<float>(2);
+		quadLayout.Push<float>(2);
+		m_QuadVA->AddBuffer(*m_QuadVB, quadLayout);
+
+		m_Shader = ShaderLibiray::Get("D:/Code/C++/Tsundere/res/shaders/DeferredLighting.shader");
+
+		unsigned char white[4] = { 255, 255, 255, 255 };
+		glGenTextures(1, &m_DefaultWhiteTex);
+		glBindTexture(GL_TEXTURE_2D, m_DefaultWhiteTex);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, white);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+		unsigned char black[4] = { 0, 0, 0, 255 };
+		glGenTextures(1, &m_DefaultCubemap);
+		glBindTexture(GL_TEXTURE_CUBE_MAP, m_DefaultCubemap);
+		for (int face = 0; face < 6; face++)
+			glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + face, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, black);
+		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+
+		CreateOutputTex(m_Spec.Width, m_Spec.Height);
+	}
+
+	void Execute(Ref<Scene> scene, RenderResources& resources) override
+	{
+		if (!resources.GBufferPosition)
+			return;
+
+		vec3 lightDir = vec3(-0.5f, -1.0f, -0.5f);
+		vec3 lightColor = vec3(1.0f);
+		float ambientStrength = 0.1f;
+		vec3 viewPos = currentcamera->getpos();
+		for (auto entityID : scene->m_Registry.view<Component::DirectionalLight>())
+		{
+			auto& dl = scene->m_Registry.get<Component::DirectionalLight>(entityID);
+			lightDir = dl.Direction;
+			lightColor = dl.Color * dl.Intensity;
+			ambientStrength = dl.Ambient;
+			break;
+		}
+
+		glBindFramebuffer(GL_FRAMEBUFFER, m_OutputFBO);
+		glViewport(0, 0, m_Spec.Width, m_Spec.Height);
+		glDisable(GL_DEPTH_TEST);
+
+		m_Shader->Bind();
+
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, resources.GBufferPosition);
+		m_Shader->SetUniform1i("u_GBufferPosition", 0);
+
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_2D, resources.GBufferNormal);
+		m_Shader->SetUniform1i("u_GBufferNormal", 1);
+
+		glActiveTexture(GL_TEXTURE2);
+		glBindTexture(GL_TEXTURE_2D, resources.GBufferAlbedo);
+		m_Shader->SetUniform1i("u_GBufferAlbedo", 2);
+
+		glActiveTexture(GL_TEXTURE3);
+		glBindTexture(GL_TEXTURE_2D, resources.GBufferSpecular);
+		m_Shader->SetUniform1i("u_GBufferSpecular", 3);
+
+		glActiveTexture(GL_TEXTURE4);
+		if (resources.ShadowMask)
+			glBindTexture(GL_TEXTURE_2D, resources.ShadowMask);
+		else
+			glBindTexture(GL_TEXTURE_2D, m_DefaultWhiteTex);
+		m_Shader->SetUniform1i("u_ShadowMask", 4);
+
+		glActiveTexture(GL_TEXTURE5);
+		glBindTexture(GL_TEXTURE_2D, resources.DepthTexture);
+		m_Shader->SetUniform1i("u_Depth", 5);
+
+		m_Shader->SetUniformVec3("u_LightDir", lightDir);
+		m_Shader->SetUniformVec3("u_LightColor", lightColor);
+		m_Shader->SetUniform1f("u_AmbientStrength", ambientStrength);
+		m_Shader->SetUniformVec3("u_ViewPos", viewPos);
+
+		mat4 viewNoTrans = mat4(mat3(currentcamera->GetViewFront()));
+		mat4 proj = currentcamera->GetProj();
+		mat4 invViewProjNoTrans = inverse(proj * viewNoTrans);
+		m_Shader->SetUniformMat4f("u_InvViewProjNoTrans", invViewProjNoTrans);
+
+		glActiveTexture(GL_TEXTURE6);
+		if (currentcamera->skybox && currentcamera->skybox->m_Cmp)
+			glBindTexture(GL_TEXTURE_CUBE_MAP, currentcamera->skybox->m_Cmp->GetMap());
+		else
+			glBindTexture(GL_TEXTURE_CUBE_MAP, m_DefaultCubemap);
+		m_Shader->SetUniform1i("u_Skybox", 6);
+
+		m_Shader->SetUniform1i("u_DebugMode", DebugMode);
+
+		Renderer renderer;
+		renderer.DrawElement(*m_QuadVA, *m_QuadIB, *m_Shader);
+
+		glEnable(GL_DEPTH_TEST);
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+		resources.SceneColorTexture = m_OutputTex;
+	}
+
+	void OnResize(unsigned int w, unsigned int h)
+	{
+		m_Spec.Width = w;
+		m_Spec.Height = h;
+		CreateOutputTex(w, h);
+	}
+
+private:
+	void CreateOutputTex(unsigned int w, unsigned int h)
+	{
+		if (m_OutputTex)
+			glDeleteTextures(1, &m_OutputTex);
+		if (m_OutputFBO)
+			glDeleteFramebuffers(1, &m_OutputFBO);
+
+		glGenTextures(1, &m_OutputTex);
+		glBindTexture(GL_TEXTURE_2D, m_OutputTex);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+		glGenFramebuffers(1, &m_OutputFBO);
+		glBindFramebuffer(GL_FRAMEBUFFER, m_OutputFBO);
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_OutputTex, 0);
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		glBindTexture(GL_TEXTURE_2D, 0);
+	}
+
+	FrameBufferSpecification m_Spec;
+	Ref<RHIShader> m_Shader;
+	Ptr<VertexArray> m_QuadVA;
+	Ptr<VertexBuffer> m_QuadVB;
+	Ptr<IndexBuffer> m_QuadIB;
+	unsigned int m_OutputTex = 0;
+	unsigned int m_OutputFBO = 0;
+	unsigned int m_DefaultWhiteTex = 0;
+	unsigned int m_DefaultCubemap = 0;
 };
 
 

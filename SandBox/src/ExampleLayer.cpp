@@ -72,6 +72,12 @@ ExampleLayer::ExampleLayer(Ref<Scene>scene, std::string name) : BasePanel(name)
 	geometrypass = CreateRef<GeometryPass>();
 	geometrypass->Init(framebuffer);
 
+	gbufferPass = CreateRef<GBufferPass>();
+	gbufferPass->Init(framebuffer);
+
+	deferredLightingPass = CreateRef<DeferredLightingPass>();
+	deferredLightingPass->Init(framebuffer);
+
 	taaPass = CreateRef<TAAPass>();
 	taaPass->Init(framebuffer);
 
@@ -142,51 +148,84 @@ void ExampleLayer::OnUpdate()
 	}
 	else
 	{
-		// Rasterization mode
-		if (open_Msaa)
-			Msaaframebuffer->Bind();
-		else
-			framebuffer->Bind();
-
-		renderer.Clear();
+		if (useDeferred)
 		{
+			// --- Deferred Rendering Path ---
 			if (m_ViewportFocused)
 				currentcamera->GLPrecessInput(m_WindowHandle, 0.1f);
-			currentcamera->RenderSkyBox();
 
-			geometrypass->Execute(m_Context, renderResources);
-		}
-		if (open_Msaa)
-		{
-			Msaaframebuffer->ResolveTo(*framebuffer, (int)m_ViewPortSize.x, (int)m_ViewPortSize.y);
-			Msaaframebuffer->UnBind();
+			// GBuffer pass - outputs Position, Normal, Albedo, Specular, Velocity, Depth
+			gbufferPass->Execute(m_Context, renderResources);
+
+			// Shadow Pass (ray-traced)
+			if (shadowPass->Enabled)
+			{
+				vec3 lightDir = vec3(-0.5f, -1.0f, -0.5f);
+				for (auto entityID : m_Context->m_Registry.view<Component::DirectionalLight>())
+				{
+					auto& dl = m_Context->m_Registry.get<Component::DirectionalLight>(entityID);
+					lightDir = dl.Direction;
+					break;
+				}
+				shadowPass->SetLightDir(lightDir);
+				shadowPass->Execute(m_Context, renderResources);
+			}
+
+			// Deferred lighting pass - reads GBuffer + shadow, outputs lit scene color (includes skybox)
+			deferredLightingPass->Execute(m_Context, renderResources);
+
+			// TAA Pass
+			if (taaPass)
+				taaPass->Execute(m_Context, renderResources);
 		}
 		else
-			framebuffer->UnBind();
-
-		renderResources.SourceFBO = framebuffer->GetFrameID();
-
-		// Shadow Pass (ray-traced)
-		if (shadowPass->Enabled)
 		{
-			vec3 lightDir = vec3(-0.5f, -1.0f, -0.5f);
-			for (auto entityID : m_Context->m_Registry.view<Component::DirectionalLight>())
+			// --- Forward Rendering Path (original) ---
+			if (open_Msaa)
+				Msaaframebuffer->Bind();
+			else
+				framebuffer->Bind();
+
+			renderer.Clear();
 			{
-				auto& dl = m_Context->m_Registry.get<Component::DirectionalLight>(entityID);
-				lightDir = dl.Direction;
-				break;
+				if (m_ViewportFocused)
+					currentcamera->GLPrecessInput(m_WindowHandle, 0.1f);
+				currentcamera->RenderSkyBox();
+
+				geometrypass->Execute(m_Context, renderResources);
 			}
-			shadowPass->SetLightDir(lightDir);
-			shadowPass->Execute(m_Context, renderResources);
+			if (open_Msaa)
+			{
+				Msaaframebuffer->ResolveTo(*framebuffer, (int)m_ViewPortSize.x, (int)m_ViewPortSize.y);
+				Msaaframebuffer->UnBind();
+			}
+			else
+				framebuffer->UnBind();
+
+			renderResources.SourceFBO = framebuffer->GetFrameID();
+
+			// Shadow Pass (ray-traced)
+			if (shadowPass->Enabled)
+			{
+				vec3 lightDir = vec3(-0.5f, -1.0f, -0.5f);
+				for (auto entityID : m_Context->m_Registry.view<Component::DirectionalLight>())
+				{
+					auto& dl = m_Context->m_Registry.get<Component::DirectionalLight>(entityID);
+					lightDir = dl.Direction;
+					break;
+				}
+				shadowPass->SetLightDir(lightDir);
+				shadowPass->Execute(m_Context, renderResources);
+			}
+
+			// Apply shadows to scene color
+			if (shadowApplyPass)
+				shadowApplyPass->Execute(m_Context, renderResources);
+
+			// TAA Pass
+			if (taaPass)
+				taaPass->Execute(m_Context, renderResources);
 		}
-
-		// Apply shadows to scene color
-		if (shadowApplyPass)
-			shadowApplyPass->Execute(m_Context, renderResources);
-
-		// TAA Pass
-		if (taaPass)
-			taaPass->Execute(m_Context, renderResources);
 	}
 }
 
@@ -195,9 +234,17 @@ void ExampleLayer::OnImGuiRender()
 	ShowDockSpace();
 
 	ImGui::Begin("State");
+	ImGui::Checkbox("Deferred Rendering?", &useDeferred);
 	ImGui::Checkbox("OpenMsaa?", &open_Msaa);
+	if (useDeferred && open_Msaa)
+		ImGui::TextColored(ImVec4(1,0.5f,0,1), "MSAA disabled in deferred mode");
 	ImGui::Checkbox("TAA?", &taaPass->Enabled);
-	ImGui::Checkbox("Jitter?", &geometrypass->EnableJitter);
+	if (useDeferred)
+		ImGui::Checkbox("Jitter?", &gbufferPass->EnableJitter);
+	else
+		ImGui::Checkbox("Jitter?", &geometrypass->EnableJitter);
+	const char* debugItems[] = { "Lighting", "Position", "Normal", "Albedo", "Specular", "Depth" };
+	ImGui::Combo("GBuffer Debug", &deferredLightingPass->DebugMode, debugItems, 6);
 	ImGui::Separator();
 	ImGui::Checkbox("Ray Traced Shadows?", &shadowPass->Enabled);
 	ImGui::SliderFloat("Shadow Distance", &shadowPass->LightDistance, 1.0f, 200.0f);
@@ -293,6 +340,8 @@ void ExampleLayer::OnImGuiRender()
 		m_MsaaFboSpec.Height = m_ViewPortSize.y;
 		framebuffer->Rsetsize(m_ViewPortSize);
 		if (geometrypass) geometrypass->OnFboResize(m_ViewPortSize.x, m_ViewPortSize.y);
+		if (gbufferPass) gbufferPass->OnFboResize(m_ViewPortSize.x, m_ViewPortSize.y);
+		if (deferredLightingPass) deferredLightingPass->OnResize(m_ViewPortSize.x, m_ViewPortSize.y);
 		if (Msaaframebuffer) Msaaframebuffer->Rsetsize(m_ViewPortSize);
 		if (taaPass) taaPass->OnResize(m_ViewPortSize.x, m_ViewPortSize.y);
 		if (shadowPass) shadowPass->OnResize(m_ViewPortSize.x, m_ViewPortSize.y);

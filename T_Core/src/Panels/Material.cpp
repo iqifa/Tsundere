@@ -1,22 +1,19 @@
 #include"Material.h"
 using namespace std;
 template<typename T,typename... Args>
-void ValueChange(string name, unsigned int a, Ref<Shader> shader,Args...args)
+void ValueChange(string name, unsigned int a, Ref<RHIShader> shader,Args...args)
 {
 
 }
 template<>
-void ValueChange<int>(string name, unsigned int a, Ref<Shader> shader)
+void ValueChange<int>(string name, unsigned int a, Ref<RHIShader> shader)
 {
 	int* value = (int*)a;
 	shader->SetUniform1i(name, *value);
 }
 template<>
-void ValueChange<Texture>(string name, unsigned int a, Ref<Shader> shader,int count)
+void ValueChange<Texture>(string name, unsigned int a, Ref<RHIShader> shader,int count)
 {
-	/*Texture* value = (Texture*)a;
-	shader->SetUniform1i(name, count);
-	glBindTexture(GL_TEXTURE_2D, value->GetTextureID());*/
 	glActiveTexture(GL_TEXTURE0 + count);
 	Texture* value = (Texture*)a;
 	shader->SetUniform1i(name, count);
@@ -66,21 +63,22 @@ void Material::InitVarie(Uniform uniform)
 	}
 }
 
-void Material::Render()
+void Material::Render(Ref<RHIShader> overrideShader)
 {
 	int count = 1;
-	shader->Bind();
+	Ref<RHIShader> targetShader = overrideShader ? overrideShader : shader;
+	targetShader->Bind();
 	for (auto value : varies)
 	{
 		switch (std::get<1>(value))
 		{
-		case ValueType::INT:ValueChange<int>(std::get<2>(value), std::get<0>(value), shader);break;
-		case ValueType::FLOAT: { float* v = (float*)std::get<0>(value); shader->SetUniform1f(std::get<2>(value), *v); break; }
-		case ValueType::DOUBLE: { float v = (float)*(double*)std::get<0>(value); shader->SetUniform1f(std::get<2>(value), v); break; }
-		case ValueType::VEC2: { vec2* v = (vec2*)std::get<0>(value); shader->SetUniformVec2(std::get<2>(value), *v); break; }
-		case ValueType::VEC3: { vec3* v = (vec3*)std::get<0>(value); shader->SetUniformVec3(std::get<2>(value), *v); break; }
+		case ValueType::INT:ValueChange<int>(std::get<2>(value), std::get<0>(value), targetShader);break;
+		case ValueType::FLOAT: { float* v = (float*)std::get<0>(value); targetShader->SetUniform1f(std::get<2>(value), *v); break; }
+		case ValueType::DOUBLE: { float v = (float)*(double*)std::get<0>(value); targetShader->SetUniform1f(std::get<2>(value), v); break; }
+		case ValueType::VEC2: { vec2* v = (vec2*)std::get<0>(value); targetShader->SetUniformVec2(std::get<2>(value), *v); break; }
+		case ValueType::VEC3: { vec3* v = (vec3*)std::get<0>(value); targetShader->SetUniformVec3(std::get<2>(value), *v); break; }
 		case ValueType::TEXTURE:
-			ValueChange<Texture>(std::get<2>(value), std::get<0>(value), shader, count++); break;
+			ValueChange<Texture>(std::get<2>(value), std::get<0>(value), targetShader, count++); break;
 		default:
 			break;
 		}

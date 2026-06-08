@@ -16,7 +16,7 @@ enum class ValueType {
 class T_API Material
 {
 public:
-	Ref<Shader> shader;
+	Ref<RHIShader> shader;
 	int shaderindex = 0;
 	Texture texture;
 	std::string m_FilePath;
@@ -38,15 +38,15 @@ public:
 			}
 		}
 	}
-	Material(const Ref<Shader>&shader) :shader(shader) {}
-	Material(const Ref<Shader>&shader, const Texture & texture) :shader(shader), texture(texture) {}
+	Material(const Ref<RHIShader>&shader) :shader(shader) {}
+	Material(const Ref<RHIShader>&shader, const Texture & texture) :shader(shader), texture(texture) {}
 	Material(const std::string & path = "res/shaders/default.shader")
 	{
 		m_FilePath = path + ".mat";
 			m_FilePath = path + ".mat";
 		shader = ShaderLibiray::Get(path);
 		InitVaires();
-		
+
 	}
 	//vector<unsigned int> varies;
 
@@ -60,7 +60,7 @@ public:
 			free((void*)std::get<0>(var));
 		}
 		varies.clear();
-		std::vector<Uniform> uniforms = shader->uniform;
+		std::vector<Uniform> uniforms = shader->GetUniforms();
 		for (auto uniform : uniforms)
 		{
 			InitVarie(uniform);
@@ -68,7 +68,7 @@ public:
 	}
 
 	void InitVarie(Uniform uniform);
-	void Render();
+	void Render(Ref<RHIShader> overrideShader = nullptr);
 	void Save();
 };
 

@@ -43,5 +43,9 @@ private:
 	Ref<PathTracePass> pathTracePass;
 	RenderResources renderResources;
 
+	Ref<GBufferPass> gbufferPass;
+	Ref<DeferredLightingPass> deferredLightingPass;
+	bool useDeferred = true;
+
 	bool m_ViewportFocused = false;
 };
