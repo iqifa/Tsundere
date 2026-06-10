@@ -13,6 +13,7 @@ class  FrameBuffer;
 
 struct  RenderResources
 {
+	// --- Legacy raw GL IDs (kept for backward compat during RHI migration) ---
 	unsigned int SceneColorTexture = 0; // 上一阶段输出的场景颜色
 	unsigned int VelocityTexture = 0;   // 上一阶段输出的运动矢量缓存 (Motion Vectors)
 	unsigned int DepthTexture = 0;      // 深度图
@@ -26,6 +27,16 @@ struct  RenderResources
 
 	// 渲染目标尺寸
 	unsigned int SourceFBO = 0;        // 几何 Pass 的主 FBO（用于深度拷贝）
+
+	// --- RHI handles (set by RHI-migrated passes, nullptr until migrated) ---
+	// These coexist with the legacy raw IDs during the transition.
+	// RHI-migrated passes set BOTH the RHI handle AND the raw ID (via GetNativeID()).
+	// Non-migrated passes only set the raw ID, leaving RHI handles as nullptr.
+	Ref<RHITexture2D> SceneColorRHI;   // RHI-backed scene color
+	Ref<RHITexture2D> VelocityRHI;     // RHI-backed velocity / motion vectors
+	Ref<RHITexture2D> DepthRHI;        // RHI-backed depth texture
+	Ref<RHITexture2D> ShadowMaskRHI;   // RHI-backed shadow mask (R8)
+	Ref<RHIFramebuffer> TargetFBO;     // RHI-backed render target FBO
 };
 
 class  RenderPass
@@ -33,24 +44,25 @@ class  RenderPass
 public:
 	virtual ~RenderPass() = default;
 
-	virtual void Init(Ref<FrameBuffer>& m_GBuffer) {}
+	virtual void Init(Ref<FrameBuffer>& m_GBuffer, Ref<RHIFramebuffer> RHIFrameBuffer = nullptr) {}
 
 	virtual void Execute(Ref<Scene> scene, RenderResources& resources) = 0;
 };
 
 class  GeometryPass : public RenderPass
 {
-	Ref<FrameBuffer> m_GBuffer;
+	Ref<RHIFramebuffer>m_RHIGbuffer;
 
 	int m_FrameCount = 0;
-	unsigned int m_VelocityAttachment;
-	unsigned int m_DefaultTex = 0;
+
+	Ref<RHITexture2D>RHI_DefaultTex;
+
 	mat4 m_PrevViewProjMatrix = mat4(1.0f);
 
-	Ptr<VertexArray>va;
-	Ptr<VertexBuffer>vb;
-	Ptr<IndexBuffer>ibo;
-	Ptr<Shader>shader;
+	Ref<RHIBuffer> m_CubeVB;           // fallback cube VB (RHI)
+	Ref<RHIBuffer> m_CubeIB;           // fallback cube IB (RHI)
+	Ref<RHIPipeline> m_CubePipeline;   // fallback cube pipeline (VAO + shader + state)
+	Ref<RHIShader>m_LitShader;   // Lit.shader as RHI — writes to location 0+1 (color+velocity)
 
 
 public:
@@ -62,7 +74,7 @@ public:
 		mat4 currentViewProj = proj * view;
 
 		if (EnableJitter)
-			proj = Jittering(proj, m_GBuffer->GetSpecification().Width, m_GBuffer->GetSpecification().Height);
+			proj = Jittering(proj, m_RHIGbuffer->GetWidth(), m_RHIGbuffer->GetHeight());
 
 		vec3 lightDir = vec3(-0.5f, -1.0f, -0.5f);
 		vec3 lightColor = vec3(1.0f);
@@ -79,10 +91,8 @@ public:
 
 		Renderer renderer;
 		bool drewSomething = false;
-
-		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_2D, m_DefaultTex);
-
+		RHI_DefaultTex->Bind(0);
+		
 		for (auto [entityID, transform, meshrender] : scene->m_Registry.view<Component::Transform, Component::MeshRender>().each())
 		{
 			if (meshrender.ModelPath.empty() || meshrender.materials.empty())
@@ -97,80 +107,66 @@ public:
 			for (size_t i = 0; i < model->meshes.size(); i++)
 			{
 				auto& mesh = model->meshes[i];
-				if (!mesh.IsGPUReady())
+				if (!mesh.IsGPUReady()) 
 					continue;
 
 				Ref<Material> mat = i < meshrender.materials.size()
 					? meshrender.materials[i]
 					: meshrender.materials[0];
 
-				mat->Render();
+				mat->Render(m_LitShader);
 
-				mat->shader->SetUniformMat4f("MVP_matrix", proj * view * modelMat);
-				mat->shader->SetUniformMat4f("model", modelMat);
-				mat->shader->SetUniformMat4f("prevModel", modelMat);
-				mat->shader->SetUniformMat4f("viewProj", currentViewProj);
-				mat->shader->SetUniformMat4f("prevViewProj", m_PrevViewProjMatrix);
-				mat->shader->SetUniformVec3("lightDir", lightDir);
-				mat->shader->SetUniformVec3("lightColor", lightColor);
-				mat->shader->SetUniform1f("ambientStrength", ambientStrength);
-				mat->shader->SetUniformVec3("viewPos", viewPos);
-				mat->shader->SetUniform1i("hasNormalMap", 0);
+				m_LitShader->SetUniformMat4f("MVP_matrix", proj * view * modelMat);
+				m_LitShader->SetUniformMat4f("model", modelMat);
+				m_LitShader->SetUniformMat4f("prevModel", modelMat);
+				m_LitShader->SetUniformMat4f("viewProj", currentViewProj);
+				m_LitShader->SetUniformMat4f("prevViewProj", m_PrevViewProjMatrix);
+				m_LitShader->SetUniformVec3("lightDir", lightDir);
+				m_LitShader->SetUniformVec3("lightColor", lightColor);
+				m_LitShader->SetUniform1f("ambientStrength", ambientStrength);
+				m_LitShader->SetUniformVec3("viewPos", viewPos);
+				m_LitShader->SetUniform1i("hasNormalMap", 0);
 
-				renderer.DrawElement(*mesh.vao, *mesh.ibo, *(mat->shader));
+				renderer.DrawElement(*mesh.vao, *mesh.ibo, *m_LitShader);
 				drewSomething = true;
 			}
 		}
 
 		if (!drewSomething)
 		{
-			shader->Bind();
-			shader->SetUniformMat4f("viewProj", currentViewProj);
-			shader->SetUniformMat4f("prevViewProj", m_PrevViewProjMatrix);
-			shader->SetUniformVec3("lightDir", lightDir);
-			shader->SetUniformVec3("lightColor", lightColor);
-			shader->SetUniform1f("ambientStrength", ambientStrength);
-			shader->SetUniformVec3("viewPos", viewPos);
+			m_LitShader->Bind();
+			m_LitShader->SetUniformMat4f("viewProj", currentViewProj);
+			m_LitShader->SetUniformMat4f("prevViewProj", m_PrevViewProjMatrix);
+			m_LitShader->SetUniformVec3("lightDir", lightDir);
+			m_LitShader->SetUniformVec3("lightColor", lightColor);
+			m_LitShader->SetUniform1f("ambientStrength", ambientStrength);
+			m_LitShader->SetUniformVec3("viewPos", viewPos);
 
-			glActiveTexture(GL_TEXTURE0);
-			glBindTexture(GL_TEXTURE_2D, m_DefaultTex);
-			glActiveTexture(GL_TEXTURE1);
-			glBindTexture(GL_TEXTURE_2D, m_DefaultTex);
+
 
 			mat4 model = scale(mat4(1.0f), vec3(1.0f, 2.0f, 1.0f));
 			mat4 mvp = proj * view * model;
-			shader->SetUniformMat4f("MVP_matrix", mvp);
-			shader->SetUniformMat4f("model", model);
-			shader->SetUniformMat4f("prevModel", model);
-			shader->SetUniform1i("hasNormalMap", 0);
-			renderer.DrawElement(*va, *ibo, *(this->shader));
+			m_LitShader->SetUniformMat4f("MVP_matrix", mvp);
+			m_LitShader->SetUniformMat4f("model", model);
+			m_LitShader->SetUniformMat4f("prevModel", model);
+			m_LitShader->SetUniform1i("hasNormalMap", 0);
+			{
+				auto cmd = RHIRenderer::GetCmd();
+				cmd->BindPipeline(m_CubePipeline);
+				cmd->DrawIndexed(36);
+				m_CubePipeline->Unbind();
+			}
 		}
 
 		m_PrevViewProjMatrix = currentViewProj;
 		m_FrameCount++;
-		resources.SceneColorTexture = m_GBuffer->GetClolorAttachmentRenderID();
-		resources.VelocityTexture = m_VelocityAttachment;
-		resources.DepthTexture = m_GBuffer->GetDepthAttachmentRenderID();
+		resources.SceneColorTexture = m_RHIGbuffer->GetColorAttachmentID(0);
+		resources.VelocityTexture = m_RHIGbuffer->GetColorAttachmentID(1);
+		resources.DepthTexture = m_RHIGbuffer->GetDepthAttachmentID();
 	}
 
-	void Init(Ref<FrameBuffer>& m_GBuffer)override {
-		this->m_GBuffer = m_GBuffer;
-
-		m_GBuffer->Bind();
-		glGenTextures(1, &m_VelocityAttachment);
-
-		glBindTexture(GL_TEXTURE_2D, m_VelocityAttachment);
-
-		//glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, m_GBuffer->GetSpecification().Width, m_GBuffer->GetSpecification().Height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RG16F, m_GBuffer->GetSpecification().Width, m_GBuffer->GetSpecification().Height, 0, GL_RG, GL_FLOAT, nullptr);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, m_VelocityAttachment, 0);
-
-		GLenum drawBufs[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
-		glDrawBuffers(2, drawBufs);
-
-		m_GBuffer->UnBind();
+	void Init(Ref<FrameBuffer>& m_GBuffer, Ref<RHIFramebuffer> RHIFrameBuffer = nullptr)override {
+		this->m_RHIGbuffer = RHIFrameBuffer;
 
 
 		float position[] =
@@ -228,42 +224,48 @@ public:
 			30, 31, 32, 33, 34, 35
 		};
 
-		va = CreatePtr<VertexArray>(36);
+		m_CubeVB = RHIBuffer::Create({ 36 * 14 * (uint32_t)sizeof(float), BufferUsage::Vertex, false, position });
+		m_CubeIB = RHIBuffer::Create({ 36 * (uint32_t)sizeof(unsigned int), BufferUsage::Index, false, indices });
 
-		vb = CreatePtr<VertexBuffer>(position, 36 * 14 * sizeof(float));
-		ibo = CreatePtr<IndexBuffer>(indices, 36);
-		VertexBufferLayout layout;
-		layout.Push<float>(3); // position
-		layout.Push<float>(3); // normal
-		layout.Push<float>(2); // texcoord
-		layout.Push<float>(3); // tangent
-		layout.Push<float>(3); // bitangent
-		va->AddBuffer(*vb, layout);
+		m_LitShader = RHIShader::Create("D:/Code/C++/Tsundere/res/shaders/Lit.shader");
 
-		shader = CreatePtr<Shader>("D:/Code/C++/Tsundere/res/shaders/Lit.shader");
+		// Build pipeline with the same vertex layout as the old VAO
+		{
+			VertexLayout vtxLayout;
+			vtxLayout.stride = 14 * sizeof(float);
+			vtxLayout.attributes = {
+				{ 0, VertexFormat::Float3, 0, 0 },
+				{ 1, VertexFormat::Float3, 3 * sizeof(float), 0 },
+				{ 2, VertexFormat::Float2, 6 * sizeof(float), 0 },
+				{ 3, VertexFormat::Float3, 8 * sizeof(float), 0 },
+				{ 4, VertexFormat::Float3, 11 * sizeof(float), 0 },
+			};
 
+			PipelineDesc pipeDesc;
+			pipeDesc.shader       = m_LitShader;
+			pipeDesc.vertexLayout = vtxLayout;
+			pipeDesc.topology     = PrimitiveTopology::Triangles;
+			pipeDesc.cullMode     = CullMode::Front;    // old code had no face culling
+			pipeDesc.depthTest    = true;
+			pipeDesc.depthWrite   = true;
+			pipeDesc.srcBlend     = BlendFactor::One;    // no blend for geometry pass
+			pipeDesc.dstBlend     = BlendFactor::Zero;
+
+			m_CubePipeline = RHIPipeline::Create(pipeDesc);
+
+			// Bake VB format + IB into the pipeline (GL: VAO setup; VK: no-op).
+			// This is a one-time setup; subsequent BindPipeline() restores the full VAO state.
+			m_CubePipeline->SetupVertexFormat(m_CubeVB);
+			m_CubePipeline->SetupIndexBuffer(m_CubeIB);
+		}
 		unsigned char white[4] = { 255, 255, 255, 255 };
-		glGenTextures(1, &m_DefaultTex);
-		glBindTexture(GL_TEXTURE_2D, m_DefaultTex);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, white);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		RHI_DefaultTex = RHITexture2D::Create({ 1,1,Format::RGBA8_UNORM ,FilterMode::Linear,FilterMode::Linear,WrapMode::ClampToEdge ,WrapMode::ClampToEdge, false,white });
+
 		}
 
 	void OnFboResize(unsigned int width, unsigned int height)
 	{
-		glDeleteTextures(1, &m_VelocityAttachment);
-		glGenTextures(1, &m_VelocityAttachment);
-		glBindTexture(GL_TEXTURE_2D, m_VelocityAttachment);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RG16F, width, height, 0, GL_RG, GL_FLOAT, nullptr);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-		m_GBuffer->Bind();
-		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, m_VelocityAttachment, 0);
-		GLenum drawBufs[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
-		glDrawBuffers(2, drawBufs);
-		m_GBuffer->UnBind();
+		m_RHIGbuffer->Resize(width,height);
 	}
 
 	mat4 Jittering(const mat4& originalProj, float width, float height)
@@ -372,6 +374,9 @@ public:
 				renderer.DrawElement(*mesh.vao, *mesh.ibo, *m_GBufferShader);
 				drewSomething = true;
 			}
+
+				float pixel[4] = {0};
+				glReadBuffer(GL_COLOR_ATTACHMENT1);
 		}
 
 		if (!drewSomething)
@@ -409,7 +414,7 @@ public:
 		resources.SourceFBO       = m_GBuffer->GetFBO();
 	}
 
-	void Init(Ref<FrameBuffer>& fb)override {
+	void Init(Ref<FrameBuffer>& fb, Ref<RHIFramebuffer> RHIFrameBuffer = nullptr)override {
 		m_Spec.Width  = fb->GetSpecification().Width;
 		m_Spec.Height = fb->GetSpecification().Height;
 		m_GBuffer = CreatePtr<GBuffer>(m_Spec);
@@ -529,7 +534,7 @@ class  DeferredLightingPass : public RenderPass
 public:
 	int DebugMode = 0;
 
-	void Init(Ref<FrameBuffer>& fb) override
+	void Init(Ref<FrameBuffer>& fb, Ref<RHIFramebuffer> RHIFrameBuffer = nullptr) override
 	{
 		m_Spec = fb->GetSpecification();
 
@@ -698,7 +703,7 @@ class TAAPass : public RenderPass
 public:
 	bool Enabled = true;
 
-	void Init(Ref<FrameBuffer>& fb) override
+	void Init(Ref<FrameBuffer>& fb, Ref<RHIFramebuffer> RHIFrameBuffer = nullptr) override
 	{
 		m_Spec = fb->GetSpecification();
 
@@ -822,10 +827,10 @@ private:
 class ShadowPass : public RenderPass
 {
 public:
-	bool Enabled = true;
+	bool Enabled = false;
 	float LightDistance = 50.0f;
 
-	void Init(Ref<FrameBuffer>& fb) override
+	void Init(Ref<FrameBuffer>& fb, Ref<RHIFramebuffer> RHIFrameBuffer = nullptr) override
 	{
 		m_Spec = fb->GetSpecification();
 		m_Shader = Shader::CreateCompute("D:/Code/C++/Tsundere/res/shaders/ShadowRay.shader");
@@ -926,7 +931,7 @@ private:
 class ShadowApplyPass : public RenderPass
 {
 public:
-	void Init(Ref<FrameBuffer>& fb) override
+	void Init(Ref<FrameBuffer>& fb, Ref<RHIFramebuffer> RHIFrameBuffer = nullptr) override
 	{
 		m_Spec = fb->GetSpecification();
 
@@ -1022,7 +1027,7 @@ public:
 	bool Enabled = false;
 	unsigned int MaxBounces = 4;
 
-	void Init(Ref<FrameBuffer>& fb) override
+	void Init(Ref<FrameBuffer>& fb, Ref<RHIFramebuffer> RHIFrameBuffer = nullptr) override
 	{
 		m_Spec = fb->GetSpecification();
 

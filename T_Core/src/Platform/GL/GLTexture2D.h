@@ -8,6 +8,11 @@ class T_API GLTexture2D : public RHITexture2D
 {
 public:
     explicit GLTexture2D(const Texture2DDesc& desc);
+
+    // Wrap an existing GL texture (borrowed — does NOT own the texture, no glDeleteTextures).
+    // Useful for bridging old GL code that creates textures directly into the RHI world.
+    GLTexture2D(unsigned int existingGLID, uint32_t width, uint32_t height, Format format = Format::RGBA8_UNORM);
+
     ~GLTexture2D() override;
 
     void Bind(uint32_t slot) override;
@@ -29,6 +34,7 @@ private:
     Format m_Format;
     FilterMode m_MinFilter, m_MagFilter;
     WrapMode m_WrapS, m_WrapT;
+    bool m_OwnsTexture = true;       // false = wrapped (borrowed) texture
 };
 
 // Factory

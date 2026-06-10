@@ -64,13 +64,13 @@ ExampleLayer::ExampleLayer(Ref<Scene>scene, std::string name) : BasePanel(name)
 
 
 	m_BaseFboSpec = { 1080, 960, 1 };
-	m_MsaaFboSpec = { 1080, 960, 16 };
 	framebuffer = CreateRef<FrameBuffer>(m_BaseFboSpec);
 
-
+	RHI_fb = RHIFramebuffer::Create({ 1080,960,{{Format::RGBA8_UNORM},{Format::RG16F}} });
+	RHI_msaafb = RHIFramebuffer::Create({ 1080,960,{{Format::RGBA8_UNORM},{Format::RG16F}},true,16 });
 
 	geometrypass = CreateRef<GeometryPass>();
-	geometrypass->Init(framebuffer);
+	geometrypass->Init(framebuffer,RHI_fb);
 
 	gbufferPass = CreateRef<GBufferPass>();
 	gbufferPass->Init(framebuffer);
@@ -80,7 +80,7 @@ ExampleLayer::ExampleLayer(Ref<Scene>scene, std::string name) : BasePanel(name)
 
 	taaPass = CreateRef<TAAPass>();
 	taaPass->Init(framebuffer);
-
+	             
 	shadowPass = CreateRef<ShadowPass>();
 	shadowPass->Init(framebuffer);
 
@@ -90,12 +90,12 @@ ExampleLayer::ExampleLayer(Ref<Scene>scene, std::string name) : BasePanel(name)
 
 
 	std::vector<std::string> texpaths{
-		"D:\\Code\\C++\\Tsundere\\res/texture/CubeMap/right.jpg",
-		"D:\\Code\\C++\\Tsundere\\res/texture/CubeMap/left.jpg",
-		"D:\\Code\\C++\\Tsundere\\res/texture/CubeMap/top.jpg",
-		"D:\\Code\\C++\\Tsundere\\res/texture/CubeMap/bottom.jpg",
-		"D:\\Code\\C++\\Tsundere\\res/texture/CubeMap/front.jpg",
-		"D:\\Code\\C++\\Tsundere\\res/texture/CubeMap/back.jpg"
+		"D:\\Code\\C++\\Tsundere\\res/texture/CubeMap/Sky2/right.png",
+		"D:\\Code\\C++\\Tsundere\\res/texture/CubeMap/Sky2/left.png",
+		"D:\\Code\\C++\\Tsundere\\res/texture/CubeMap/Sky2/top.png",
+		"D:\\Code\\C++\\Tsundere\\res/texture/CubeMap/Sky2/bottom.png",
+		"D:\\Code\\C++\\Tsundere\\res/texture/CubeMap/Sky2/front.png",
+		"D:\\Code\\C++\\Tsundere\\res/texture/CubeMap/Sky2/back.png"
 	};
 	currentcamera->skybox = CreateRef<SkyBox>(texpaths);
 
@@ -127,16 +127,10 @@ void ExampleLayer::OnUpdate()
 		return;
 	Renderer renderer;
 
-	// 按需创建 / 释放 MSAA FBO
-	if (open_Msaa && !Msaaframebuffer)
-		Msaaframebuffer = CreatePtr<MsaaFrameBuffer>(m_MsaaFboSpec);
-	else if (!open_Msaa && Msaaframebuffer)
-		Msaaframebuffer.reset();
-
 	if (pathTracePass->Enabled)
 	{
 		// Path tracing mode — replace entire rasterization chain
-		framebuffer->Bind();
+		RHI_fb->Bind();
 		renderer.Clear();
 
 		if (m_ViewportFocused)
@@ -144,7 +138,7 @@ void ExampleLayer::OnUpdate()
 
 		pathTracePass->Execute(m_Context, renderResources);
 
-		framebuffer->UnBind();
+		RHI_fb->Unbind();
 	}
 	else
 	{
@@ -180,29 +174,33 @@ void ExampleLayer::OnUpdate()
 		}
 		else
 		{
-			// --- Forward Rendering Path (original) ---
+			// --- Forward Rendering Path (RHI) ---
 			if (open_Msaa)
-				Msaaframebuffer->Bind();
+			{
+				RHI_msaafb->Bind();
+			}
 			else
-				framebuffer->Bind();
+			{
+				RHI_fb->Bind();
+			}
 
 			renderer.Clear();
 			{
 				if (m_ViewportFocused)
-					currentcamera->GLPrecessInput(m_WindowHandle, 0.1f);
+					currentcamera->GLPrecessInput(m_WindowHandle, 0.5f);
 				currentcamera->RenderSkyBox();
 
 				geometrypass->Execute(m_Context, renderResources);
 			}
 			if (open_Msaa)
 			{
-				Msaaframebuffer->ResolveTo(*framebuffer, (int)m_ViewPortSize.x, (int)m_ViewPortSize.y);
-				Msaaframebuffer->UnBind();
+				RHI_msaafb->ResolveTo(RHI_fb);
+				RHI_msaafb->Unbind();
 			}
 			else
-				framebuffer->UnBind();
+				RHI_fb->Unbind();
 
-			renderResources.SourceFBO = framebuffer->GetFrameID();
+			renderResources.SourceFBO = RHI_fb->GetFramebufferID();
 
 			// Shadow Pass (ray-traced)
 			if (shadowPass->Enabled)
@@ -336,13 +334,12 @@ void ExampleLayer::OnImGuiRender()
 		glViewport(0, 0, m_ViewPortSize.x, m_ViewPortSize.y);
 		m_BaseFboSpec.Width = m_ViewPortSize.x;
 		m_BaseFboSpec.Height = m_ViewPortSize.y;
-		m_MsaaFboSpec.Width = m_ViewPortSize.x;
-		m_MsaaFboSpec.Height = m_ViewPortSize.y;
 		framebuffer->Rsetsize(m_ViewPortSize);
+		RHI_fb->Resize(m_ViewPortSize.x, m_ViewPortSize.y);
+		RHI_msaafb->Resize(m_ViewPortSize.x, m_ViewPortSize.y);
 		if (geometrypass) geometrypass->OnFboResize(m_ViewPortSize.x, m_ViewPortSize.y);
 		if (gbufferPass) gbufferPass->OnFboResize(m_ViewPortSize.x, m_ViewPortSize.y);
 		if (deferredLightingPass) deferredLightingPass->OnResize(m_ViewPortSize.x, m_ViewPortSize.y);
-		if (Msaaframebuffer) Msaaframebuffer->Rsetsize(m_ViewPortSize);
 		if (taaPass) taaPass->OnResize(m_ViewPortSize.x, m_ViewPortSize.y);
 		if (shadowPass) shadowPass->OnResize(m_ViewPortSize.x, m_ViewPortSize.y);
 		if (shadowApplyPass) shadowApplyPass->OnResize(m_ViewPortSize.x, m_ViewPortSize.y);

@@ -1,4 +1,5 @@
 #include "GLPipeline.h"
+#include "GLBuffer.h"
 #include "Renderer.h"
 #include <GL/glew.h>
 
@@ -76,14 +77,26 @@ unsigned int GLPipelineUtil::ToGLVertexType(VertexFormat fmt, int& count)
 GLPipeline::GLPipeline(const PipelineDesc& desc)
     : m_Shader(desc.shader), m_Desc(desc)
 {
+    // Create a VAO for this pipeline.
+    // Compute pipelines don't need vertex attributes, but a VAO is still
+    // required by GL core profile for any draw call.
+    GLCall(glGenVertexArrays(1, &m_VAO));
 }
 
 GLPipeline::~GLPipeline()
 {
+    if (m_VAO)
+    {
+        GLCall(glDeleteVertexArrays(1, &m_VAO));
+        m_VAO = 0;
+    }
 }
 
 void GLPipeline::Bind()
 {
+    // VAO — must be bound before IBO binding and draw calls
+    GLCall(glBindVertexArray(m_VAO));
+
     // Shader
     if (m_Shader)
         m_Shader->Bind();
@@ -126,6 +139,52 @@ void GLPipeline::Bind()
 
 void GLPipeline::Unbind()
 {
+    GLCall(glBindVertexArray(0));
+    glDisable(GL_CULL_FACE);
     if (m_Shader)
         m_Shader->UnBind();
+}
+
+void GLPipeline::SetupVertexFormat(Ref<RHIBuffer> vb)
+{
+    if (!vb || m_Desc.vertexLayout.attributes.empty())
+        return;
+
+    auto* glBuf = static_cast<GLBuffer*>(vb.get());
+    if (!glBuf) return;
+
+    GLCall(glBindVertexArray(m_VAO));
+    GLCall(glBindBuffer(GL_ARRAY_BUFFER, glBuf->GetGLID()));
+
+    for (auto& attr : m_Desc.vertexLayout.attributes)
+    {
+        GLCall(glEnableVertexAttribArray(attr.location));
+
+        int count = 0;
+        unsigned int type = GLPipelineUtil::ToGLVertexType(attr.format, count);
+
+        GLCall(glVertexAttribPointer(
+            attr.location,
+            count,
+            type,
+            GL_FALSE,                                             // normalized
+            static_cast<GLsizei>(m_Desc.vertexLayout.stride),
+            reinterpret_cast<void*>(static_cast<uintptr_t>(attr.offset))));
+    }
+
+    GLCall(glBindVertexArray(0));
+    GLCall(glBindBuffer(GL_ARRAY_BUFFER, 0));
+}
+
+void GLPipeline::SetupIndexBuffer(Ref<RHIBuffer> ib)
+{
+    if (!ib) return;
+
+    auto* glBuf = static_cast<GLBuffer*>(ib.get());
+    if (!glBuf) return;
+
+    // IBO binding is stored in the VAO — bind VAO, bind IBO, unbind VAO.
+    GLCall(glBindVertexArray(m_VAO));
+    GLCall(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, glBuf->GetGLID()));
+    GLCall(glBindVertexArray(0));
 }

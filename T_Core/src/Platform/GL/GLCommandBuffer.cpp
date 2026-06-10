@@ -32,7 +32,13 @@ void GLCommandBuffer::BeginRenderPass(Ref<RHIFramebuffer> fb, const float clearC
         GLCall(glBindFramebuffer(GL_FRAMEBUFFER, 0));
     }
     GLCall(glClearColor(clearColor[0], clearColor[1], clearColor[2], clearColor[3]));
-    GLCall(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
+
+    // Only clear depth if the FBO has a depth attachment (default FB always has depth)
+    GLbitfield clearMask = GL_COLOR_BUFFER_BIT;
+    if (!fb || fb->GetDepthAttachmentID() != 0)
+        clearMask |= GL_DEPTH_BUFFER_BIT;
+
+    GLCall(glClear(clearMask));
 }
 
 void GLCommandBuffer::EndRenderPass()

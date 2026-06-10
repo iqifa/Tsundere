@@ -34,7 +34,21 @@ static unsigned int ToGLDataFormat(Format fmt)
     default:                            return GL_RGBA;
     }
 }
-
+static unsigned int ToGlTypeFormat(Format fmt)
+{
+    switch (fmt)
+    {
+    case Format::R8_UNORM:              return GL_UNSIGNED_BYTE;
+    case Format::RGBA8_UNORM:           return GL_UNSIGNED_BYTE;
+    case Format::RGBA8_SRGB:            return GL_UNSIGNED_BYTE;
+    case Format::RG16F:                 return GL_FLOAT;
+    case Format::RGBA16F:               return GL_FLOAT;
+    case Format::RGBA32F:               return GL_FLOAT;
+    case Format::D24_UNORM_S8_UINT:     return GL_UNSIGNED_INT_24_8;
+    case Format::D32_SFLOAT:            return GL_UNSIGNED_INT;
+    default:                     return GL_UNSIGNED_BYTE;
+    }
+}
 GLFramebuffer::GLFramebuffer(const FramebufferDesc& desc)
     : m_Width(desc.width), m_Height(desc.height)
     , m_Samples(desc.samples)
@@ -111,18 +125,32 @@ void GLFramebuffer::ResolveTo(Ref<RHIFramebuffer> dst)
 {
     if (m_Samples <= 1 || !dst) return;
 
-    // Resolve each color attachment
-    for (uint32_t i = 0; i < m_ColorAttachmentCount && i < dst->GetColorAttachmentCount(); i++)
+    unsigned int dstFbo = static_cast<unsigned int>(dst->GetFramebufferID());
+    uint32_t dstCount = dst->GetColorAttachmentCount();
+    uint32_t resolveCount = m_ColorAttachmentCount < dstCount ? m_ColorAttachmentCount : dstCount;
+
+    // Resolve each color attachment individually (glBlitFramebuffer only
+    // copies the single read buffer → single draw buffer at a time).
+    for (uint32_t i = 0; i < resolveCount; i++)
     {
         GLCall(glBindFramebuffer(GL_READ_FRAMEBUFFER, m_FboID));
         GLCall(glReadBuffer(GL_COLOR_ATTACHMENT0 + i));
-        GLCall(glBindFramebuffer(GL_DRAW_FRAMEBUFFER,
-            static_cast<unsigned int>(dst->GetFramebufferID())));
+        GLCall(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, dstFbo));
         GLCall(glDrawBuffer(GL_COLOR_ATTACHMENT0 + i));
         GLCall(glBlitFramebuffer(0, 0, m_Width, m_Height,
             0, 0, dst->GetWidth(), dst->GetHeight(),
             GL_COLOR_BUFFER_BIT, GL_NEAREST));
     }
+
+    // Restore MRT draw buffers on destination FBO.
+    // glDrawBuffer() (singular) overrides the glDrawBuffers() (plural, MRT)
+    // set by Invalidate(), which would leave only the last attachment enabled
+    // for subsequent rendering — causing a black screen after MSAA is toggled off.
+    GLCall(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, dstFbo));
+    std::vector<GLenum> drawBufs(dstCount);
+    for (uint32_t i = 0; i < dstCount; i++)
+        drawBufs[i] = GL_COLOR_ATTACHMENT0 + i;
+    GLCall(glDrawBuffers(dstCount, drawBufs.data()));
 
     GLCall(glBindFramebuffer(GL_FRAMEBUFFER, 0));
 }
@@ -167,6 +195,14 @@ void GLFramebuffer::Invalidate()
             target, texID, 0));
     }
 
+    // Enable all color attachments for MRT (glDrawBuffers defaults to only ATTACHMENT0)
+    {
+        std::vector<GLenum> drawBufs(m_ColorAttachmentCount);
+        for (uint32_t i = 0; i < m_ColorAttachmentCount; i++)
+            drawBufs[i] = GL_COLOR_ATTACHMENT0 + i;
+        GLCall(glDrawBuffers(m_ColorAttachmentCount, drawBufs.data()));
+    }
+
     // Depth-stencil attachment
     if (m_HasDepthStencil)
     {
@@ -200,7 +236,7 @@ unsigned int GLFramebuffer::GLCreateAttachment(Format fmt, uint32_t samples)
     else
     {
         GLCall(glTexImage2D(target, 0, ToGLInternalFormat(fmt),
-            m_Width, m_Height, 0, ToGLDataFormat(fmt), GL_UNSIGNED_BYTE, nullptr));
+            m_Width, m_Height, 0, ToGLDataFormat(fmt), ToGlTypeFormat(fmt), nullptr));
         GLCall(glTexParameteri(target, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
         GLCall(glTexParameteri(target, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
         GLCall(glTexParameteri(target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE));

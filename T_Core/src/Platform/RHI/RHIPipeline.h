@@ -6,6 +6,8 @@
 #include "HeadLine.h"
 #include <vector>
 
+class RHIBuffer;
+
 // Describes one vertex attribute within a vertex buffer layout.
 struct VertexAttribute
 {
@@ -51,6 +53,16 @@ public:
     // Bind pipeline state: shader + VAO + raster/depth/blend state
     virtual void Bind() = 0;
     virtual void Unbind() = 0;
+
+    // One-time vertex format setup. Call once after pipeline + VB creation.
+    // GL: binds VB to internal VAO, sets up glVertexAttribPointer for each attr.
+    // VK: no-op (vertex input state is baked into VkPipeline at creation).
+    virtual void SetupVertexFormat(Ref<RHIBuffer> vb) { (void)vb; }
+
+    // One-time index buffer setup. Call once after SetupVertexFormat.
+    // GL: binds IB to internal VAO (stored as VAO state).
+    // VK: no-op (index buffer is bound per-draw via BindIndexBuffer).
+    virtual void SetupIndexBuffer(Ref<RHIBuffer> ib) { (void)ib; }
 
     // Factory — backend selected at compile time
     static Ref<RHIPipeline> Create(const PipelineDesc& desc);

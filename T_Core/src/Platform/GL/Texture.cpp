@@ -6,7 +6,7 @@ Texture::Texture(const string& path)
 	:m_FilePath(path), m_LocalBuffer(nullptr), m_Height(0), m_Width(0)
 {
 	//反转纹理
-	stbi_set_flip_vertically_on_load(1);
+	stbi_set_flip_vertically_on_load(0);
 	m_LocalBuffer = stbi_load(path.c_str(), &m_Width, &m_Height, &m_BPP, 0);
 
 	if (m_LocalBuffer)

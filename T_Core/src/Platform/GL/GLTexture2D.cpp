@@ -33,7 +33,20 @@ static unsigned int ToGLDataFormat(Format fmt)
     default:                     return GL_RGBA;
     }
 }
-
+static unsigned int ToGlTypeFormat(Format fmt)
+{
+    switch (fmt)
+    {
+    case Format::R8_UNORM:       return GL_UNSIGNED_BYTE;
+    case Format::RGBA8_UNORM:    return GL_UNSIGNED_BYTE;
+    case Format::RGBA8_SRGB:     return GL_UNSIGNED_BYTE;
+    case Format::RG16F:          return GL_FLOAT;
+    case Format::RGBA16F:        return GL_FLOAT;
+    case Format::RGBA32F:        return GL_UNSIGNED_BYTE;
+    case Format::R32_UINT:       return GL_UNSIGNED_BYTE;
+    default:                     return GL_UNSIGNED_BYTE;
+    }
+}
 static unsigned int ToGLWrap(WrapMode w)
 {
     switch (w)
@@ -48,6 +61,15 @@ static unsigned int ToGLWrap(WrapMode w)
 static unsigned int ToGLFilter(FilterMode f)
 {
     return (f == FilterMode::Nearest) ? GL_NEAREST : GL_LINEAR;
+}
+
+GLTexture2D::GLTexture2D(unsigned int existingGLID, uint32_t width, uint32_t height, Format format)
+    : m_RendererID(existingGLID), m_Width(width), m_Height(height)
+    , m_Format(format)
+    , m_MinFilter(FilterMode::Linear), m_MagFilter(FilterMode::Linear)
+    , m_WrapS(WrapMode::ClampToEdge), m_WrapT(WrapMode::ClampToEdge)
+    , m_OwnsTexture(false)   // borrowed reference — caller still owns the GL texture
+{
 }
 
 GLTexture2D::GLTexture2D(const Texture2DDesc& desc)
@@ -82,7 +104,7 @@ GLTexture2D::GLTexture2D(const Texture2DDesc& desc)
         GLCall(glGenTextures(1, &m_RendererID));
         GLCall(glBindTexture(GL_TEXTURE_2D, m_RendererID));
         GLCall(glTexImage2D(GL_TEXTURE_2D, 0, ToGLInternalFormat(m_Format),
-            m_Width, m_Height, 0, ToGLDataFormat(m_Format), GL_UNSIGNED_BYTE, nullptr));
+            m_Width, m_Height, 0, ToGLDataFormat(m_Format), ToGlTypeFormat(m_Format), nullptr));
         ApplySamplerParams();
         GLCall(glBindTexture(GL_TEXTURE_2D, 0));
     }
@@ -90,7 +112,7 @@ GLTexture2D::GLTexture2D(const Texture2DDesc& desc)
 
 GLTexture2D::~GLTexture2D()
 {
-    if (m_RendererID)
+    if (m_OwnsTexture && m_RendererID)
         GLCall(glDeleteTextures(1, &m_RendererID));
 }
 
@@ -110,7 +132,7 @@ void GLTexture2D::Resize(uint32_t w, uint32_t h)
     m_Width = w; m_Height = h;
     GLCall(glBindTexture(GL_TEXTURE_2D, m_RendererID));
     GLCall(glTexImage2D(GL_TEXTURE_2D, 0, ToGLInternalFormat(m_Format),
-        m_Width, m_Height, 0, ToGLDataFormat(m_Format), GL_UNSIGNED_BYTE, nullptr));
+        m_Width, m_Height, 0, ToGLDataFormat(m_Format), ToGlTypeFormat(m_Format), nullptr));
     GLCall(glBindTexture(GL_TEXTURE_2D, 0));
 }
 

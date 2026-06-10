@@ -3,6 +3,12 @@
 #include "Debug/Debug.h"
 #include "stb_image/stb_image.h"
 
+GLTextureCube::GLTextureCube(unsigned int existingGLID, uint32_t size)
+    : m_RendererID(existingGLID), m_Size(size)
+    , m_OwnsTexture(false)   // borrowed reference
+{
+}
+
 GLTextureCube::GLTextureCube(const TextureCubeDesc& desc)
     : m_Size(desc.size)
 {
@@ -43,7 +49,7 @@ GLTextureCube::GLTextureCube(const TextureCubeDesc& desc)
 
 GLTextureCube::~GLTextureCube()
 {
-    if (m_RendererID)
+    if (m_OwnsTexture && m_RendererID)
         GLCall(glDeleteTextures(1, &m_RendererID));
 }
 

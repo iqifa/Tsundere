@@ -32,6 +32,7 @@
 #include "Platform/RHI/RHIPipeline.h"
 #include "Platform/RHI/RHIDescriptorSet.h"
 #include "Platform/RHI/RHISwapChain.h"
+#include "Platform/RHI/RHIRenderer.h"
 
 // Include GL backend implementations
 #ifdef RenderAPI_OpenGL

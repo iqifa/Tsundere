@@ -23,12 +23,13 @@ private:
 	Ptr<IndexBuffer>ibo;
 	Ref<RHIShader>shader;
 
-	Ref<FrameBuffer> framebuffer;
-	Ptr<MsaaFrameBuffer> Msaaframebuffer;
+	Ref<FrameBuffer> framebuffer;           // legacy — used by non-migrated passes & path tracing
+
+	Ref<RHIFramebuffer>RHI_fb;             // RHI non-MSAA FBO (resolve target / forward rendering)
+	Ref<RHIFramebuffer>RHI_msaafb;         // RHI MSAA FBO (16 samples, multi-attachment)
 
 	vec2 m_ViewPortSize;
 	FrameBufferSpecification m_BaseFboSpec;
-	FrameBufferSpecification m_MsaaFboSpec;
 
 	bool open_Msaa = false;
 
@@ -45,7 +46,7 @@ private:
 
 	Ref<GBufferPass> gbufferPass;
 	Ref<DeferredLightingPass> deferredLightingPass;
-	bool useDeferred = true;
+	bool useDeferred = false;
 
 	bool m_ViewportFocused = false;
 };

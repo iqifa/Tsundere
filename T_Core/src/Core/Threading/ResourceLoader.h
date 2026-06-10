@@ -16,6 +16,7 @@
 #include <atomic>
 #include <thread>
 #include <functional>
+#include <filesystem>
 
 namespace Engine {
 
@@ -339,7 +340,14 @@ inline void ResourceLoader::ExecuteModelLoad(AsyncLoadRequest& req)
 
 	if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode)
 	{
+		std::string absolutePath = std::filesystem::absolute(req.path).string();
+		std::string assimpError = importer.GetErrorString();
+
 		Error_Core("ResourceLoader: Failed to load model: " + req.path);
+
+		Error_Core("ResourceLoader: Failed to load model: " + req.path +
+			"\nAssimp Error: " + assimpError +
+			"\nAttempted Absolute Path: " + absolutePath);
 		return;
 	}
 
