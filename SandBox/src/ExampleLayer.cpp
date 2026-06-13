@@ -110,6 +110,12 @@ ExampleLayer::ExampleLayer(Ref<Scene>scene, std::string name) : BasePanel(name)
 	pathTracePass->Init(framebuffer);
 	pathTracePass->SetBVHBuilder(shadowPass->GetBVHBuilder());
 
+		// DDGI probe-based global illumination
+		m_DDGIPass = CreateRef<DDGIPass>();
+		m_DDGIPass->Init(framebuffer);
+		m_DDGIPass->SetBVHBuilder(shadowPass->GetBVHBuilder());
+		deferredLightingPass->SetDDGIPass(m_DDGIPass.get());
+
 
 
 	// Create test entity with material for UI editing
@@ -150,6 +156,9 @@ void ExampleLayer::OnUpdate()
 
 			// GBuffer pass - outputs Position, Normal, Albedo, Specular, Velocity, Depth
 			gbufferPass->Execute(m_Context, renderResources);
+
+			// DDGI probe update (before lighting, uses BVH)
+			m_DDGIPass->Execute(m_Context, renderResources);
 
 			// Shadow Pass (ray-traced)
 			if (shadowPass->Enabled)
@@ -241,8 +250,6 @@ void ExampleLayer::OnImGuiRender()
 		ImGui::Checkbox("Jitter?", &gbufferPass->EnableJitter);
 	else
 		ImGui::Checkbox("Jitter?", &geometrypass->EnableJitter);
-	const char* debugItems[] = { "Lighting", "Position", "Normal", "Albedo", "Specular", "Depth" };
-	ImGui::Combo("GBuffer Debug", &deferredLightingPass->DebugMode, debugItems, 6);
 	ImGui::Separator();
 	ImGui::Checkbox("Ray Traced Shadows?", &shadowPass->Enabled);
 	ImGui::SliderFloat("Shadow Distance", &shadowPass->LightDistance, 1.0f, 200.0f);
@@ -254,6 +261,36 @@ void ExampleLayer::OnImGuiRender()
 		if (ImGui::Button("Reset Accum"))
 			pathTracePass->ResetAccumulation();
 	}
+	ImGui::Separator();
+	ImGui::Checkbox("DDGI?", &m_DDGIPass->Enabled);
+	if (m_DDGIPass->Enabled)
+	{
+		ImGui::Checkbox("DDGI in Lighting", &deferredLightingPass->DDGIEnabled);
+		int gs[3] = { m_DDGIPass->GridSize.x, m_DDGIPass->GridSize.y, m_DDGIPass->GridSize.z };
+		if (ImGui::InputInt3("Grid Size", gs))
+			m_DDGIPass->GridSize = { gs[0], gs[1], gs[2] };
+		ImGui::SliderFloat("Spacing", &m_DDGIPass->Spacing, 0.5f, 10.0f);
+		ImGui::SliderFloat("Probe Radius", &m_DDGIPass->ProbeRadius, 0.5f, 20.0f);
+		ImGui::SliderInt("Rays/Probe", &m_DDGIPass->RaysPerProbe, 32, 1024);
+		ImGui::SliderInt("Probes/Frame", &m_DDGIPass->ProbesPerUpdate, 8, 256);
+		ImGui::SliderFloat("Hysteresis", &m_DDGIPass->Hysteresis, 0.0f, 0.99f);
+		ImGui::SliderFloat("Depth Sharpness", &m_DDGIPass->DepthSharpness, 0.0f, 200.0f);
+		ImGui::Checkbox("Scroll w/ Camera", &m_DDGIPass->ScrollWithCamera);
+			ImGui::Checkbox("Auto Place Grid", &m_DDGIPass->AutoPlaceGrid);
+			if (!m_DDGIPass->AutoPlaceGrid)
+			{
+				float go[3] = { m_DDGIPass->GridOrigin.x, m_DDGIPass->GridOrigin.y, m_DDGIPass->GridOrigin.z };
+				if (ImGui::DragFloat3("Grid Origin", go, 0.1f))
+					m_DDGIPass->GridOrigin = { go[0], go[1], go[2] };
+			}
+		ImGui::Checkbox("Show Probes", &m_DDGIPass->ShowProbes);
+		ImGui::Text("Probes: %d (updating %d/frame)", m_DDGIPass->GetTotalProbes(), m_DDGIPass->ProbesPerUpdate);
+			if (ImGui::Button("Reset DDGI"))
+				m_DDGIPass->Reset();
+	}
+	// Expand GBuffer debug modes to include DDGI
+	const char* debugItems2[] = { "Lighting", "Position", "Normal", "Albedo", "Specular", "Depth", "DDGI Irradiance", "DDGI Depth" };
+	ImGui::Combo("GBuffer Debug", &deferredLightingPass->DebugMode, debugItems2, 8);
 	ImGui::End();
 
 	ImGui::Begin(m_HeadTitle.c_str());
@@ -344,6 +381,7 @@ void ExampleLayer::OnImGuiRender()
 		if (shadowPass) shadowPass->OnResize(m_ViewPortSize.x, m_ViewPortSize.y);
 		if (shadowApplyPass) shadowApplyPass->OnResize(m_ViewPortSize.x, m_ViewPortSize.y);
 		if (pathTracePass) pathTracePass->OnResize(m_ViewPortSize.x, m_ViewPortSize.y);
+		if (m_DDGIPass) m_DDGIPass->OnResize(m_ViewPortSize.x, m_ViewPortSize.y);
 		currentcamera->SetAspect(m_ViewPortSize.x, m_ViewPortSize.y);
 	}
 
@@ -354,6 +392,22 @@ void ExampleLayer::OnImGuiRender()
 	ImGui::Begin("Velocity");
 	ImGui::Image((ImTextureID)(uintptr_t)renderResources.VelocityTexture, ImVec2(m_ViewPortSize.x, m_ViewPortSize.y), ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
 	ImGui::End();
+
+		// DDGI debug: show irradiance atlas
+		if (m_DDGIPass && m_DDGIPass->Enabled)
+		{
+			ImGui::Begin("DDGI Atlas");
+			unsigned int atlasID = m_DDGIPass->GetIrradianceAtlasID();
+			if (atlasID)
+				ImGui::Image((ImTextureID)(uintptr_t)atlasID, ImVec2(256, 256), ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
+			ImGui::Text("Probes: %d x %d = %d", m_DDGIPass->GetProbesPerRow(),
+				(m_DDGIPass->GetTotalProbes() + m_DDGIPass->GetProbesPerRow() - 1) / m_DDGIPass->GetProbesPerRow(),
+				m_DDGIPass->GetTotalProbes());
+			ImGui::Text("Grid: %d,%d,%d  Spacing: %.1f  Radius: %.1f",
+				m_DDGIPass->GridSize.x, m_DDGIPass->GridSize.y, m_DDGIPass->GridSize.z,
+				m_DDGIPass->Spacing, m_DDGIPass->ProbeRadius);
+			ImGui::End();
+		}
 	ImGui::PopStyleVar();
 }
 

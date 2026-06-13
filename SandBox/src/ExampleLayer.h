@@ -46,6 +46,7 @@ private:
 
 	Ref<GBufferPass> gbufferPass;
 	Ref<DeferredLightingPass> deferredLightingPass;
+	Ref<DDGIPass> m_DDGIPass;
 	bool useDeferred = false;
 
 	bool m_ViewportFocused = false;

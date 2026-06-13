@@ -98,6 +98,9 @@ void GBuffer::Bind()
 {
 	glBindFramebuffer(GL_FRAMEBUFFER, m_FBO);
 	glViewport(0, 0, m_Spec.Width, m_Spec.Height);
+	glEnable(GL_DEPTH_TEST);
+	glDepthMask(GL_TRUE);
+	glDepthFunc(GL_LESS);
 }
 
 void GBuffer::UnBind()

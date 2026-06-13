@@ -5,6 +5,7 @@
 #include<Scene/BVHBuilder.h>
 #include<Panels/MeshFilePath.h>
 #include<Panels/Material.h>
+#include<DDGI/DDGI.h>
 #include<set>
 #include<Debug/Debug.h>
 class Scene;
@@ -24,6 +25,10 @@ struct  RenderResources
 	unsigned int GBufferNormal = 0;
 	unsigned int GBufferAlbedo = 0;
 	unsigned int GBufferSpecular = 0;        // 阴影遮罩纹理 (R8)
+
+	// DDGI probe atlas textures
+	unsigned int DDGIIrradianceAtlas = 0;
+	unsigned int DDGIDepthAtlas = 0;
 
 	// 渲染目标尺寸
 	unsigned int SourceFBO = 0;        // 几何 Pass 的主 FBO（用于深度拷贝）
@@ -529,173 +534,7 @@ public:
 };
 
 
-class  DeferredLightingPass : public RenderPass
-{
-public:
-	int DebugMode = 0;
 
-	void Init(Ref<FrameBuffer>& fb, Ref<RHIFramebuffer> RHIFrameBuffer = nullptr) override
-	{
-		m_Spec = fb->GetSpecification();
-
-		float quadVertices[] = {
-			-1.0f,  1.0f,  0.0f, 1.0f,
-			-1.0f, -1.0f,  0.0f, 0.0f,
-			 1.0f, -1.0f,  1.0f, 0.0f,
-			 1.0f,  1.0f,  1.0f, 1.0f
-		};
-		unsigned int quadIndices[] = { 0, 1, 2, 2, 3, 0 };
-
-		m_QuadVA = CreatePtr<VertexArray>(4);
-		m_QuadVB = CreatePtr<VertexBuffer>(quadVertices, sizeof(quadVertices));
-		m_QuadIB = CreatePtr<IndexBuffer>(quadIndices, 6);
-		VertexBufferLayout quadLayout;
-		quadLayout.Push<float>(2);
-		quadLayout.Push<float>(2);
-		m_QuadVA->AddBuffer(*m_QuadVB, quadLayout);
-
-		m_Shader = ShaderLibiray::Get("D:/Code/C++/Tsundere/res/shaders/DeferredLighting.shader");
-
-		unsigned char white[4] = { 255, 255, 255, 255 };
-		glGenTextures(1, &m_DefaultWhiteTex);
-		glBindTexture(GL_TEXTURE_2D, m_DefaultWhiteTex);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, white);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-		unsigned char black[4] = { 0, 0, 0, 255 };
-		glGenTextures(1, &m_DefaultCubemap);
-		glBindTexture(GL_TEXTURE_CUBE_MAP, m_DefaultCubemap);
-		for (int face = 0; face < 6; face++)
-			glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + face, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, black);
-		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-
-		CreateOutputTex(m_Spec.Width, m_Spec.Height);
-	}
-
-	void Execute(Ref<Scene> scene, RenderResources& resources) override
-	{
-		if (!resources.GBufferPosition)
-			return;
-
-		vec3 lightDir = vec3(-0.5f, -1.0f, -0.5f);
-		vec3 lightColor = vec3(1.0f);
-		float ambientStrength = 0.1f;
-		vec3 viewPos = currentcamera->getpos();
-		for (auto entityID : scene->m_Registry.view<Component::DirectionalLight>())
-		{
-			auto& dl = scene->m_Registry.get<Component::DirectionalLight>(entityID);
-			lightDir = dl.Direction;
-			lightColor = dl.Color * dl.Intensity;
-			ambientStrength = dl.Ambient;
-			break;
-		}
-
-		glBindFramebuffer(GL_FRAMEBUFFER, m_OutputFBO);
-		glViewport(0, 0, m_Spec.Width, m_Spec.Height);
-		glDisable(GL_DEPTH_TEST);
-
-		m_Shader->Bind();
-
-		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_2D, resources.GBufferPosition);
-		m_Shader->SetUniform1i("u_GBufferPosition", 0);
-
-		glActiveTexture(GL_TEXTURE1);
-		glBindTexture(GL_TEXTURE_2D, resources.GBufferNormal);
-		m_Shader->SetUniform1i("u_GBufferNormal", 1);
-
-		glActiveTexture(GL_TEXTURE2);
-		glBindTexture(GL_TEXTURE_2D, resources.GBufferAlbedo);
-		m_Shader->SetUniform1i("u_GBufferAlbedo", 2);
-
-		glActiveTexture(GL_TEXTURE3);
-		glBindTexture(GL_TEXTURE_2D, resources.GBufferSpecular);
-		m_Shader->SetUniform1i("u_GBufferSpecular", 3);
-
-		glActiveTexture(GL_TEXTURE4);
-		if (resources.ShadowMask)
-			glBindTexture(GL_TEXTURE_2D, resources.ShadowMask);
-		else
-			glBindTexture(GL_TEXTURE_2D, m_DefaultWhiteTex);
-		m_Shader->SetUniform1i("u_ShadowMask", 4);
-
-		glActiveTexture(GL_TEXTURE5);
-		glBindTexture(GL_TEXTURE_2D, resources.DepthTexture);
-		m_Shader->SetUniform1i("u_Depth", 5);
-
-		m_Shader->SetUniformVec3("u_LightDir", lightDir);
-		m_Shader->SetUniformVec3("u_LightColor", lightColor);
-		m_Shader->SetUniform1f("u_AmbientStrength", ambientStrength);
-		m_Shader->SetUniformVec3("u_ViewPos", viewPos);
-
-		mat4 viewNoTrans = mat4(mat3(currentcamera->GetViewFront()));
-		mat4 proj = currentcamera->GetProj();
-		mat4 invViewProjNoTrans = inverse(proj * viewNoTrans);
-		m_Shader->SetUniformMat4f("u_InvViewProjNoTrans", invViewProjNoTrans);
-
-		glActiveTexture(GL_TEXTURE6);
-		if (currentcamera->skybox && currentcamera->skybox->m_Cmp)
-			glBindTexture(GL_TEXTURE_CUBE_MAP, currentcamera->skybox->m_Cmp->GetMap());
-		else
-			glBindTexture(GL_TEXTURE_CUBE_MAP, m_DefaultCubemap);
-		m_Shader->SetUniform1i("u_Skybox", 6);
-
-		m_Shader->SetUniform1i("u_DebugMode", DebugMode);
-
-		Renderer renderer;
-		renderer.DrawElement(*m_QuadVA, *m_QuadIB, *m_Shader);
-
-		glEnable(GL_DEPTH_TEST);
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-		resources.SceneColorTexture = m_OutputTex;
-	}
-
-	void OnResize(unsigned int w, unsigned int h)
-	{
-		m_Spec.Width = w;
-		m_Spec.Height = h;
-		CreateOutputTex(w, h);
-	}
-
-private:
-	void CreateOutputTex(unsigned int w, unsigned int h)
-	{
-		if (m_OutputTex)
-			glDeleteTextures(1, &m_OutputTex);
-		if (m_OutputFBO)
-			glDeleteFramebuffers(1, &m_OutputFBO);
-
-		glGenTextures(1, &m_OutputTex);
-		glBindTexture(GL_TEXTURE_2D, m_OutputTex);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
-		glGenFramebuffers(1, &m_OutputFBO);
-		glBindFramebuffer(GL_FRAMEBUFFER, m_OutputFBO);
-		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_OutputTex, 0);
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-		glBindTexture(GL_TEXTURE_2D, 0);
-	}
-
-	FrameBufferSpecification m_Spec;
-	Ref<RHIShader> m_Shader;
-	Ptr<VertexArray> m_QuadVA;
-	Ptr<VertexBuffer> m_QuadVB;
-	Ptr<IndexBuffer> m_QuadIB;
-	unsigned int m_OutputTex = 0;
-	unsigned int m_OutputFBO = 0;
-	unsigned int m_DefaultWhiteTex = 0;
-	unsigned int m_DefaultCubemap = 0;
-};
 
 
 class TAAPass : public RenderPass
@@ -1393,4 +1232,593 @@ private:
 	unsigned int m_FrameIdx = 0;
 	glm::vec3 m_LastCamPos = glm::vec3(FLT_MAX);
 	glm::vec2 m_LastViewportSize = glm::vec2(0.0f);
+};
+
+// ============================================================================
+// DDGIPass — Dynamic Diffuse Global Illumination probe update
+// ============================================================================
+// Casts rays from a 3D grid of probes into the scene using the BVH.
+// Accumulates irradiance into an octahedral-map texture atlas with
+// temporal blending (ping-pong history). Probes are updated round-robin.
+class  DDGIPass : public RenderPass
+{
+public:
+	bool Enabled = true;
+
+	// Volume configuration
+	glm::ivec3 GridSize = { 8, 4, 8 };
+	float     Spacing = 2.0f;
+	float     ProbeRadius = 3.0f;
+	int       RaysPerProbe = 256;
+	int       ProbesPerUpdate = 128;
+	float     Hysteresis = 0.97f;
+	float     DepthSharpness = 50.0f;
+	bool      ScrollWithCamera = true;
+	glm::vec3 GridOrigin = glm::vec3(0.0f);
+	bool      AutoPlaceGrid = true;
+
+
+	Ref<StorageBuffer>m_MaterialSSBO;
+
+	void Init(Ref<FrameBuffer>& fb, Ref<RHIFramebuffer> RHIFrameBuffer = nullptr) override
+	{
+		m_Spec = fb->GetSpecification();
+		m_UpdateShader = Shader::CreateCompute("D:/Code/C++/Tsundere/res/shaders/DDGIProbeUpdate.shader");
+		if (!m_UpdateShader || m_UpdateShader->GetID() == 0)
+		{
+			Error_Core("DDGIPass: Failed to create DDGIProbeUpdate compute shader!");
+			Enabled = false;
+		}
+		RebuildAtlases();
+	}
+
+	void Execute(Ref<Scene> scene, RenderResources& resources) override
+	{
+		if (!Enabled || !m_BVHBuilder)
+			return;
+
+		// Rebuild atlas/SSBO if grid size changed
+		if (GridSize != m_LastGridSize)
+		{
+			RebuildAtlases();
+			m_LastGridSize = GridSize;
+		}
+
+		// Rebuild BVH only when scene geometry changed
+		if (m_BVHBuilder->IsDirty())
+		{
+			m_BVHBuilder->GatherTriangles(scene);
+			m_BVHBuilder->BuildBVH(4);
+			m_BVHBuilder->UploadToGPU();
+			m_BVHBuilder->MarkClean();
+		}
+
+		if (!m_BVHBuilder->GetTriangleBuffer() || !m_BVHBuilder->GetBVHNodeBuffer())
+			return;
+
+		// Update camera scroll
+		if (ScrollWithCamera && AutoPlaceGrid && currentcamera)
+			UpdateScrollOffset();
+
+		// Upload current probe positions
+		UpdateProbeRayDataSSBO();
+
+		m_UpdateShader->Bind();
+
+		// Bind probe ray data SSBO (slot 0)
+		m_ProbeRayDataSSBO->BindToSlot(0);
+
+		// Bind output atlases as images (write-only)
+		m_IrradianceAtlas->Bind(1, GL_WRITE_ONLY);
+		m_DepthAtlas->Bind(2, GL_WRITE_ONLY);
+
+		// Bind history atlases (read-only, for temporal blend)
+		if (m_FrameIdx > 0)
+		{
+			m_IrradianceAtlasPrev->Bind(3, GL_READ_ONLY);
+			m_DepthAtlasPrev->Bind(4, GL_READ_ONLY);
+		}
+		else
+		{
+			// First frame: no history, bind current as both
+			m_IrradianceAtlas->Bind(3, GL_READ_ONLY);
+			m_DepthAtlas->Bind(4, GL_READ_ONLY);
+		}
+
+		// Bind BVH SSBOs
+		m_BVHBuilder->GetTriangleBuffer()->BindToSlot(5);
+		m_BVHBuilder->GetBVHNodeBuffer()->BindToSlot(6);
+
+			// Build and bind material SSBO (slot 7)
+			BuildMaterialSSBO(scene);
+			m_MaterialSSBO->BindToSlot(7);
+
+		// Bind skybox cubemap
+		glActiveTexture(GL_TEXTURE7);
+		if (currentcamera && currentcamera->skybox && currentcamera->skybox->m_Cmp)
+			glBindTexture(GL_TEXTURE_CUBE_MAP, currentcamera->skybox->m_Cmp->GetMap());
+		m_UpdateShader->SetUniform1i("u_SkyBox", 7);
+
+		// Uniforms
+		m_UpdateShader->SetUniform1i("u_TotalProbes", m_TotalProbes);
+		m_UpdateShader->SetUniform1i("u_ProbesPerRow", m_ProbesPerRow);
+		m_UpdateShader->SetUniform1i("u_RaysPerProbe", RaysPerProbe);
+			m_UpdateShader->SetUniform1i("u_ProbesPerUpdate", ProbesPerUpdate);
+		m_UpdateShader->SetUniform1i("u_ProbeOffset", m_CurrentProbeOffset);
+		m_UpdateShader->SetUniform1f("u_Hysteresis", Hysteresis);
+		m_UpdateShader->SetUniform1f("u_FrameSeed", (float)m_FrameIdx);
+
+		// Dispatch: ProbesPerUpdate * RaysPerProbe threads
+		int totalRays = ProbesPerUpdate * RaysPerProbe;
+		int groups = (totalRays + 63) / 64;
+		m_UpdateShader->DispatchCompute(groups);
+
+		glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL_TEXTURE_FETCH_BARRIER_BIT);
+
+		// Unbind images so they can be sampled as textures later
+		glBindImageTexture(1, 0, 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA8);
+		glBindImageTexture(2, 0, 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA8);
+		glBindImageTexture(3, 0, 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA8);
+		glBindImageTexture(4, 0, 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA8);
+
+		// Advance round-robin
+		m_CurrentProbeOffset = (m_CurrentProbeOffset + ProbesPerUpdate) % m_TotalProbes;
+			// Log to confirm DDGI is active
+			if (m_FrameIdx % 60 == 0)
+						Info_Core("DDGI: frame {}, updating {}/{} probes, atlas {}x{}", m_FrameIdx, ProbesPerUpdate, m_TotalProbes, m_IrradianceAtlasPrev->GetWidth(), m_IrradianceAtlasPrev->GetHeight());
+		m_FrameIdx++;
+
+		// Ping-pong: swap current and history atlases
+		std::swap(m_IrradianceAtlas, m_IrradianceAtlasPrev);
+		std::swap(m_DepthAtlas, m_DepthAtlasPrev);
+
+		// Store outputs in RenderResources
+		resources.DDGIIrradianceAtlas = m_IrradianceAtlasPrev->GetID();
+		resources.DDGIDepthAtlas = m_DepthAtlasPrev->GetID();
+	}
+
+	void OnResize(unsigned int w, unsigned int h)
+	{
+		m_Spec.Width = w;
+		m_Spec.Height = h;
+	}
+
+	void SetBVHBuilder(Ref<BVHBuilder> builder)
+	{
+		m_BVHBuilder = builder;
+	}
+
+		// Reset all accumulated irradiance (clears atlas, restarts round-robin)
+		// Does NOT change probe positions or grid origin.
+		void Reset()
+		{
+			// Recreate atlas textures (clears to black)
+			int irradianceAtlasW = m_ProbesPerRow * 8;
+			int irradianceAtlasH = ((m_TotalProbes + m_ProbesPerRow - 1) / m_ProbesPerRow) * 8;
+			int depthAtlasW = m_ProbesPerRow * 16;
+			int depthAtlasH = ((m_TotalProbes + m_ProbesPerRow - 1) / m_ProbesPerRow) * 16;
+
+			m_IrradianceAtlas     = ImageTexture::Create(irradianceAtlasW, irradianceAtlasH, GL_RGBA16F);
+			m_IrradianceAtlasPrev = ImageTexture::Create(irradianceAtlasW, irradianceAtlasH, GL_RGBA16F);
+			m_DepthAtlas          = CreateRef<ImageTexture>(depthAtlasW, depthAtlasH, GL_R16F, GL_RED, GL_FLOAT);
+			m_DepthAtlasPrev      = CreateRef<ImageTexture>(depthAtlasW, depthAtlasH, GL_R16F, GL_RED, GL_FLOAT);
+
+			m_ScrollOffset        = glm::ivec3(0);
+			m_CurrentProbeOffset  = 0;
+			m_FrameIdx            = 0;
+		}
+
+
+	// Accessors for DeferredLightingPass
+	unsigned int GetIrradianceAtlasID() const { return m_IrradianceAtlasPrev ? m_IrradianceAtlasPrev->GetID() : 0; }
+	unsigned int GetDepthAtlasID() const { return m_DepthAtlasPrev ? m_DepthAtlasPrev->GetID() : 0; }
+	int GetProbesPerRow() const { return m_ProbesPerRow; }
+	const glm::ivec3& GetGridSize() const { return GridSize; }
+	float GetSpacing() const { return Spacing; }
+	float GetProbeRadius() const { return ProbeRadius; }
+	float GetDepthSharpness() const { return DepthSharpness; }
+	glm::vec3 GetGridOrigin() const { return GridOrigin + glm::vec3(m_ScrollOffset) * Spacing; }
+	int GetTotalProbes() const { return m_TotalProbes; }
+
+		// Probe debug visualization
+		bool ShowProbes = false;
+		void RenderProbeDebug(mat4 view, mat4 proj)
+		{
+			if (!ShowProbes || m_TotalProbes == 0) return;
+			if (!m_ProbeVisShader)
+				m_ProbeVisShader = CreatePtr<Shader>("D:/Code/C++/Tsundere/res/shaders/ProbeVis.shader");
+			if (!m_ProbeVisVA)
+				BuildProbeVisGeometry();
+
+			mat4 vp = proj * view;
+			m_ProbeVisShader->Bind();
+			glDisable(GL_DEPTH_TEST);
+			glPointSize(10.0f);
+
+			// Draw probe points
+			m_ProbeVisShader->SetUniformVec3("u_Color", glm::vec3(0.0f, 1.0f, 0.5f));
+			for (int i = 0; i < m_TotalProbes; i++)
+			{
+				glm::vec3 pos = DDGI::ProbeWorldPos(GridSize, GridOrigin, Spacing, m_ScrollOffset, i);
+				mat4 model = glm::translate(glm::mat4(1.0f), pos);
+				m_ProbeVisShader->SetUniformMat4f("u_MVP", vp * model);
+				m_ProbeVisVA->Bind();
+					glDrawArrays(GL_POINTS, 0, 1);
+			}
+
+			glPointSize(1.0f);
+			glEnable(GL_DEPTH_TEST);
+			m_ProbeVisShader->UnBind();
+		}
+
+private:
+	void BuildMaterialSSBO(Ref<Scene> scene) {
+		std::vector<GPUMaterial> materials;
+
+		for (auto [entityID,transform, meshrender] : scene->m_Registry.view<Component::Transform, Component::MeshRender>().each())
+		{
+			for (auto& mat : meshrender.materials)
+			{
+				if (!mat) continue;
+				GPUMaterial gpu;
+				gpu.albedo = glm::vec4(0.8f, 0.8f, 0.8f, 0.5f);
+				gpu.emission = glm::vec4(0.0f);
+				gpu.diffuseHandle = 0;
+
+				for (auto& v : mat->varies) {
+					if (std::get<2>(v) == "albedo" || std::get<2>(v) == "color" || std::get<2>(v) == "baseColor") {
+						if (std::get<1>(v) == ValueType::VEC3)
+							gpu.albedo = glm::vec4(*(glm::vec3*)std::get<0>(v), 0.5f);
+						else if (std::get<1>(v) == ValueType::FLOAT) {
+							float vv = *(float*)std::get<0>(v);
+							gpu.albedo = glm::vec4(vv, vv, vv, 0.5f);
+						}
+					}
+				}
+
+				// Extract diffuse texture handle (bindless)
+				if (!mat->texture.GetPath().empty()) {
+					unsigned int texID = mat->texture.GetTextureID();
+					if (texID && GLEW_ARB_bindless_texture) {
+						GLuint64 handle = glGetTextureHandleARB(texID);
+						if (handle) {
+							glMakeTextureHandleResidentARB(handle);
+							gpu.diffuseHandle = handle;
+						}
+					}
+				}
+				materials.push_back(gpu);
+			}
+
+
+		}
+
+		if (materials.empty()) {
+			GPUMaterial def;
+			def.albedo = glm::vec4(0.8f, 0.8f, 0.8f, 0.5f);
+			def.emission = glm::vec4(0.0f);
+			def.diffuseHandle = 0;
+			materials.push_back(def);
+		}
+		m_MaterialSSBO = StorageBuffer::Create(materials.size() * sizeof(GPUMaterial), materials.data(), 0);
+	}
+
+	void RebuildAtlases()
+	{
+		m_TotalProbes = GridSize.x * GridSize.y * GridSize.z;
+		m_ProbesPerRow = DDGI::ComputeProbesPerRow(m_TotalProbes);
+
+		int irradianceAtlasW = m_ProbesPerRow * 8;
+		int irradianceAtlasH = ((m_TotalProbes + m_ProbesPerRow - 1) / m_ProbesPerRow) * 8;
+		int depthAtlasW = m_ProbesPerRow * 16;
+		int depthAtlasH = ((m_TotalProbes + m_ProbesPerRow - 1) / m_ProbesPerRow) * 16;
+
+		m_IrradianceAtlas = ImageTexture::Create(irradianceAtlasW, irradianceAtlasH, GL_RGBA16F);
+		m_IrradianceAtlasPrev = ImageTexture::Create(irradianceAtlasW, irradianceAtlasH, GL_RGBA16F);
+		m_DepthAtlas = CreateRef<ImageTexture>(depthAtlasW, depthAtlasH, GL_R16F, GL_RED, GL_FLOAT);
+		m_DepthAtlasPrev = CreateRef<ImageTexture>(depthAtlasW, depthAtlasH, GL_R16F, GL_RED, GL_FLOAT);
+
+		// Allocate probe ray data SSBO
+		m_ProbeRayDataSSBO = StorageBuffer::Create(
+			m_TotalProbes * sizeof(DDGI::GPUProbeRayData), nullptr, 0);
+
+		if (AutoPlaceGrid)
+		{
+			GridOrigin = currentcamera ? currentcamera->getpos()
+				- glm::vec3(GridSize) * Spacing * 0.5f
+				: glm::vec3(-16.0f, -4.0f, -16.0f);
+		}
+
+		m_ScrollOffset = glm::ivec3(0);
+		m_CurrentProbeOffset = 0;
+		m_FrameIdx = 0;
+	}
+
+	void UpdateProbeRayDataSSBO()
+	{
+		std::vector<DDGI::GPUProbeRayData> probeData;
+		DDGI::BuildProbeRayData(probeData, GridSize, GridOrigin, Spacing, ProbeRadius, m_ScrollOffset);
+		m_ProbeRayDataSSBO->SetData(probeData.data(),
+			probeData.size() * sizeof(DDGI::GPUProbeRayData), 0);
+	}
+
+	void UpdateScrollOffset()
+	{
+		glm::vec3 camPos = currentcamera->getpos();
+		glm::ivec3 newScroll(
+			(int)std::floor(camPos.x / Spacing) - GridSize.x / 2,
+			(int)std::floor(camPos.y / Spacing) - GridSize.y / 2,
+			(int)std::floor(camPos.z / Spacing) - GridSize.z / 2);
+
+		if (newScroll != m_ScrollOffset)
+		{
+			// Scroll: reset hysteresis for probes newly scrolled in
+			// (simplified: swap clears history)
+			m_ScrollOffset = newScroll;
+			m_FrameIdx = 0;
+		}
+	}
+
+	FrameBufferSpecification m_Spec;
+	Ref<Shader> m_UpdateShader;
+	Ref<BVHBuilder> m_BVHBuilder;
+
+	// Probe atlas textures (ping-pong for temporal blending)
+	Ref<ImageTexture> m_IrradianceAtlas;
+	Ref<ImageTexture> m_IrradianceAtlasPrev;
+	Ref<ImageTexture> m_DepthAtlas;
+	Ref<ImageTexture> m_DepthAtlasPrev;
+
+	// Probe position SSBO
+	Ref<StorageBuffer> m_ProbeRayDataSSBO;
+
+	// Grid state
+	glm::ivec3 m_ScrollOffset = glm::ivec3(0);
+	glm::ivec3 m_LastGridSize = glm::ivec3(8, 4, 8);
+	int m_TotalProbes = 0;
+	int m_ProbesPerRow = 0;
+	int m_CurrentProbeOffset = 0;
+	unsigned int m_FrameIdx = 0;
+		Ptr<Shader> m_ProbeVisShader;
+		Ptr<VertexArray> m_ProbeVisVA;
+		Ptr<VertexBuffer> m_ProbeVisVB;
+
+		void BuildProbeVisGeometry()
+		{
+			// Single point at origin — translated per-probe via MVP matrix
+			float point[] = { 0.0f, 0.0f, 0.0f };
+			m_ProbeVisVA = CreatePtr<VertexArray>(1);
+			m_ProbeVisVB = CreatePtr<VertexBuffer>(point, sizeof(point));
+			VertexBufferLayout layout;
+			layout.Push<float>(3);
+			m_ProbeVisVA->AddBuffer(*m_ProbeVisVB, layout);
+		}
+};
+class  DeferredLightingPass : public RenderPass
+{
+public:
+	int DebugMode = 0;
+	bool DDGIEnabled = true;
+
+	void SetDDGIPass(DDGIPass* ddgi) { m_DDGIPass = ddgi; }
+
+	void Init(Ref<FrameBuffer>& fb, Ref<RHIFramebuffer> RHIFrameBuffer = nullptr) override
+	{
+		m_Spec = fb->GetSpecification();
+
+		float quadVertices[] = {
+			-1.0f,  1.0f,  0.0f, 1.0f,
+			-1.0f, -1.0f,  0.0f, 0.0f,
+			 1.0f, -1.0f,  1.0f, 0.0f,
+			 1.0f,  1.0f,  1.0f, 1.0f
+		};
+		unsigned int quadIndices[] = { 0, 1, 2, 2, 3, 0 };
+
+		m_QuadVA = CreatePtr<VertexArray>(4);
+		m_QuadVB = CreatePtr<VertexBuffer>(quadVertices, sizeof(quadVertices));
+		m_QuadIB = CreatePtr<IndexBuffer>(quadIndices, 6);
+		VertexBufferLayout quadLayout;
+		quadLayout.Push<float>(2);
+		quadLayout.Push<float>(2);
+		m_QuadVA->AddBuffer(*m_QuadVB, quadLayout);
+
+		m_Shader = ShaderLibiray::Get("D:/Code/C++/Tsundere/res/shaders/DeferredLighting.shader");
+
+		unsigned char white[4] = { 255, 255, 255, 255 };
+		glGenTextures(1, &m_DefaultWhiteTex);
+		glBindTexture(GL_TEXTURE_2D, m_DefaultWhiteTex);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, white);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		// Default black texture for DDGI fallback
+		unsigned char black2[4] = { 0, 0, 0, 255 };
+		glGenTextures(1, &m_DefaultBlackTex);
+		glBindTexture(GL_TEXTURE_2D, m_DefaultBlackTex);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, black2);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+		unsigned char black[4] = { 0, 0, 0, 255 };
+		glGenTextures(1, &m_DefaultCubemap);
+		glBindTexture(GL_TEXTURE_CUBE_MAP, m_DefaultCubemap);
+		for (int face = 0; face < 6; face++)
+			glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + face, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, black);
+		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+
+		CreateOutputTex(m_Spec.Width, m_Spec.Height);
+	}
+
+	void Execute(Ref<Scene> scene, RenderResources& resources) override
+	{
+		if (!resources.GBufferPosition)
+			return;
+
+		vec3 lightDir = vec3(-0.5f, -1.0f, -0.5f);
+		vec3 lightColor = vec3(1.0f);
+		float ambientStrength = 0.1f;
+		vec3 viewPos = currentcamera->getpos();
+		for (auto entityID : scene->m_Registry.view<Component::DirectionalLight>())
+		{
+			auto& dl = scene->m_Registry.get<Component::DirectionalLight>(entityID);
+			lightDir = dl.Direction;
+			lightColor = dl.Color * dl.Intensity;
+			ambientStrength = dl.Ambient;
+			break;
+		}
+
+		glBindFramebuffer(GL_FRAMEBUFFER, m_OutputFBO);
+		glViewport(0, 0, m_Spec.Width, m_Spec.Height);
+		glDisable(GL_DEPTH_TEST);
+
+		m_Shader->Bind();
+
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, resources.GBufferPosition);
+		m_Shader->SetUniform1i("u_GBufferPosition", 0);
+
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_2D, resources.GBufferNormal);
+		m_Shader->SetUniform1i("u_GBufferNormal", 1);
+
+		glActiveTexture(GL_TEXTURE2);
+		glBindTexture(GL_TEXTURE_2D, resources.GBufferAlbedo);
+		m_Shader->SetUniform1i("u_GBufferAlbedo", 2);
+
+		glActiveTexture(GL_TEXTURE3);
+		glBindTexture(GL_TEXTURE_2D, resources.GBufferSpecular);
+		m_Shader->SetUniform1i("u_GBufferSpecular", 3);
+
+		glActiveTexture(GL_TEXTURE4);
+		if (resources.ShadowMask)
+			glBindTexture(GL_TEXTURE_2D, resources.ShadowMask);
+		else
+			glBindTexture(GL_TEXTURE_2D, m_DefaultWhiteTex);
+		m_Shader->SetUniform1i("u_ShadowMask", 4);
+
+		glActiveTexture(GL_TEXTURE5);
+		glBindTexture(GL_TEXTURE_2D, resources.DepthTexture);
+		m_Shader->SetUniform1i("u_Depth", 5);
+
+		m_Shader->SetUniformVec3("u_LightDir", lightDir);
+		m_Shader->SetUniformVec3("u_LightColor", lightColor);
+		m_Shader->SetUniform1f("u_AmbientStrength", ambientStrength);
+		m_Shader->SetUniformVec3("u_ViewPos", viewPos);
+
+		mat4 viewNoTrans = mat4(mat3(currentcamera->GetViewFront()));
+		mat4 proj = currentcamera->GetProj();
+		mat4 invViewProjNoTrans = inverse(proj * viewNoTrans);
+		m_Shader->SetUniformMat4f("u_InvViewProjNoTrans", invViewProjNoTrans);
+
+		glActiveTexture(GL_TEXTURE6);
+		if (currentcamera->skybox && currentcamera->skybox->m_Cmp)
+			glBindTexture(GL_TEXTURE_CUBE_MAP, currentcamera->skybox->m_Cmp->GetMap());
+		else
+			glBindTexture(GL_TEXTURE_CUBE_MAP, m_DefaultCubemap);
+		m_Shader->SetUniform1i("u_Skybox", 6);
+
+		// --- DDGI indirect diffuse ---
+		glActiveTexture(GL_TEXTURE7);
+		if (m_DDGIPass && DDGIEnabled && resources.DDGIIrradianceAtlas)
+		{
+			glBindTexture(GL_TEXTURE_2D, resources.DDGIIrradianceAtlas);
+			m_Shader->SetUniform1i("u_DDGIEnabled", 1);
+		}
+		else
+		{
+			glBindTexture(GL_TEXTURE_2D, m_DefaultBlackTex);
+			m_Shader->SetUniform1i("u_DDGIEnabled", 0);
+		}
+		m_Shader->SetUniform1i("u_DDGIIrradiance", 7);
+
+		glActiveTexture(GL_TEXTURE8);
+		if (m_DDGIPass && DDGIEnabled && resources.DDGIDepthAtlas)
+			glBindTexture(GL_TEXTURE_2D, resources.DDGIDepthAtlas);
+		else
+			glBindTexture(GL_TEXTURE_2D, m_DefaultWhiteTex);
+		m_Shader->SetUniform1i("u_DDGIDepth", 8);
+
+		// DDGI grid parameters
+		if (m_DDGIPass && DDGIEnabled)
+		{
+			const glm::ivec3& gs = m_DDGIPass->GetGridSize();
+			m_Shader->SetUniform1i("u_DDGIGridSizeX", gs.x);
+			m_Shader->SetUniform1i("u_DDGIGridSizeY", gs.y);
+			m_Shader->SetUniform1i("u_DDGIGridSizeZ", gs.z);
+			m_Shader->SetUniformVec3("u_DDGIGridOrigin", m_DDGIPass->GetGridOrigin());
+			m_Shader->SetUniform1f("u_DDGISpacing", m_DDGIPass->GetSpacing());
+			m_Shader->SetUniform1f("u_DDGIProbeRadius", m_DDGIPass->GetProbeRadius());
+			m_Shader->SetUniform1f("u_DDGIDepthSharpness", m_DDGIPass->GetDepthSharpness());
+			m_Shader->SetUniform1i("u_DDGIProbesPerRow", m_DDGIPass->GetProbesPerRow());
+		}
+		else
+		{
+			m_Shader->SetUniform1i("u_DDGIGridSizeX", 0);
+		}
+
+		m_Shader->SetUniform1f("u_Near", 0.1f);
+		m_Shader->SetUniform1f("u_Far", 100.0f);
+		m_Shader->SetUniform1i("u_DebugMode", DebugMode);
+
+		Renderer renderer;
+		renderer.DrawElement(*m_QuadVA, *m_QuadIB, *m_Shader);
+
+			// --- DDGI probe debug overlay (rendered into the lighting output) ---
+			if (m_DDGIPass && m_DDGIPass->ShowProbes)
+			{
+				mat4 view = currentcamera->GetViewFront();
+				mat4 proj = currentcamera->GetProj();
+				m_DDGIPass->RenderProbeDebug(view, proj);
+			}
+
+		glEnable(GL_DEPTH_TEST);
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+		resources.SceneColorTexture = m_OutputTex;
+	}
+
+	void OnResize(unsigned int w, unsigned int h)
+	{
+		m_Spec.Width = w;
+		m_Spec.Height = h;
+		CreateOutputTex(w, h);
+	}
+
+private:
+	void CreateOutputTex(unsigned int w, unsigned int h)
+	{
+		if (m_OutputTex)
+			glDeleteTextures(1, &m_OutputTex);
+		if (m_OutputFBO)
+			glDeleteFramebuffers(1, &m_OutputFBO);
+
+		glGenTextures(1, &m_OutputTex);
+		glBindTexture(GL_TEXTURE_2D, m_OutputTex);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+		glGenFramebuffers(1, &m_OutputFBO);
+		glBindFramebuffer(GL_FRAMEBUFFER, m_OutputFBO);
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_OutputTex, 0);
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		glBindTexture(GL_TEXTURE_2D, 0);
+	}
+
+	FrameBufferSpecification m_Spec;
+	Ref<RHIShader> m_Shader;
+	Ptr<VertexArray> m_QuadVA;
+	Ptr<VertexBuffer> m_QuadVB;
+	Ptr<IndexBuffer> m_QuadIB;
+	unsigned int m_OutputTex = 0;
+	unsigned int m_OutputFBO = 0;
+	unsigned int m_DefaultWhiteTex = 0;
+	unsigned int m_DefaultBlackTex = 0;
+	unsigned int m_DefaultCubemap = 0;
+	DDGIPass* m_DDGIPass = nullptr;
 };
