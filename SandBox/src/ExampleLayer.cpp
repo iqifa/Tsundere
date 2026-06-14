@@ -87,7 +87,8 @@ ExampleLayer::ExampleLayer(Ref<Scene>scene, std::string name) : BasePanel(name)
 	shadowApplyPass = CreateRef<ShadowApplyPass>();
 	shadowApplyPass->Init(framebuffer);
 
-
+	shadowMapPass = CreateRef<ShadowMapPass>();
+	shadowMapPass->Init(framebuffer);
 
 	std::vector<std::string> texpaths{
 		"D:\\Code\\C++\\Tsundere\\res/texture/CubeMap/Sky2/right.png",
@@ -154,6 +155,10 @@ void ExampleLayer::OnUpdate()
 			if (m_ViewportFocused)
 				currentcamera->GLPrecessInput(m_WindowHandle, 0.1f);
 
+			// Shadow Map Pass (depth map from light's perspective)
+			if (shadowMapPass)
+				shadowMapPass->Execute(m_Context, renderResources);
+
 			// GBuffer pass - outputs Position, Normal, Albedo, Specular, Velocity, Depth
 			gbufferPass->Execute(m_Context, renderResources);
 
@@ -184,6 +189,13 @@ void ExampleLayer::OnUpdate()
 		else
 		{
 			// --- Forward Rendering Path (RHI) ---
+			if (m_ViewportFocused)
+				currentcamera->GLPrecessInput(m_WindowHandle, 0.5f);
+
+			// Shadow Map Pass (depth map from light's perspective)
+			if (shadowMapPass)
+				shadowMapPass->Execute(m_Context, renderResources);
+
 			if (open_Msaa)
 			{
 				RHI_msaafb->Bind();
@@ -195,8 +207,6 @@ void ExampleLayer::OnUpdate()
 
 			renderer.Clear();
 			{
-				if (m_ViewportFocused)
-					currentcamera->GLPrecessInput(m_WindowHandle, 0.5f);
 				currentcamera->RenderSkyBox();
 
 				geometrypass->Execute(m_Context, renderResources);
@@ -251,6 +261,7 @@ void ExampleLayer::OnImGuiRender()
 	else
 		ImGui::Checkbox("Jitter?", &geometrypass->EnableJitter);
 	ImGui::Separator();
+	ImGui::Checkbox("Shadow Map (PCF)?", &shadowMapPass->Enabled);
 	ImGui::Checkbox("Ray Traced Shadows?", &shadowPass->Enabled);
 	ImGui::SliderFloat("Shadow Distance", &shadowPass->LightDistance, 1.0f, 200.0f);
 	ImGui::Separator();
@@ -289,8 +300,8 @@ void ExampleLayer::OnImGuiRender()
 				m_DDGIPass->Reset();
 	}
 	// Expand GBuffer debug modes to include DDGI
-	const char* debugItems2[] = { "Lighting", "Position", "Normal", "Albedo", "Specular", "Depth", "DDGI Irradiance", "DDGI Depth" };
-	ImGui::Combo("GBuffer Debug", &deferredLightingPass->DebugMode, debugItems2, 8);
+	const char* debugItems2[] = { "Lighting", "Position", "Normal", "Albedo", "Specular", "Depth", "DDGI Irradiance", "DDGI Depth", "Shadow Map" };
+	ImGui::Combo("GBuffer Debug", &deferredLightingPass->DebugMode, debugItems2, 9);
 	ImGui::End();
 
 	ImGui::Begin(m_HeadTitle.c_str());
@@ -408,6 +419,19 @@ void ExampleLayer::OnImGuiRender()
 				m_DDGIPass->Spacing, m_DDGIPass->ProbeRadius);
 			ImGui::End();
 		}
+
+		// Shadow map depth debug visualization
+		if (shadowMapPass && renderResources.ShadowMapDepth)
+		{
+			ImGui::Begin("Shadow Map Depth");
+			ImGui::Image((ImTextureID)(uintptr_t)renderResources.ShadowMapDepth,
+			             ImVec2(256, 256), ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
+			ImGui::Text("Light-space depth (D32_SFLOAT, %dx%d)",
+			            shadowMapPass->ShadowMapWidth,
+			            shadowMapPass->ShadowMapHeight);
+			ImGui::End();
+		}
+
 	ImGui::PopStyleVar();
 }
 

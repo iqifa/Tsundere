@@ -107,7 +107,9 @@ void GLPipeline::Bind()
         GLCall(glEnable(GL_DEPTH_TEST));
     }
     else
+    {
         GLCall(glDisable(GL_DEPTH_TEST));
+    }
 
     GLCall(glDepthMask(m_Desc.depthWrite ? GL_TRUE : GL_FALSE));
     GLCall(glDepthFunc(GLPipelineUtil::ToGLCompareOp(m_Desc.depthOp)));

@@ -41,6 +41,7 @@ private:
 	Ref<TAAPass> taaPass;
 	Ref<ShadowPass> shadowPass;
 	Ref<ShadowApplyPass> shadowApplyPass;
+	Ref<ShadowMapPass> shadowMapPass;
 	Ref<PathTracePass> pathTracePass;
 	RenderResources renderResources;
 
