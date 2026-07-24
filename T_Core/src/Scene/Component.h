@@ -121,6 +121,14 @@ namespace Component
 		float Intensity = 1.0f;
 		float Ambient = 0.1f;
 	};
+
+	struct PointLight
+	{
+		vec3 Color = { 1.0f, 1.0f, 1.0f };
+		float Intensity = 1.0f;
+		float Radius = 5.0f;
+		float Falloff = 1.0f;
+	};
 }
 
 #endif // !COMPONENT

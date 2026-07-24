@@ -100,6 +100,52 @@ inline void RenderDirectionalLightInspector(Entity& entity)
 	ImGui::PopID();
 }
 
+inline void RenderPointLightInspector(Entity& entity)
+{
+	ImGui::PushID("##PointLight");
+
+	bool open = ImGui::CollapsingHeader("PointLight",
+		ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_AllowItemOverlap);
+
+	float btnW = ImGui::CalcTextSize("-").x + ImGui::GetStyle().FramePadding.x * 2;
+	ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - btnW);
+	if (ImGui::SmallButton("-"))
+	{
+		entity.RemoveComponent<PointLight>();
+		ImGui::PopID();
+		return;
+	}
+
+	if (open)
+	{
+		auto& pl = entity.GetComponent<PointLight>();
+		ImGui::Columns(2);
+		ImGui::SetColumnWidth(0, 100.0f);
+
+		ImGui::Text("Color");
+		ImGui::NextColumn();
+		ImGui::ColorEdit3("##plColor", &pl.Color[0]);
+		ImGui::NextColumn();
+
+		ImGui::Text("Intensity");
+		ImGui::NextColumn();
+		ImGui::DragFloat("##plIntensity", &pl.Intensity, 0.05f, 0.0f, 200.0f);
+		ImGui::NextColumn();
+
+		ImGui::Text("Radius");
+		ImGui::NextColumn();
+		ImGui::DragFloat("##plRadius", &pl.Radius, 0.05f, 0.0f, 100.0f);
+		ImGui::NextColumn();
+
+		ImGui::Text("Falloff");
+		ImGui::NextColumn();
+		ImGui::DragFloat("##plFalloff", &pl.Falloff, 0.05f, 0.1f, 8.0f);
+		ImGui::Columns(1);
+	}
+
+	ImGui::PopID();
+}
+
 // --- Persistent state shared by MeshRender & Material inspectors -------------
 
 namespace {
@@ -445,6 +491,14 @@ inline void AddDirectionalLightComponent(Entity& entity)
 		Warn_Core("Component DirectionalLight already exists");
 }
 
+inline void AddPointLightComponent(Entity& entity)
+{
+	if (!entity.HasComponent<PointLight>())
+		entity.AddComponent<PointLight>();
+	else
+		Warn_Core("Component PointLight already exists");
+}
+
 inline void AddMeshRenderComponent(Entity& entity)
 {
 	if (!entity.HasComponent<MeshRender>())
@@ -513,6 +567,12 @@ inline const auto s_RegMeta_Transform = []() {
 inline const auto s_RegMeta_DirectionalLight = []() {
 	ComponentRegistrar::Register<DirectionalLight>("DirectionalLight",
 		RenderDirectionalLightInspector, AddDirectionalLightComponent);
+	return 0;
+}();
+
+inline const auto s_RegMeta_PointLight = []() {
+	ComponentRegistrar::Register<PointLight>("PointLight",
+		RenderPointLightInspector, AddPointLightComponent);
 	return 0;
 }();
 
