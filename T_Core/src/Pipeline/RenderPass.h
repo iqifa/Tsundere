@@ -7,6 +7,7 @@
 #include<Panels/Material.h>
 #include<DDGI/DDGI.h>
 #include<set>
+#include<algorithm>
 #include<Debug/Debug.h>
 class Scene;
 class  FrameBuffer;
@@ -114,6 +115,8 @@ public:
 			m_LitShader->SetUniformMat4f("u_LightViewProj", glm::mat4(1.0f));
 		}
 		m_LitShader->SetUniform1i("u_ShadowMap", 5);
+		m_LitShader->SetUniformVec2("u_ShadowMapSize", glm::vec2(2048.0f, 2048.0f));
+		m_LitShader->SetUniform1f("u_LightSize", 50.0f);
 
 		for (auto [entityID, transform, meshrender] : scene->m_Registry.view<Component::Transform, Component::MeshRender>().each())
 		{
@@ -1914,6 +1917,16 @@ class  DeferredLightingPass : public RenderPass
 public:
 	int DebugMode = 0;
 	bool DDGIEnabled = true;
+	bool ClusteredLightingEnabled = true;
+	int ClusterTileSize = 32;
+	int ClusterZSlices = 16;
+	int MaxLightsPerCluster = 64;
+	int MaxLocalLights = 512;
+
+	int GetLocalLightCount() const { return (int)m_GPULights.size(); }
+	unsigned int GetClusterCountX() const { return m_ClusterCountX; }
+	unsigned int GetClusterCountY() const { return m_ClusterCountY; }
+	unsigned int GetClusterCountZ() const { return m_ClusterCountZ; }
 
 	void SetDDGIPass(DDGIPass* ddgi) { m_DDGIPass = ddgi; }
 
@@ -1938,6 +1951,7 @@ public:
 		m_QuadVA->AddBuffer(*m_QuadVB, quadLayout);
 
 		m_Shader = ShaderLibiray::Get("D:/Code/C++/Tsundere/res/shaders/DeferredLighting.shader");
+		m_ClusterShader = Shader::CreateCompute("D:/Code/C++/Tsundere/res/shaders/ClusterLightCulling.shader");
 
 		unsigned char white[4] = { 255, 255, 255, 255 };
 		glGenTextures(1, &m_DefaultWhiteTex);
@@ -1984,6 +1998,15 @@ public:
 			ambientStrength = dl.Ambient;
 			break;
 		}
+
+		GatherLocalLights(scene);
+		EnsureLightBuffer();
+		UploadLightBuffer();
+
+		bool clusteredLighting = ClusteredLightingEnabled && !m_GPULights.empty();
+		EnsureClusterBuffers();
+		if (clusteredLighting)
+			DispatchClusterCulling();
 
 		glBindFramebuffer(GL_FRAMEBUFFER, m_OutputFBO);
 		glViewport(0, 0, m_Spec.Width, m_Spec.Height);
@@ -2069,6 +2092,8 @@ public:
 			m_Shader->SetUniformMat4f("u_LightViewProj", glm::mat4(1.0f));
 		}
 		m_Shader->SetUniform1i("u_ShadowMap", 9);
+		m_Shader->SetUniformVec2("u_ShadowMapSize", glm::vec2(2048.0f, 2048.0f));
+		m_Shader->SetUniform1f("u_LightSize", 50.0f);
 
 		// DDGI grid parameters
 		if (m_DDGIPass && DDGIEnabled)
@@ -2091,6 +2116,16 @@ public:
 		m_Shader->SetUniform1f("u_Near", 0.1f);
 		m_Shader->SetUniform1f("u_Far", 100.0f);
 		m_Shader->SetUniform1i("u_DebugMode", DebugMode);
+		m_Shader->SetUniform1i("u_LocalLightCount", (int)m_GPULights.size());
+		m_Shader->SetUniform1i("u_ClusteredLightingEnabled", clusteredLighting ? 1 : 0);
+		m_Shader->SetUniformVec2("u_ViewportSize", glm::vec2((float)m_Spec.Width, (float)m_Spec.Height));
+		m_Shader->SetUniform1i("u_TileSize", ClusterTileSize);
+		m_Shader->SetUniform1i("u_ClusterCountX", (int)m_ClusterCountX);
+		m_Shader->SetUniform1i("u_ClusterCountY", (int)m_ClusterCountY);
+		m_Shader->SetUniform1i("u_ClusterCountZ", (int)m_ClusterCountZ);
+		m_Shader->SetUniform1i("u_MaxLightsPerCluster", MaxLightsPerCluster);
+		m_Shader->SetUniformMat4f("u_View", currentcamera->GetViewFront());
+		BindLightBuffers();
 
 		Renderer renderer;
 		renderer.DrawElement(*m_QuadVA, *m_QuadIB, *m_Shader);
@@ -2117,6 +2152,26 @@ public:
 	}
 
 private:
+	struct GPULight
+	{
+		glm::vec4 PositionRadius = glm::vec4(0.0f);
+		glm::vec4 DirectionType = glm::vec4(0.0f);
+		glm::vec4 ColorIntensity = glm::vec4(0.0f);
+		glm::vec4 Params = glm::vec4(0.0f);
+	};
+
+	struct GPUClusterMeta
+	{
+		unsigned int Offset = 0;
+		unsigned int Count = 0;
+		unsigned int Pad0 = 0;
+		unsigned int Pad1 = 0;
+	};
+
+	static constexpr unsigned int LightBufferBinding = 10;
+	static constexpr unsigned int ClusterMetaBinding = 11;
+	static constexpr unsigned int ClusterIndexBinding = 12;
+
 	void CreateOutputTex(unsigned int w, unsigned int h)
 	{
 		if (m_OutputTex)
@@ -2139,8 +2194,116 @@ private:
 		glBindTexture(GL_TEXTURE_2D, 0);
 	}
 
+	void GatherLocalLights(Ref<Scene> scene)
+	{
+		m_GPULights.clear();
+		if (!scene)
+			return;
+
+		for (auto [entityID, transform, light] : scene->m_Registry.view<Component::Transform, Component::PointLight>().each())
+		{
+			if ((int)m_GPULights.size() >= MaxLocalLights)
+				break;
+			if (light.Radius <= 0.0f || light.Intensity <= 0.0f)
+				continue;
+
+			GPULight gpuLight;
+			gpuLight.PositionRadius = glm::vec4(transform.Position, light.Radius);
+			gpuLight.DirectionType = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+			gpuLight.ColorIntensity = glm::vec4(light.Color, light.Intensity);
+			gpuLight.Params = glm::vec4(light.Falloff, 0.0f, 0.0f, 0.0f);
+			m_GPULights.push_back(gpuLight);
+		}
+	}
+
+	void EnsureLightBuffer()
+	{
+		size_t requiredSize = std::max<size_t>(sizeof(GPULight), m_GPULights.size() * sizeof(GPULight));
+		if (!m_LightSSBO || m_LightSSBO->GetSize() < requiredSize)
+			m_LightSSBO = StorageBuffer::Create(requiredSize, nullptr, LightBufferBinding);
+	}
+
+	void UploadLightBuffer()
+	{
+		if (!m_LightSSBO)
+			return;
+
+		if (!m_GPULights.empty())
+			m_LightSSBO->SetData(m_GPULights.data(), m_GPULights.size() * sizeof(GPULight));
+		else
+		{
+			GPULight dummy{};
+			m_LightSSBO->SetData(&dummy, sizeof(GPULight));
+		}
+		m_LightSSBO->BindToSlot(LightBufferBinding);
+	}
+
+	void EnsureClusterBuffers()
+	{
+		ClusterTileSize = std::clamp(ClusterTileSize, 8, 128);
+		ClusterZSlices = std::clamp(ClusterZSlices, 1, 128);
+		MaxLightsPerCluster = std::clamp(MaxLightsPerCluster, 1, 256);
+
+		m_ClusterCountX = (m_Spec.Width + ClusterTileSize - 1) / ClusterTileSize;
+		m_ClusterCountY = (m_Spec.Height + ClusterTileSize - 1) / ClusterTileSize;
+		m_ClusterCountZ = (unsigned int)ClusterZSlices;
+
+		size_t clusterCount = (size_t)m_ClusterCountX * (size_t)m_ClusterCountY * (size_t)m_ClusterCountZ;
+		size_t metaSize = std::max<size_t>(sizeof(GPUClusterMeta), clusterCount * sizeof(GPUClusterMeta));
+		size_t indexSize = std::max<size_t>(sizeof(unsigned int), clusterCount * (size_t)MaxLightsPerCluster * sizeof(unsigned int));
+
+		if (!m_ClusterMetaSSBO || m_ClusterMetaSSBO->GetSize() < metaSize)
+			m_ClusterMetaSSBO = StorageBuffer::Create(metaSize, nullptr, ClusterMetaBinding);
+		if (!m_ClusterIndexSSBO || m_ClusterIndexSSBO->GetSize() < indexSize)
+			m_ClusterIndexSSBO = StorageBuffer::Create(indexSize, nullptr, ClusterIndexBinding);
+
+		m_ClusterMetaSSBO->BindToSlot(ClusterMetaBinding);
+		m_ClusterIndexSSBO->BindToSlot(ClusterIndexBinding);
+	}
+
+	void DispatchClusterCulling()
+	{
+		if (!m_ClusterShader || !m_LightSSBO || !m_ClusterMetaSSBO || !m_ClusterIndexSSBO)
+			return;
+
+		m_ClusterShader->Bind();
+		m_ClusterShader->SetUniformMat4f("u_View", currentcamera->GetViewFront());
+		m_ClusterShader->SetUniformMat4f("u_InvProj", glm::inverse(currentcamera->GetProj()));
+		m_ClusterShader->SetUniformVec2("u_ViewportSize", glm::vec2((float)m_Spec.Width, (float)m_Spec.Height));
+		m_ClusterShader->SetUniform1i("u_TileSize", ClusterTileSize);
+		m_ClusterShader->SetUniform1i("u_ClusterCountX", (int)m_ClusterCountX);
+		m_ClusterShader->SetUniform1i("u_ClusterCountY", (int)m_ClusterCountY);
+		m_ClusterShader->SetUniform1i("u_ClusterCountZ", (int)m_ClusterCountZ);
+		m_ClusterShader->SetUniform1i("u_MaxLightsPerCluster", MaxLightsPerCluster);
+		m_ClusterShader->SetUniform1i("u_LocalLightCount", (int)m_GPULights.size());
+		m_ClusterShader->SetUniform1f("u_Near", 0.1f);
+		m_ClusterShader->SetUniform1f("u_Far", 100.0f);
+
+		BindLightBuffers();
+		m_ClusterShader->DispatchCompute(m_ClusterCountX, m_ClusterCountY, m_ClusterCountZ);
+		glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+	}
+
+	void BindLightBuffers()
+	{
+		if (m_LightSSBO)
+			m_LightSSBO->BindToSlot(LightBufferBinding);
+		if (m_ClusterMetaSSBO)
+			m_ClusterMetaSSBO->BindToSlot(ClusterMetaBinding);
+		if (m_ClusterIndexSSBO)
+			m_ClusterIndexSSBO->BindToSlot(ClusterIndexBinding);
+	}
+
 	FrameBufferSpecification m_Spec;
 	Ref<RHIShader> m_Shader;
+	Ref<RHIShader> m_ClusterShader;
+	Ref<StorageBuffer> m_LightSSBO;
+	Ref<StorageBuffer> m_ClusterMetaSSBO;
+	Ref<StorageBuffer> m_ClusterIndexSSBO;
+	std::vector<GPULight> m_GPULights;
+	unsigned int m_ClusterCountX = 1;
+	unsigned int m_ClusterCountY = 1;
+	unsigned int m_ClusterCountZ = 1;
 	Ptr<VertexArray> m_QuadVA;
 	Ptr<VertexBuffer> m_QuadVB;
 	Ptr<IndexBuffer> m_QuadIB;

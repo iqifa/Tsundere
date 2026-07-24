@@ -5,6 +5,7 @@
 #include"Panels/Panel.h"
 #include"GLHead.h"
 #include<Pipeline/RenderPass.h>
+#include<Pipeline/RenderGraph.h>
 class ExampleLayer :public BasePanel {
 public:
 public:
@@ -51,4 +52,11 @@ private:
 	bool useDeferred = false;
 
 	bool m_ViewportFocused = false;
+
+
+	RenderGraph m_RenderGraphTest;
+	unsigned int m_RenderGraphTestOutput = 0;
+	bool m_EnableRenderGraphTest = false;
+
+	void RunRenderGraphSmokeTest();
 };

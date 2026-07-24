@@ -91,18 +91,42 @@ ExampleLayer::ExampleLayer(Ref<Scene>scene, std::string name) : BasePanel(name)
 	shadowMapPass->Init(framebuffer);
 
 	std::vector<std::string> texpaths{
-		"D:\\Code\\C++\\Tsundere\\res/texture/CubeMap/Sky2/right.png",
-		"D:\\Code\\C++\\Tsundere\\res/texture/CubeMap/Sky2/left.png",
-		"D:\\Code\\C++\\Tsundere\\res/texture/CubeMap/Sky2/top.png",
-		"D:\\Code\\C++\\Tsundere\\res/texture/CubeMap/Sky2/bottom.png",
-		"D:\\Code\\C++\\Tsundere\\res/texture/CubeMap/Sky2/front.png",
-		"D:\\Code\\C++\\Tsundere\\res/texture/CubeMap/Sky2/back.png"
+		"D:\\Code\\C++\\Tsundere\\res/texture/CubeMap/Ori/right.jpg",
+		"D:\\Code\\C++\\Tsundere\\res/texture/CubeMap/Ori/left.jpg",
+		"D:\\Code\\C++\\Tsundere\\res/texture/CubeMap/Ori/top.jpg",
+		"D:\\Code\\C++\\Tsundere\\res/texture/CubeMap/Ori/bottom.jpg",
+		"D:\\Code\\C++\\Tsundere\\res/texture/CubeMap/Ori/front.jpg",
+		"D:\\Code\\C++\\Tsundere\\res/texture/CubeMap/Ori/back.jpg"
 	};
 	currentcamera->skybox = CreateRef<SkyBox>(texpaths);
 
 	// Create default directional light
 	auto lightEntity = scene->CreateEntity("Directional Light");
 	lightEntity.AddComponent<Component::DirectionalLight>();
+
+	// Create a few colored point lights for clustered deferred lighting validation
+	struct TestPointLight
+	{
+		const char* Name;
+		vec3 Position;
+		vec3 Color;
+	};
+	TestPointLight testLights[] = {
+		{ "Point Light Red",   vec3(-3.0f, 2.0f,  0.0f), vec3(1.0f, 0.15f, 0.1f) },
+		{ "Point Light Green", vec3( 3.0f, 2.0f,  0.0f), vec3(0.1f, 1.0f, 0.2f) },
+		{ "Point Light Blue",  vec3( 0.0f, 1.5f, -3.0f), vec3(0.2f, 0.35f, 1.0f) }
+	};
+	for (const auto& testLight : testLights)
+	{
+		auto pointEntity = scene->CreateEntity(testLight.Name);
+		auto& transform = pointEntity.GetComponent<Component::Transform>();
+		transform.Position = testLight.Position;
+		auto& pointLight = pointEntity.AddComponent<Component::PointLight>();
+		pointLight.Color = testLight.Color;
+		pointLight.Intensity = 25.0f;
+		pointLight.Radius = 8.0f;
+		pointLight.Falloff = 2.0f;
+	}
 
 	// Build static BVH for ray-traced shadows
 	shadowPass->BuildBVH(m_Context);
@@ -132,6 +156,18 @@ void ExampleLayer::OnUpdate()
 {
 	if (m_ViewPortSize.x <= 0.0f || m_ViewPortSize.y <= 0.0f)
 		return;
+
+	if (m_EnableRenderGraphTest)
+	{
+		RunRenderGraphSmokeTest();
+
+		renderResources.SceneColorTexture =
+			m_RenderGraphTestOutput;
+
+		return;
+	}
+
+
 	Renderer renderer;
 
 	if (pathTracePass->Enabled)
@@ -251,6 +287,9 @@ void ExampleLayer::OnImGuiRender()
 	ShowDockSpace();
 
 	ImGui::Begin("State");
+	ImGui::Checkbox(
+		"RenderGraph Smoke Test?",
+		&m_EnableRenderGraphTest);
 	ImGui::Checkbox("Deferred Rendering?", &useDeferred);
 	ImGui::Checkbox("OpenMsaa?", &open_Msaa);
 	if (useDeferred && open_Msaa)
@@ -299,9 +338,22 @@ void ExampleLayer::OnImGuiRender()
 			if (ImGui::Button("Reset DDGI"))
 				m_DDGIPass->Reset();
 	}
-	// Expand GBuffer debug modes to include DDGI
-	const char* debugItems2[] = { "Lighting", "Position", "Normal", "Albedo", "Specular", "Depth", "DDGI Irradiance", "DDGI Depth", "Shadow Map" };
-	ImGui::Combo("GBuffer Debug", &deferredLightingPass->DebugMode, debugItems2, 9);
+	ImGui::Separator();
+	if (useDeferred)
+	{
+		ImGui::Checkbox("Clustered Lights", &deferredLightingPass->ClusteredLightingEnabled);
+		ImGui::SliderInt("Cluster Tile Size", &deferredLightingPass->ClusterTileSize, 16, 64);
+		ImGui::SliderInt("Cluster Z Slices", &deferredLightingPass->ClusterZSlices, 8, 32);
+		ImGui::SliderInt("Max Lights/Cluster", &deferredLightingPass->MaxLightsPerCluster, 16, 128);
+		ImGui::Text("Point lights: %d | Clusters: %u x %u x %u",
+			deferredLightingPass->GetLocalLightCount(),
+			deferredLightingPass->GetClusterCountX(),
+			deferredLightingPass->GetClusterCountY(),
+			deferredLightingPass->GetClusterCountZ());
+	}
+	// Expand GBuffer debug modes to include DDGI and clustered lighting
+	const char* debugItems2[] = { "Lighting", "Position", "Normal", "Albedo", "Specular", "Depth", "DDGI Irradiance", "DDGI Depth", "Shadow Map", "Cluster Light Count" };
+	ImGui::Combo("GBuffer Debug", &deferredLightingPass->DebugMode, debugItems2, 10);
 	ImGui::End();
 
 	ImGui::Begin(m_HeadTitle.c_str());
@@ -490,5 +542,150 @@ void ExampleLayer::DrawEntityNode(Entity entity)
 	}
 }
 
+void ExampleLayer::RunRenderGraphSmokeTest()
+{
+	if (m_ViewPortSize.x <= 0.0f || m_ViewPortSize.y <= 0.0f)
+		return;
 
+	m_RenderGraphTest.Reset();
+	m_RenderGraphTestOutput = 0;
+
+	const uint32_t width =
+		static_cast<uint32_t>(m_ViewPortSize.x);
+	const uint32_t height =
+		static_cast<uint32_t>(m_ViewPortSize.y);
+
+	RDGTextureDesc colorDesc;
+	colorDesc.width = width;
+	colorDesc.height = height;
+	colorDesc.mipLevel = 1;
+	colorDesc.arrayLayers = 1;
+	colorDesc.format = Format::RGBA8_UNORM;
+	colorDesc.usage = TextureUsage::ColorAttachment;
+
+	RGTextureHandle intermediate =
+		m_RenderGraphTest.CreateTexture(
+			colorDesc,
+			"RDG.Smoke.Intermediate");
+
+	RGTextureHandle output =
+		m_RenderGraphTest.CreateTexture(
+			colorDesc,
+			"RDG.Smoke.Output");
+
+	// 使用 shared_ptr，避免 graph 中的 lambda 捕获局部引用。
+	auto producerExecuted = std::make_shared<bool>(false);
+
+	m_RenderGraphTest.AddPass(
+		"RDG.Smoke.Producer",
+		[intermediate](RenderGraphPassBuilder& builder)
+		{
+			builder.WriteTexture(
+				intermediate,
+				RGAccess::RenderTarget);
+		},
+		[intermediate, producerExecuted](
+			RHIContext&,
+			RenderGraphResources& resources)
+		{
+			RHITexture2D* texture =
+				resources.GetTexture(intermediate);
+
+			unsigned int framebuffer =
+				resources.GetFramebuffer({ intermediate });
+
+			if (!texture || !framebuffer)
+			{
+				Error_Core(
+					"[RenderGraph Smoke]: invalid producer resource");
+				return;
+			}
+
+			glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+			glViewport(
+				0,
+				0,
+				texture->GetWidth(),
+				texture->GetHeight());
+
+			glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
+			glClear(GL_COLOR_BUFFER_BIT);
+
+			glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+			*producerExecuted = true;
+		});
+
+	m_RenderGraphTest.AddPass(
+		"RDG.Smoke.Consumer",
+		[intermediate, output](RenderGraphPassBuilder& builder)
+		{
+			builder.ReadTexture(
+				intermediate,
+				RGAccess::ReadSRV);
+
+			builder.WriteTexture(
+				output,
+				RGAccess::RenderTarget);
+		},
+		[this, intermediate, output, producerExecuted](
+			RHIContext&,
+			RenderGraphResources& resources)
+		{
+			RHITexture2D* input =
+				resources.GetTexture(intermediate);
+
+			RHITexture2D* outputTexture =
+				resources.GetTexture(output);
+
+			unsigned int framebuffer =
+				resources.GetFramebuffer({ output });
+
+			if (!input || !outputTexture || !framebuffer)
+			{
+				Error_Core(
+					"[RenderGraph Smoke]: invalid consumer resource");
+				return;
+			}
+
+			glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+			glViewport(
+				0,
+				0,
+				outputTexture->GetWidth(),
+				outputTexture->GetHeight());
+
+			if (*producerExecuted)
+			{
+				// 绿色：Producer 在 Consumer 前正确执行。
+				glClearColor(0.1f, 0.8f, 0.2f, 1.0f);
+			}
+			else
+			{
+				// 洋红色：执行顺序错误。
+				glClearColor(1.0f, 0.0f, 1.0f, 1.0f);
+			}
+
+			glClear(GL_COLOR_BUFFER_BIT);
+			glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+			m_RenderGraphTestOutput =
+				static_cast<unsigned int>(
+					outputTexture->GetNativeID());
+		});
+
+	m_RenderGraphTest.ExportTexture(output);
+
+	m_RenderGraphTest.Compile();
+
+	Ref<RHIContext> context = RHIRenderer::GetContext();
+	if (!context)
+	{
+		Error_Core(
+			"[RenderGraph Smoke]: RHI context is null");
+		return;
+	}
+
+	m_RenderGraphTest.Execute(*context);
+}
 #endif // Drop
