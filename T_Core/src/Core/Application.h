@@ -27,7 +27,9 @@ namespace Engine {
 		Ptr<Window> m_Window;
 		bool m_Running = true;
 		LayerStack layerStack;
-		ImGuiLayer *m_iml;
+		ImGuiLayer* m_iml;
+
+		float m_Time = 0.0f;
 		};
 
 	Application* CreateApplication();
