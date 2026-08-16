@@ -146,12 +146,22 @@ void SceneCamera::RenderSkyBox()
 	skybox->m_Shader->SetUniformMat4f("proj", proj);
 	skybox->m_Shader->SetUniformMat4f("view", view);
 
+	// The sky is infinitely distant, so only rotation moves it on screen.
+	// Last frame's rotation-only viewProj lets the fragment stage emit a real
+	// motion vector. Without one the sky keeps the cleared velocity (0,0), TAA
+	// reads history at the same UV, and the sky smears whenever the camera turns.
+	skybox->m_Shader->SetUniformMat4f("prevViewProj", m_PrevSkyViewProj);
+
 	Renderer renderer;
 	/*glBindTexture(GL_TEXTURE_CUBE_MAP, skybox->m_Cmp->GetMap());*/
 	skybox->Bind();
 	renderer.DrawArray(*skybox->m_vao, *skybox->m_Shader);
 
 	skybox->m_Shader->UnBind();
+
+	// Cache for next frame's motion vectors. Matches how GeometryPass advances
+	// m_PrevViewProjMatrix: stored after the draw that consumed the old value.
+	m_PrevSkyViewProj = proj * view;
 	glDepthMask(GL_TRUE);
 }
 void SceneCamera::Setx(float x)

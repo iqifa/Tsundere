@@ -46,7 +46,13 @@ private:
 	vec3 cameraUp;
 	float yaw=90.0f, pitch=0.0f, roll = 0.0f,fov=45.0f;
 	float sensitive=0.1f;
-	
+
+	// Previous frame's rotation-only proj*view for the skybox, so SkyBox.shader
+	// can write motion vectors. Sky pixels with zero velocity make TAA reuse
+	// history from the old camera orientation, which shows up as smearing.
+	mat4 m_PrevSkyViewProj = mat4(1.0f);
+	bool m_PrevSkyValid = false;
+
 public:
 	Ref<SkyBox>skybox;
 };

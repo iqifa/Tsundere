@@ -11,7 +11,7 @@
 		std::vector<std::string> texpaths;
 
 		std::unique_ptr<CubeMap>m_Cmp;
-		std::unique_ptr<Shader>m_Shader;
+		std::unique_ptr<GLShader>m_Shader;
 		std::unique_ptr<VertexArray>m_vao;
 		std::unique_ptr<VertexBuffer>m_VertexBuffer;
 
@@ -66,7 +66,7 @@
 			m_Cmp = std::make_unique<CubeMap>(texpaths);
 			m_Cmp->Bind();
 
-			m_Shader = std::make_unique<Shader>("D:\\Code\\C++\\Tsundere\\res/shaders/SkyBox.shader");
+			m_Shader = std::make_unique<GLShader>("D:\\Code\\C++\\Tsundere\\res/shaders/SkyBox.shader");
 			m_Shader->Bind();
 
 			m_vao = std::make_unique<VertexArray>(36);

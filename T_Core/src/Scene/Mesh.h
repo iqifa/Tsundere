@@ -2,76 +2,71 @@
 #ifndef MESH_H
 #define MESH_H
 
-#include"GLHead.h"
-#include"ExternalFiles.h"
-#define MAX_BONE_INFLUENCE 4
+#include "Scene/Vertex.h"           // Vertex struct + MAX_BONE_INFLUENCE
+#include "Platform/GL/GPUMesh.h"    // GPUMesh — GL handle (only safe on main thread)
 
-struct Vertex {
-    Vertex() = default;
-    Vertex(vec3 position, vec3 normal = vec3(0.0f, 0.0f, 0.0f), vec2 texcoords = vec2(0.0f, 0.0f)) :
-        Position(position),Normal(normal),TexCoords(texcoords){
-    }
-    glm::vec3 Position;
-    glm::vec3 Normal;
-    glm::vec2 TexCoords;
-    glm::vec3 Tangent;
-    glm::vec3 Bitangent;
-    int m_BoneIDs[MAX_BONE_INFLUENCE];
-    float m_Weights[MAX_BONE_INFLUENCE];
-};
-
+// ---------------------------------------------------------------------------
+// Mesh — 场景网格
+//
+// CPU 数据（vertices, indices）：长期保留，供 BVH 构建、物理等使用。
+// GPU 数据（gpuMesh）：通过 setupMesh() 在主 GL 线程上传，可延迟调用。
+//
+// 两阶段构造：
+//   1. CreatePending(v, i)  — CPU only，可在任意线程构造（异步加载）
+//   2. setupMesh()          — 主线程：从 CPU 数据创建 GPUMesh（VAO/VBO/IBO）
+//
+// IsGPUReady() == false 时禁止渲染该 Mesh。
+// ---------------------------------------------------------------------------
 class Mesh {
 public:
-    std::vector<Vertex>       vertices;
-    std::vector<unsigned int> indices;
-    Ptr<VertexArray> vao;
-    Ptr<VertexBuffer> vbo;
-    Ptr<IndexBuffer> ibo;
+    // CPU 数据（公开，供 BVH/物理访问）
+    std::vector<Vertex>        vertices;
+    std::vector<unsigned int>  indices;
+
+    // GPU 数据：由 setupMesh() 创建，析构时通过 GPUDeletionQueue 安全释放
+    Ref<GPUMesh> gpuMesh;
 
     Mesh() = default;
 
-    Mesh(std::vector<Vertex>& vertices, std::vector<unsigned int>& indices)
+    // 同步构造：立即上传 GPU（仅在主 GL 线程调用）
+    Mesh(std::vector<Vertex>& verts, std::vector<unsigned int>& idx)
     {
-        this->vertices = vertices;
-        this->indices = indices;
+        vertices = verts;
+        indices  = idx;
         setupMesh();
     }
 
-    // Create mesh data WITHOUT GPU upload (for async loading).
-    // Call setupMesh() later on the main/GL thread.
-    static Mesh CreatePending(std::vector<Vertex>& vertices, std::vector<unsigned int>& indices)
+    // ── 异步加载用：CPU only，不调用任何 GL ──
+    // 返回一个 gpuMesh == nullptr 的 Mesh（IsGPUReady() == false）。
+    // 后续在主线程调用 setupMesh() 完成 GPU 上传。
+    static Mesh CreatePending(std::vector<Vertex>& verts, std::vector<unsigned int>& idx)
     {
         Mesh m;
-        m.vertices = std::move(vertices);
-        m.indices = std::move(indices);
+        m.vertices = std::move(verts);
+        m.indices  = std::move(idx);
         return m;
     }
 
-    bool IsGPUReady() const { return vao != nullptr; }
+    // ── 从 MeshAsset 构造（仅移动 CPU 数据，不上传 GPU） ──
+    static Mesh CreateFromAsset(MeshAsset&& asset)
+    {
+        Mesh m;
+        m.vertices = std::move(asset.vertices);
+        m.indices  = std::move(asset.indices);
+        return m;
+    }
 
-    void Bind()   const { vao->Bind(); }
-    void UnBind() const { vao->UnBind(); }
-
-public:
+    // GPU 上传（主 GL 线程）
     void setupMesh()
     {
         if (vertices.empty()) return;
-
-        vao = CreatePtr<VertexArray>(vertices.size());
-        vbo = CreatePtr<VertexBuffer>(&vertices[0].Position.x, vertices.size() * sizeof(Vertex));
-        ibo = CreatePtr<IndexBuffer>(&indices[0], indices.size());
-
-        VertexBufferLayout layout;
-        layout.Push<vec3>(1);
-        layout.Push<vec3>(1);
-        layout.Push<vec2>(1);
-        layout.Push<vec3>(1);
-        layout.Push<vec3>(1);
-        layout.Push<int>(4);
-        layout.Push<float>(4);
-        vao->AddBuffer(*vbo, layout);
-
-        vao->UnBind();
+        gpuMesh = GPUMesh::Create(vertices, indices);
     }
+
+    bool IsGPUReady() const { return gpuMesh != nullptr; }
+
+    void Bind()   const { if (gpuMesh) gpuMesh->Bind(); }
+    void UnBind() const { if (gpuMesh) gpuMesh->UnBind(); }
 };
-#endif
+
+#endif // MESH_H
