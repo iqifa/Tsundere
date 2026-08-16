@@ -23,7 +23,7 @@ static vector<string> ShaderPaths
 };
 
 unordered_map<string, Ref<Model>> My_map::m_ModleMap;
-unordered_map<string, Ref<Shader>> My_map::m_ShaderMap;
+unordered_map<string, Ref<GLShader>> My_map::m_ShaderMap;
 shared_mutex My_map::s_Mutex;
 
 Ref<Model> My_map::LoadModel(const std::string& path)

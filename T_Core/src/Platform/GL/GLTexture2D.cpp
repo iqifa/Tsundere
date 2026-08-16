@@ -11,10 +11,15 @@ static unsigned int ToGLInternalFormat(Format fmt)
     case Format::R8_UNORM:       return GL_R8;
     case Format::RGBA8_UNORM:    return GL_RGBA8;
     case Format::RGBA8_SRGB:     return GL_SRGB8_ALPHA8;
+    case Format::R16F:           return GL_R16F;
     case Format::RG16F:          return GL_RG16F;
     case Format::RGBA16F:        return GL_RGBA16F;
     case Format::RGBA32F:        return GL_RGBA32F;
     case Format::R32_UINT:       return GL_R32UI;
+    case Format::R32_SINT:       return GL_R32I;
+    case Format::D24_UNORM_S8_UINT:  return GL_DEPTH24_STENCIL8;
+    case Format::D32_SFLOAT:         return GL_DEPTH_COMPONENT32F;
+    case Format::D32_SFLOAT_S8_UINT: return GL_DEPTH32F_STENCIL8;
     default:                     return GL_RGBA8;
     }
 }
@@ -26,10 +31,15 @@ static unsigned int ToGLDataFormat(Format fmt)
     case Format::R8_UNORM:       return GL_RED;
     case Format::RGBA8_UNORM:    return GL_RGBA;
     case Format::RGBA8_SRGB:     return GL_RGBA;
+    case Format::R16F:           return GL_RED;
     case Format::RG16F:          return GL_RG;
     case Format::RGBA16F:        return GL_RGBA;
     case Format::RGBA32F:        return GL_RGBA;
     case Format::R32_UINT:       return GL_RED_INTEGER;
+    case Format::R32_SINT:       return GL_RED_INTEGER;
+    case Format::D24_UNORM_S8_UINT:  return GL_DEPTH_STENCIL;
+    case Format::D32_SFLOAT:         return GL_DEPTH_COMPONENT;
+    case Format::D32_SFLOAT_S8_UINT: return GL_DEPTH_STENCIL;
     default:                     return GL_RGBA;
     }
 }
@@ -40,10 +50,16 @@ static unsigned int ToGlTypeFormat(Format fmt)
     case Format::R8_UNORM:       return GL_UNSIGNED_BYTE;
     case Format::RGBA8_UNORM:    return GL_UNSIGNED_BYTE;
     case Format::RGBA8_SRGB:     return GL_UNSIGNED_BYTE;
+    case Format::R16F:           return GL_FLOAT;
     case Format::RG16F:          return GL_FLOAT;
     case Format::RGBA16F:        return GL_FLOAT;
-    case Format::RGBA32F:        return GL_UNSIGNED_BYTE;
-    case Format::R32_UINT:       return GL_UNSIGNED_BYTE;
+    case Format::RGBA32F:        return GL_FLOAT;
+    case Format::R32_UINT:       return GL_UNSIGNED_INT;
+    case Format::R32_SINT:       return GL_INT;
+    // Depth formats: type must match the internal format's component layout.
+    case Format::D24_UNORM_S8_UINT:  return GL_UNSIGNED_INT_24_8;
+    case Format::D32_SFLOAT:         return GL_FLOAT;
+    case Format::D32_SFLOAT_S8_UINT: return GL_FLOAT_32_UNSIGNED_INT_24_8_REV;
     default:                     return GL_UNSIGNED_BYTE;
     }
 }
@@ -78,6 +94,9 @@ GLTexture2D::GLTexture2D(const Texture2DDesc& desc)
     , m_MinFilter(desc.minFilter), m_MagFilter(desc.magFilter)
     , m_WrapS(desc.wrapS), m_WrapT(desc.wrapT)
 {
+    for (int i = 0; i < 4; i++)
+        m_BorderColor[i] = desc.borderColor[i];
+
     if (desc.pixelData)
     {
         CreateFromPixels(desc.pixelData, desc.dataChannels);
@@ -160,4 +179,9 @@ void GLTexture2D::ApplySamplerParams()
     GLCall(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, ToGLFilter(m_MagFilter)));
     GLCall(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, ToGLWrap(m_WrapS)));
     GLCall(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, ToGLWrap(m_WrapT)));
+
+    // Border color only matters for CLAMP_TO_BORDER. Shadow maps rely on a white
+    // border so out-of-bounds lookups sample "fully lit" instead of "in shadow".
+    if (m_WrapS == WrapMode::ClampToBorder || m_WrapT == WrapMode::ClampToBorder)
+        GLCall(glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, m_BorderColor));
 }

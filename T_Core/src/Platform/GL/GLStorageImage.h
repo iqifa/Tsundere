@@ -16,6 +16,7 @@ public:
 
     uint32_t GetWidth() const override  { return m_Width; }
     uint32_t GetHeight() const override { return m_Height; }
+    uintptr_t GetNativeID() const override { return static_cast<uintptr_t>(m_RendererID); }
 
     unsigned int GetGLID() const { return m_RendererID; }
 

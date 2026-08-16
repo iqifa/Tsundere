@@ -9,7 +9,7 @@ using namespace glm;
 
 // Uniform struct is now defined in RHIShader.h (shared RHI type).
 
-class T_API Shader : public RHIShader
+class T_API GLShader : public RHIShader
 {
 private:
 	std::string m_Name;
@@ -19,10 +19,10 @@ private:
 public:
 	std::vector<Uniform> uniform;   // kept public for backward compat; GetUniforms() returns this
 public:
-	Shader(const std::string& filepath, const std::string& name );
-	Shader(const std::string& filepath);
-	~Shader();
-	Shader(){}
+	GLShader(const std::string& filepath, const std::string& name );
+	GLShader(const std::string& filepath);
+	~GLShader();
+	GLShader(){}
 
 	// RHIShader interface
 	void Bind() const override;
@@ -44,9 +44,9 @@ public:
 	void SetUniformVec2(const std::string& name, const glm::vec2& value)const override;
 
 	// Legacy static factories — return Ref<Shader> for code that hasn't migrated yet
-	static Ref<Shader>Create(const std::string& filepath, const std::string& name);
-	static Ref<Shader>Create(const std::string& filepath);
-	static Ref<Shader>CreateCompute(const std::string& filepath);
+	static Ref<GLShader>Create(const std::string& filepath, const std::string& name);
+	static Ref<GLShader>Create(const std::string& filepath);
+	static Ref<GLShader>CreateCompute(const std::string& filepath);
 
 private:
 	unsigned int CompileShader(unsigned int type, const std::string& source);
@@ -60,15 +60,15 @@ private:
 
 inline Ref<RHIShader> RHIShader::Create(const std::string& filepath)
 {
-	return Shader::Create(filepath);
+	return GLShader::Create(filepath);
 }
 inline Ref<RHIShader> RHIShader::Create(const std::string& filepath, const std::string& name)
 {
-	return Shader::Create(filepath, name);
+	return GLShader::Create(filepath, name);
 }
 inline Ref<RHIShader> RHIShader::CreateCompute(const std::string& filepath)
 {
-	return Shader::CreateCompute(filepath);
+	return GLShader::CreateCompute(filepath);
 }
 
 // ShaderLibiray — now stores RHIShader references

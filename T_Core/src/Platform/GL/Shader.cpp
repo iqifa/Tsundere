@@ -4,7 +4,7 @@
 #include<shared_mutex>
 using namespace std;
 
-Shader::Shader(const string& filepath, const string& name) :m_FilePath(filepath), m_RendererID(0), m_Name(name)
+GLShader::GLShader(const string& filepath, const string& name) :m_FilePath(filepath), m_RendererID(0), m_Name(name)
 {
 	ParsedShader parsed = ParseShaderFile(filepath);
 	uniform = std::move(parsed.uniforms);
@@ -28,7 +28,7 @@ Shader::Shader(const string& filepath, const string& name) :m_FilePath(filepath)
 	cout << "\033[1;32mSuccessful Parse Shader:" + m_Name + "!\033[0m" << endl;
 }
 
-Shader::Shader(const string& filepath) :m_FilePath(filepath), m_RendererID(0)
+GLShader::GLShader(const string& filepath) :m_FilePath(filepath), m_RendererID(0)
 {
 	auto LastSlash = filepath.find_last_of("/");
 	LastSlash = LastSlash == string::npos ? 0 : LastSlash + 1;
@@ -60,24 +60,24 @@ Shader::Shader(const string& filepath) :m_FilePath(filepath), m_RendererID(0)
 }
 
 
-Shader::~Shader()
+GLShader::~GLShader()
 {
 	glDeleteProgram(m_RendererID);
 }
 
-void Shader::Bind()const
+void GLShader::Bind()const
 {
 	glUseProgram(m_RendererID);
 }
 
-void Shader::UnBind()const
+void GLShader::UnBind()const
 {
 	glUseProgram(0);
 }
 
 
 
-unsigned int  Shader::CompileShader(unsigned int type, const string& source)
+unsigned int  GLShader::CompileShader(unsigned int type, const string& source)
 {
 	unsigned int id = glCreateShader(type);
 	const char* src = source.c_str();
@@ -101,17 +101,17 @@ unsigned int  Shader::CompileShader(unsigned int type, const string& source)
 	return id;
 }
 
-Ref<Shader> Shader::Create(const string& filepath, const string& name)
+Ref<GLShader> GLShader::Create(const string& filepath, const string& name)
 {
-	return CreateRef<Shader>(filepath, name);
+	return CreateRef<GLShader>(filepath, name);
 }
 
-Ref<Shader> Shader::Create(const string& filepath)
+Ref<GLShader> GLShader::Create(const string& filepath)
 {
-	return CreateRef<Shader>(filepath);
+	return CreateRef<GLShader>(filepath);
 }
 
-unsigned int Shader::CreateShader(const string& vertexShader, const string& fragmentShader)
+unsigned int GLShader::CreateShader(const string& vertexShader, const string& fragmentShader)
 {
 	unsigned int program = glCreateProgram();
 	unsigned int vs = CompileShader(GL_VERTEX_SHADER, vertexShader);
@@ -128,7 +128,7 @@ unsigned int Shader::CreateShader(const string& vertexShader, const string& frag
 	return program;
 }
 
-unsigned int Shader::CreateComputeShader(const string& computeSource)
+unsigned int GLShader::CreateComputeShader(const string& computeSource)
 {
 	unsigned int cs = CompileShader(GL_COMPUTE_SHADER, computeSource);
 	if (cs == 0)
@@ -144,47 +144,47 @@ unsigned int Shader::CreateComputeShader(const string& computeSource)
 	return program;
 }
 
-void Shader::DispatchCompute(unsigned int groupsX, unsigned int groupsY, unsigned int groupsZ) const
+void GLShader::DispatchCompute(unsigned int groupsX, unsigned int groupsY, unsigned int groupsZ) const
 {
 	glDispatchCompute(groupsX, groupsY, groupsZ);
 }
 
-Ref<Shader> Shader::CreateCompute(const string& filepath)
+Ref<GLShader> GLShader::CreateCompute(const string& filepath)
 {
-	return CreateRef<Shader>(filepath);
+	return CreateRef<GLShader>(filepath);
 }
 
-void Shader::SetUniform4f(const string& name, float v0, float v1, float v2, float v3)const
+void GLShader::SetUniform4f(const string& name, float v0, float v1, float v2, float v3)const
 {
 	glUniform4f(GetUniformLocation(name), v0, v1, v2, v3);
 }
 
-void Shader::SetUniform1f(const string& name, float value)const
+void GLShader::SetUniform1f(const string& name, float value)const
 {
 	glUniform1f(GetUniformLocation(name), value);
 }
 
-void Shader::SetUniform1i(const string& name, int value)const
+void GLShader::SetUniform1i(const string& name, int value)const
 {
 	glUniform1i(GetUniformLocation(name), value);
 }
 
-void Shader::SetUniformMat4f(const string& name, const mat4& mat4)const
+void GLShader::SetUniformMat4f(const string& name, const mat4& mat4)const
 {
 	glUniformMatrix4fv(GetUniformLocation(name), 1, false, &mat4[0][0]);
 }
 
-void Shader::SetUniformVec3(const string& name, const vec3& value) const
+void GLShader::SetUniformVec3(const string& name, const vec3& value) const
 {
 	glUniform3fv(GetUniformLocation(name), 1, &value[0]);
 }
-void Shader::SetUniformVec2(const string& name, const vec2& value) const
+void GLShader::SetUniformVec2(const string& name, const vec2& value) const
 {
 	glUniform2fv(GetUniformLocation(name), 1, &value[0]);
 }
 
 
-int Shader::GetUniformLocation(const string& name)  const
+int GLShader::GetUniformLocation(const string& name)  const
 {
 	if (m_UniformLocationCache.find(name) != m_UniformLocationCache.end())
 		return m_UniformLocationCache[name];
@@ -216,7 +216,7 @@ Ref<RHIShader> ShaderLibiray::Load(const string& FilePath)
 		if (it != m_Shaders.end())
 			return it->second;
 	}
-	auto shader = Shader::Create(FilePath);  // Ref<Shader> → Ref<RHIShader> implicit upcast
+	auto shader = GLShader::Create(FilePath);  // Ref<Shader> → Ref<RHIShader> implicit upcast
 	{
 		std::unique_lock lock(s_Mutex);
 		m_Shaders[FilePath] = shader;
@@ -232,7 +232,7 @@ Ref<RHIShader> ShaderLibiray::Load(const string& name, const string& FilePath)
 		if (it != m_Shaders.end())
 			return it->second;
 	}
-	auto shader = Shader::Create(FilePath, name);  // Ref<Shader> → Ref<RHIShader>
+	auto shader = GLShader::Create(FilePath, name);  // Ref<Shader> → Ref<RHIShader>
 	{
 		std::unique_lock lock(s_Mutex);
 		m_Shaders[FilePath] = shader;

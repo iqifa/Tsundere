@@ -16,6 +16,7 @@ public:
     void Submit() override;
 
     void BeginRenderPass(Ref<RHIFramebuffer> fb, const float clearColor[4]) override;
+    void BeginRenderPass(Ref<RHIFramebuffer> fb, const RenderPassBeginInfo& info) override;
     void EndRenderPass() override;
 
     void BindPipeline(Ref<RHIPipeline> pipeline) override;
@@ -29,6 +30,7 @@ public:
 
     void Dispatch(uint32_t groupsX, uint32_t groupsY = 1, uint32_t groupsZ = 1) override;
     void MemoryBarrier() override;
+    void MemoryBarrier(BarrierFlags flags) override;
 
     void SetViewport(const Viewport& vp) override;
     void SetScissor(const Scissor& sc) override;

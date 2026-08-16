@@ -34,6 +34,7 @@ private:
     Format m_Format;
     FilterMode m_MinFilter, m_MagFilter;
     WrapMode m_WrapS, m_WrapT;
+    float m_BorderColor[4] = { 1.0f, 1.0f, 1.0f, 1.0f };  // used when wrap == ClampToBorder
     bool m_OwnsTexture = true;       // false = wrapped (borrowed) texture
 };
 

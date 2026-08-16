@@ -46,8 +46,51 @@ private:
     bool m_HasDepthStencil = true;
 };
 
+// Non-owning framebuffer over externally-owned textures.
+//
+// Unlike GLFramebuffer, this does NOT create or delete attachment textures.
+// It only owns the FBO name. Used by RenderGraph, which allocates its own
+// textures and needs somewhere to bind them as render targets.
+class T_API GLFramebufferView : public RHIFramebuffer
+{
+public:
+    explicit GLFramebufferView(const FramebufferViewDesc& desc);
+    ~GLFramebufferView() override;
+
+    void Bind() override;
+    void Unbind() override;
+
+    // A view has no say over its attachments' size — the owner resizes them.
+    void Resize(uint32_t w, uint32_t h) override {}
+
+    uint32_t GetWidth() const override  { return m_Width; }
+    uint32_t GetHeight() const override { return m_Height; }
+
+    uintptr_t GetColorAttachmentID(uint32_t index = 0) const override;
+    uintptr_t GetDepthAttachmentID() const override;
+    uintptr_t GetFramebufferID() const override { return static_cast<uintptr_t>(m_FboID); }
+    uint32_t GetColorAttachmentCount() const override
+    {
+        return static_cast<uint32_t>(m_ColorAttachments.size());
+    }
+
+private:
+    unsigned int m_FboID = 0;
+
+    // Borrowed — owned by the caller (RenderGraph), never deleted here.
+    std::vector<unsigned int> m_ColorAttachments;   // GL texture IDs
+    unsigned int m_DepthAttachment = 0;
+
+    uint32_t m_Width = 0, m_Height = 0;
+};
+
 // Factory
 inline Ref<RHIFramebuffer> RHIFramebuffer::Create(const FramebufferDesc& desc)
 {
     return CreateRef<GLFramebuffer>(desc);
+}
+
+inline Ref<RHIFramebuffer> RHIFramebuffer::CreateView(const FramebufferViewDesc& desc)
+{
+    return CreateRef<GLFramebufferView>(desc);
 }

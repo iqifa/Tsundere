@@ -4,6 +4,7 @@
 #include "GLPipeline.h"
 #include "GLDescriptorSet.h"
 #include "Renderer.h"   // GLCall, GLClearError, GLLogCall, ASSERT macros
+#include "Platform/RenderAPI.h"  // RenderAPI_OpenGL / RenderAPI_Vulkan
 #include "GL/glew.h"
 
 void GLCommandBuffer::Begin()
@@ -39,6 +40,47 @@ void GLCommandBuffer::BeginRenderPass(Ref<RHIFramebuffer> fb, const float clearC
         clearMask |= GL_DEPTH_BUFFER_BIT;
 
     GLCall(glClear(clearMask));
+}
+
+void GLCommandBuffer::BeginRenderPass(Ref<RHIFramebuffer> fb, const RenderPassBeginInfo& info)
+{
+    if (fb)
+    {
+        fb->Bind();   // also sets the viewport to the FBO size
+    }
+    else
+    {
+        GLCall(glBindFramebuffer(GL_FRAMEBUFFER, 0));
+    }
+
+    // Per-attachment color clear. glClearBufferfv targets one draw buffer at a
+    // time, so each MRT slot can get its own clear value — glClearColor+glClear
+    // would force every attachment to the same value.
+    for (size_t slot = 0; slot < info.colorClears.size(); ++slot)
+    {
+        const ColorClear& clear = info.colorClears[slot];
+        if (!clear.enabled)
+            continue;   // load op = Load: keep previous contents
+
+        GLCall(glClearBufferfv(GL_COLOR, static_cast<GLint>(slot), clear.value.data()));
+    }
+
+    if (info.clearDepth && info.clearStencil)
+    {
+        GLCall(glClearBufferfi(GL_DEPTH_STENCIL, 0,
+            info.depthClearValue, static_cast<GLint>(info.stencilClearValue)));
+    }
+    else if (info.clearDepth)
+    {
+        // Depth writes must be enabled for a depth clear to take effect.
+        GLCall(glDepthMask(GL_TRUE));
+        GLCall(glClearBufferfv(GL_DEPTH, 0, &info.depthClearValue));
+    }
+    else if (info.clearStencil)
+    {
+        const GLint stencil = static_cast<GLint>(info.stencilClearValue);
+        GLCall(glClearBufferiv(GL_STENCIL, 0, &stencil));
+    }
 }
 
 void GLCommandBuffer::EndRenderPass()
@@ -104,6 +146,21 @@ void GLCommandBuffer::MemoryBarrier()
     GLCall(glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL_TEXTURE_FETCH_BARRIER_BIT));
 }
 
+void GLCommandBuffer::MemoryBarrier(BarrierFlags flags)
+{
+    if (flags == BarrierFlags::None)
+        return;
+
+    GLbitfield bits = 0;
+    if (flags & BarrierFlags::ShaderImage)   bits |= GL_SHADER_IMAGE_ACCESS_BARRIER_BIT;
+    if (flags & BarrierFlags::TextureFetch)  bits |= GL_TEXTURE_FETCH_BARRIER_BIT;
+    if (flags & BarrierFlags::StorageBuffer) bits |= GL_SHADER_STORAGE_BARRIER_BIT;
+    if (flags & BarrierFlags::Framebuffer)   bits |= GL_FRAMEBUFFER_BARRIER_BIT;
+
+    if (bits)
+        GLCall(glMemoryBarrier(bits));
+}
+
 void GLCommandBuffer::SetViewport(const Viewport& vp)
 {
     GLCall(glViewport(static_cast<GLint>(vp.x), static_cast<GLint>(vp.y),
@@ -129,3 +186,10 @@ void GLCommandBuffer::BlitDepth(Ref<RHIFramebuffer> src, Ref<RHIFramebuffer> dst
         GL_DEPTH_BUFFER_BIT, GL_NEAREST));
     GLCall(glBindFramebuffer(GL_FRAMEBUFFER, 0));
 }
+
+#ifdef RenderAPI_OpenGL
+Ref<RHICommandBuffer> RHICommandBuffer::Create()
+{
+    return CreateRef<GLCommandBuffer>();
+}
+#endif

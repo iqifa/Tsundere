@@ -2,6 +2,7 @@
 #include"Renderer.h"
 #include"Debug/Debug.h"
 #include"HeadLine.h"
+#include"Core/Assets/TextureAsset.h"
 #include<shared_mutex>
 class T_API Texture
 {
@@ -29,6 +30,9 @@ public:
 	// Takes ownership of pixelData and frees it after GPU upload.
 	static Ref<Texture> CreateFromPixels(const std::string& path,
 		unsigned char* pixelData, int width, int height, int channels);
+
+	// Create from a TextureAsset (CPU data already in a vector — does NOT free anything).
+	static Ref<Texture> CreateFromAsset(const TextureAsset& asset);
 };
 class T_API TextureLibiary {
 public:

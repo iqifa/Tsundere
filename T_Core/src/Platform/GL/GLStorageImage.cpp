@@ -11,6 +11,8 @@ static void GetGLFormat(Format fmt, unsigned int& internalFmt, unsigned int& dat
         internalFmt = GL_RGBA16F; dataFmt = GL_RGBA; dataType = GL_FLOAT; break;
     case Format::RG16F:
         internalFmt = GL_RG16F;   dataFmt = GL_RG;   dataType = GL_FLOAT; break;
+    case Format::R16F:
+        internalFmt = GL_R16F;    dataFmt = GL_RED;  dataType = GL_FLOAT; break;
     case Format::R8_UNORM:
         internalFmt = GL_R8;      dataFmt = GL_RED;  dataType = GL_UNSIGNED_BYTE; break;
     case Format::R32_UINT:

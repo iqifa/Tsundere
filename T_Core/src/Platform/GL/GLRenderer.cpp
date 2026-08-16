@@ -5,7 +5,9 @@
 #include "GLContext.h"
 #include "GLSwapChain.h"
 #include "Debug/Debug.h"
+#include "Platform/RenderAPI.h"  // RenderAPI_OpenGL / RenderAPI_Vulkan
 
+#ifdef RenderAPI_OpenGL
 // Static singleton storage
 Ref<RHIContext>   RHIRenderer::s_Context;
 Ref<RHISwapChain> RHIRenderer::s_SwapChain;
@@ -72,3 +74,4 @@ void RHIRenderer::OnResize(uint32_t w, uint32_t h)
     if (s_SwapChain)
         s_SwapChain->Resize(w, h);
 }
+#endif // RenderAPI_OpenGL

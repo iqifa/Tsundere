@@ -1,6 +1,15 @@
 #include "GLFramebuffer.h"
 #include "Renderer.h"
 #include "Debug/Debug.h"
+#include "Platform/RHI/RHITexture.h"   // GLFramebufferView needs RHITexture2D::GetNativeID()
+
+// A combined depth-stencil format must bind to GL_DEPTH_STENCIL_ATTACHMENT;
+// binding it to GL_DEPTH_ATTACHMENT leaves the FBO incomplete.
+static bool IsDepthStencilFormat(Format fmt)
+{
+    return fmt == Format::D24_UNORM_S8_UINT
+        || fmt == Format::D32_SFLOAT_S8_UINT;
+}
 
 // Helpers: RHI Format → GL enums
 static unsigned int ToGLInternalFormat(Format fmt)
@@ -15,6 +24,7 @@ static unsigned int ToGLInternalFormat(Format fmt)
     case Format::RGBA32F:               return GL_RGBA32F;
     case Format::D24_UNORM_S8_UINT:     return GL_DEPTH24_STENCIL8;
     case Format::D32_SFLOAT:            return GL_DEPTH_COMPONENT32F;
+    case Format::D32_SFLOAT_S8_UINT:    return GL_DEPTH32F_STENCIL8;
     default:                            return GL_RGBA8;
     }
 }
@@ -31,6 +41,7 @@ static unsigned int ToGLDataFormat(Format fmt)
     case Format::RGBA32F:               return GL_RGBA;
     case Format::D24_UNORM_S8_UINT:     return GL_DEPTH_STENCIL;
     case Format::D32_SFLOAT:            return GL_DEPTH_COMPONENT;
+    case Format::D32_SFLOAT_S8_UINT:    return GL_DEPTH_STENCIL;
     default:                            return GL_RGBA;
     }
 }
@@ -45,7 +56,8 @@ static unsigned int ToGlTypeFormat(Format fmt)
     case Format::RGBA16F:               return GL_FLOAT;
     case Format::RGBA32F:               return GL_FLOAT;
     case Format::D24_UNORM_S8_UINT:     return GL_UNSIGNED_INT_24_8;
-    case Format::D32_SFLOAT:            return GL_UNSIGNED_INT;
+    case Format::D32_SFLOAT:            return GL_FLOAT;
+    case Format::D32_SFLOAT_S8_UINT:    return GL_FLOAT_32_UNSIGNED_INT_24_8_REV;
     default:                     return GL_UNSIGNED_BYTE;
     }
 }
@@ -245,4 +257,104 @@ unsigned int GLFramebuffer::GLCreateAttachment(Format fmt, uint32_t samples)
 
     GLCall(glBindTexture(target, 0));
     return texID;
+}
+
+// =============================================================================
+// GLFramebufferView — non-owning FBO over externally-owned textures
+// =============================================================================
+
+GLFramebufferView::GLFramebufferView(const FramebufferViewDesc& desc)
+    : m_Width(desc.width), m_Height(desc.height)
+{
+    GLCall(glGenFramebuffers(1, &m_FboID));
+    GLCall(glBindFramebuffer(GL_FRAMEBUFFER, m_FboID));
+
+    std::vector<GLenum> drawBufs;
+    drawBufs.reserve(desc.colorAttachments.size());
+
+    for (size_t i = 0; i < desc.colorAttachments.size(); i++)
+    {
+        RHITexture2D* tex = desc.colorAttachments[i];
+        if (!tex)
+        {
+            Error_Core("GLFramebufferView: color attachment {} is null", i);
+            continue;
+        }
+
+        unsigned int texID = static_cast<unsigned int>(tex->GetNativeID());
+        m_ColorAttachments.push_back(texID);
+
+        GLCall(glFramebufferTexture2D(GL_FRAMEBUFFER,
+            GL_COLOR_ATTACHMENT0 + static_cast<GLenum>(i),
+            GL_TEXTURE_2D, texID, 0));
+
+        drawBufs.push_back(GL_COLOR_ATTACHMENT0 + static_cast<GLenum>(i));
+    }
+
+    // glDrawBuffers defaults to COLOR_ATTACHMENT0 only, so MRT needs it explicitly.
+    // A depth-only FBO must instead declare that it draws/reads no color at all,
+    // otherwise it is incomplete.
+    if (!drawBufs.empty())
+    {
+        GLCall(glDrawBuffers(static_cast<GLsizei>(drawBufs.size()), drawBufs.data()));
+    }
+    else
+    {
+        GLCall(glDrawBuffer(GL_NONE));
+        GLCall(glReadBuffer(GL_NONE));
+    }
+
+    if (desc.depthAttachment)
+    {
+        m_DepthAttachment = static_cast<unsigned int>(desc.depthAttachment->GetNativeID());
+
+        GLenum attachPoint = IsDepthStencilFormat(desc.depthFormat)
+            ? GL_DEPTH_STENCIL_ATTACHMENT
+            : GL_DEPTH_ATTACHMENT;
+
+        GLCall(glFramebufferTexture2D(GL_FRAMEBUFFER, attachPoint,
+            GL_TEXTURE_2D, m_DepthAttachment, 0));
+    }
+
+    GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    if (status != GL_FRAMEBUFFER_COMPLETE)
+    {
+        Error_Core("GLFramebufferView: framebuffer incomplete (status 0x{:X}, "
+                   "{} color, depth={})",
+            static_cast<unsigned int>(status),
+            m_ColorAttachments.size(),
+            m_DepthAttachment);
+    }
+
+    GLCall(glBindFramebuffer(GL_FRAMEBUFFER, 0));
+}
+
+GLFramebufferView::~GLFramebufferView()
+{
+    // Only the FBO name is ours. Attachment textures belong to the caller.
+    if (m_FboID)
+        GLCall(glDeleteFramebuffers(1, &m_FboID));
+}
+
+void GLFramebufferView::Bind()
+{
+    GLCall(glBindFramebuffer(GL_FRAMEBUFFER, m_FboID));
+    GLCall(glViewport(0, 0, m_Width, m_Height));
+}
+
+void GLFramebufferView::Unbind()
+{
+    GLCall(glBindFramebuffer(GL_FRAMEBUFFER, 0));
+}
+
+uintptr_t GLFramebufferView::GetColorAttachmentID(uint32_t index) const
+{
+    if (index < m_ColorAttachments.size())
+        return static_cast<uintptr_t>(m_ColorAttachments[index]);
+    return 0;
+}
+
+uintptr_t GLFramebufferView::GetDepthAttachmentID() const
+{
+    return static_cast<uintptr_t>(m_DepthAttachment);
 }

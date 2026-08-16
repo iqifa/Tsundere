@@ -1,28 +1,30 @@
-#include"WindowsWindow.h"
+#include"GLWindow.h"
 
 namespace Engine {
 	static bool s_GLFWInitialized = false;
 
+#ifdef RenderAPI_OpenGL
 	Window* Window::Create(const  WindowProps& props)
 	{
-		return new WindowsWindow(props);
+		return new GLWindow(props);
 	}
+#endif
 
-	WindowsWindow::WindowsWindow(const WindowProps& props)
+	GLWindow::GLWindow(const WindowProps& props)
 	{
 		Init(props);
 	}
-	WindowsWindow::~WindowsWindow()
+	GLWindow::~GLWindow()
 	{
 		Shutdown();
 	}
-	void WindowsWindow::OnUpdate()
+	void GLWindow::OnUpdate()
 	{
 		//glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		glfwPollEvents();
 		glfwSwapBuffers(m_Window);
 	}
-	void WindowsWindow::SetVSync(bool enabled)
+	void GLWindow::SetVSync(bool enabled)
 	{
 		if (enabled)
 			glfwSwapInterval(1);
@@ -31,11 +33,11 @@ namespace Engine {
 
 		m_Data.VSync = enabled;
 	}
-	bool WindowsWindow::IsVSync() const
+	bool GLWindow::IsVSync() const
 	{
 		return m_Data.VSync;
 	}
-	void WindowsWindow::Init(const WindowProps& props)
+	void GLWindow::Init(const WindowProps& props)
 	{
 		m_Data.Title = props.Title;
 		m_Data.Width = props.Width;
@@ -62,11 +64,13 @@ namespace Engine {
 
 
 		glfwMakeContextCurrent(m_Window);
+
 		glEnable(GL_DEPTH_TEST);
+		glewInit();
+
 
 		glfwSetWindowUserPointer(m_Window, &m_Data);
 		SetVSync(true);
-		glewInit();
 		glfwSetWindowSizeCallback(m_Window, [](GLFWwindow* window, int width, int height) {
 			WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
 
@@ -80,7 +84,7 @@ namespace Engine {
 			});
 
 	}
-	void WindowsWindow::Shutdown()
+	void GLWindow::Shutdown()
 	{
 		glfwDestroyWindow(m_Window);
 	}

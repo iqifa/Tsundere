@@ -20,6 +20,9 @@ struct Texture2DDesc
     const void* pixelData = nullptr;     // raw pixels (stb_image output)
     uint32_t dataChannels = 4;           // 1=R, 3=RGB, 4=RGBA
     std::string filePath;                // optional, for debugging
+    // Only uploaded when wrapS/wrapT is ClampToBorder.
+    // Default white = "outside the map is fully lit" for shadow maps.
+    float borderColor[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 };
 
 class T_API RHITexture2D
@@ -85,6 +88,11 @@ public:
 
     virtual uint32_t GetWidth() const = 0;
     virtual uint32_t GetHeight() const = 0;
+
+    // Backend-specific native handle (GLuint / VkImageView).
+    // Needed because a storage image is also displayed by ImGui and handed to
+    // legacy code that still speaks raw GL ids.
+    virtual uintptr_t GetNativeID() const = 0;
 
     static Ref<RHIStorageImage> Create(const StorageImageDesc& desc);
 };

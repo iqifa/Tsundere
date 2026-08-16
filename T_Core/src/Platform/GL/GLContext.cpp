@@ -3,9 +3,11 @@
 #include "GLSwapChain.h"
 #include "Renderer.h"       // GLCall, ASSERT
 #include "Debug/Debug.h"    // Info_Core, Error_Core
+#include "Platform/RenderAPI.h"  // RenderAPI_OpenGL / RenderAPI_Vulkan
 #include "GL/glew.h"
 #include "GLFW/glfw3.h"
 
+#ifdef RenderAPI_OpenGL
 // --- Singleton storage ---
 static Ref<RHIContext> s_RHIContext;
 
@@ -21,6 +23,7 @@ Ref<RHIContext> RHIContext::Create(GLFWwindow* window)
     s_RHIContext = ctx;
     return ctx;
 }
+#endif
 
 // --- GLContext ---
 
@@ -59,7 +62,7 @@ void GLContext::Init(GLFWwindow* window)
     GLCall(glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
 
     // Create the per-frame command buffer (GL: single reusable, executes immediately)
-    m_CommandBuffer = CreateRef<GLCommandBuffer>();
+    m_CommandBuffer = RHICommandBuffer::Create();
 
     // Create swap chain (GL: thin wrapper around GLFW window)
     m_SwapChain = RHISwapChain::Create(window);

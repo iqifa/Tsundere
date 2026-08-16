@@ -4,10 +4,10 @@
 
 namespace Engine {
 
-	class WindowsWindow :public Window {
+	class GLWindow :public Window {
 	public:
-		WindowsWindow(const WindowProps& props);
-		virtual ~WindowsWindow();
+		GLWindow(const WindowProps& props);
+		virtual ~GLWindow();
 
 		void OnUpdate() override;
 

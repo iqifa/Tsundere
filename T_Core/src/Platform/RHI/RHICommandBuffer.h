@@ -4,6 +4,9 @@
 #include "Core/Core.h"
 #include "HeadLine.h"
 
+#include <array>
+#include <vector>
+
 // Forward declarations for RHI types (defined in later chunks)
 // For now, the concrete types used in command recording must be the
 // existing GL classes when building OpenGL, or VK classes for Vulkan.
@@ -16,6 +19,31 @@ class RHIFramebuffer;
 class RHIShader;
 class RHIPipeline;
 class RHIDescriptorSet;
+
+// Per-color-attachment clear directive.
+// enabled == false means load op = Load: previous contents are preserved.
+struct ColorClear
+{
+    bool                enabled = false;
+    std::array<float, 4> value  = { 0.0f, 0.0f, 0.0f, 1.0f };
+};
+
+// Describes how a render pass begins: which attachments get cleared and to what.
+// Mirrors Vulkan's VkRenderPassBeginInfo load-op model.
+//
+// colorClears is indexed by color attachment slot. A slot beyond the end of the
+// vector is not cleared. Per-slot clear values let an MRT pass clear each
+// attachment to a different value, which a single glClearColor cannot express.
+struct RenderPassBeginInfo
+{
+    std::vector<ColorClear> colorClears;
+
+    bool  clearDepth      = false;
+    float depthClearValue = 1.0f;
+
+    bool     clearStencil      = false;
+    uint32_t stencilClearValue = 0;
+};
 
 class T_API RHICommandBuffer
 {
@@ -31,6 +59,11 @@ public:
 
     // --- Render pass ---
     virtual void BeginRenderPass(Ref<RHIFramebuffer> fb, const float clearColor[4]) = 0;
+
+    // Load-op-aware variant: binds fb and clears only what info asks for.
+    // Used by RenderGraph so pass bodies never touch framebuffer state.
+    virtual void BeginRenderPass(Ref<RHIFramebuffer> fb, const RenderPassBeginInfo& info) = 0;
+
     virtual void EndRenderPass() = 0;
 
     // --- Pipeline & resources ---
@@ -46,7 +79,14 @@ public:
 
     // --- Compute ---
     virtual void Dispatch(uint32_t groupsX, uint32_t groupsY = 1, uint32_t groupsZ = 1) = 0;
+
+    // Blanket barrier — conservative, covers image access + texture fetch.
     virtual void MemoryBarrier() = 0;
+
+    // Targeted barrier. A render graph derives the flags from the declared
+    // accesses of adjacent passes, so only the transitions that actually
+    // happened are synchronised instead of a blanket flush every pass.
+    virtual void MemoryBarrier(BarrierFlags flags) = 0;
 
     // --- State ---
     virtual void SetViewport(const Viewport& vp) = 0;

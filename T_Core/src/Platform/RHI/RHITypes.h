@@ -12,6 +12,7 @@ enum class Format : uint8_t
     R8_UNORM,
     RGBA8_UNORM,
     RGBA8_SRGB,
+    R16F,
     RG16F,
     RGBA16F,
     RGBA32F,
@@ -106,6 +107,35 @@ enum class ImageAccess : uint8_t
     WriteOnly,
     ReadWrite
 };
+
+// What kind of memory access must be made visible before the next pass reads.
+//
+// Backend-neutral on purpose: a render graph knows a compute pass wrote an
+// image and a later pass samples it, but it must not know the GL enum for that.
+// The GL backend maps these onto glMemoryBarrier bits, Vulkan onto pipeline
+// barrier stage/access masks.
+enum class BarrierFlags : uint32_t
+{
+    None          = 0,
+    ShaderImage   = 1 << 0,   // image load/store writes (glBindImageTexture)
+    TextureFetch  = 1 << 1,   // texture() / sampler reads
+    StorageBuffer = 1 << 2,   // SSBO reads/writes
+    Framebuffer   = 1 << 3    // render target writes read back as texture
+};
+
+inline BarrierFlags operator|(BarrierFlags a, BarrierFlags b)
+{
+    return static_cast<BarrierFlags>(static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
+}
+inline BarrierFlags& operator|=(BarrierFlags& a, BarrierFlags b)
+{
+    a = a | b;
+    return a;
+}
+inline bool operator&(BarrierFlags a, BarrierFlags b)
+{
+    return (static_cast<uint32_t>(a) & static_cast<uint32_t>(b)) != 0;
+}
 
 // Vertex attribute formats — used by VertexLayout to describe buffer layout
 enum class VertexFormat : uint8_t

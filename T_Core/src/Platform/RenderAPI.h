@@ -12,8 +12,7 @@
 
 // --- Backend selection ---
 #if defined(Vulkan_For_Render)
-    // Vulkan backend — future, not yet implemented
-    #error Vulkan backend not yet implemented!
+    #define RenderAPI_Vulkan
 #elif defined(OpenGL_For_Render) || !defined(Vulkan_For_Render)
     // OpenGL backend (default)
     #define RenderAPI_OpenGL
@@ -46,6 +45,16 @@
     #include "Platform/GL/GLPipeline.h"
     #include "Platform/GL/GLDescriptorSet.h"
     #include "Platform/GL/GLSwapChain.h"
+    #include"Platform/Windows/GLWindow.h"
 #endif
+
+// Include Vulkan backend implementations
+#ifdef RenderAPI_Vulkan
+
+
+
+
+#endif 
+
 
 #pragma warning(pop)

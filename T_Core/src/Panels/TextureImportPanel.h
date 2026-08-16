@@ -74,7 +74,10 @@ public:
 			ImGui::PopID();
 		}
 		if (!removePath.empty())
+		{
+			std::unique_lock<std::shared_mutex> lock(TextureLibiary::s_Mutex);
 			TextureLibiary::m_TextureMap.erase(removePath);
+		}
 
 		ImGui::EndChild();
 		ImGui::End();
