@@ -6,6 +6,8 @@
 #include "Scene/Modle.h"
 #include "Scene/BVHBuilder.h"
 #include "Panels/MeshFilePath.h"
+#include "Core/Assets/TextureAsset.h"
+#include "Core/Assets/MeshAsset.h"
 #include "stb_image/stb_image.h"
 #include "ExternalFiles.h"
 
@@ -33,15 +35,14 @@ struct AsyncLoadRequest
 
 	// ---- Phase-1 outputs (worker thread → main thread) ----
 
-	// Texture: raw pixel data from stbi_load
-	unsigned char* pixelData = nullptr;
-	int texWidth = 0, texHeight = 0, texChannels = 0;
+	// Texture: CPU-decoded image data (TextureAsset owns the pixel vector)
+	TextureAsset cpuTexture;
 
 	// Shader: parsed source sections
 	std::string vertexSource, fragmentSource, computeSource;
 
-	// Model: Assimp-processed meshes (vertices + indices only, no GPU buffers)
-	std::vector<Mesh> loadedMeshes;
+	// Model: CPU-only mesh data (no GL objects, safe to create on worker thread)
+	std::vector<MeshAsset> loadedMeshes;
 
 	// BVH: target builder (BuildBVH CPU part runs on worker)
 	Ref<BVHBuilder> bvhBuilder;
@@ -284,11 +285,20 @@ inline void ResourceLoader::WorkerLoop()
 
 inline void ResourceLoader::ExecuteTextureLoad(AsyncLoadRequest& req)
 {
+	// Phase-1: 在 worker 线程解码图片，全部存入 std::vector（无 GL 调用）
 	stbi_set_flip_vertically_on_load(1);
-	req.pixelData = stbi_load(req.path.c_str(),
-		&req.texWidth, &req.texHeight, &req.texChannels, 4); // force RGBA
-	if (!req.pixelData)
+	int w = 0, h = 0, ch = 0;
+	uint8_t* raw = stbi_load(req.path.c_str(), &w, &h, &ch, 4); // 强制 RGBA
+	if (raw) {
+		req.cpuTexture.path     = req.path;
+		req.cpuTexture.width    = w;
+		req.cpuTexture.height   = h;
+		req.cpuTexture.channels = 4; // 已强制 4 通道
+		req.cpuTexture.pixels.assign(raw, raw + static_cast<size_t>(w) * h * 4);
+		stbi_image_free(raw);
+	} else {
 		Error_Core("ResourceLoader: Failed to load texture: " + req.path);
+	}
 }
 
 inline void ResourceLoader::ExecuteShaderParse(AsyncLoadRequest& req)
@@ -383,7 +393,11 @@ inline void ResourceLoader::ExecuteModelLoad(AsyncLoadRequest& req)
 				for (unsigned int j = 0; j < face.mNumIndices; j++)
 					indices.push_back(face.mIndices[j]);
 			}
-			req.loadedMeshes.push_back(Mesh::CreatePending(vertices, indices));
+			// Phase-1: 只存 CPU 数据（MeshAsset），不创建任何 GL 对象
+			MeshAsset cpuMesh;
+			cpuMesh.vertices = std::move(vertices);
+			cpuMesh.indices  = std::move(indices);
+			req.loadedMeshes.push_back(std::move(cpuMesh));
 		}
 		for (unsigned int i = 0; i < node->mNumChildren; i++)
 			processNode(node->mChildren[i], scn);
@@ -415,14 +429,18 @@ inline void ResourceLoader::CompleteTextureLoad(AsyncLoadRequest& req)
 		s_LoadingSet.erase(req.path);
 	}
 
-	if (!req.pixelData) return;
+	if (!req.cpuTexture.IsValid()) return;
 
-	auto tex = Texture::CreateFromPixels(req.path,
-		req.pixelData, req.texWidth, req.texHeight, req.texChannels);
-	req.pixelData = nullptr;
+	// Phase-2: 主线程 GL 上传（CreateFromAsset 不会释放 pixels，生命周期由 cpuTexture 管理）
+	auto tex = Texture::CreateFromAsset(req.cpuTexture);
 
-	if (tex)
-	{
+	// GPU 上传完成后，释放 CPU 像素内存（除非设置了 keepCPUCopy）
+	if (!req.cpuTexture.keepCPUCopy) {
+		req.cpuTexture.pixels.clear();
+		req.cpuTexture.pixels.shrink_to_fit();
+	}
+
+	if (tex) {
 		std::unique_lock lock(TextureLibiary::s_Mutex);
 		TextureLibiary::m_TextureMap[req.path] = tex;
 	}
@@ -453,7 +471,10 @@ inline void ResourceLoader::CompleteModelLoad(AsyncLoadRequest& req)
 	if (req.loadedMeshes.empty()) return;
 
 	Ref<Model> model = CreateRef<Model>();
-	model->meshes = std::move(req.loadedMeshes);
+	// Convert vector<MeshAsset> → vector<Mesh> (CPU only, no GL yet)
+	model->meshes.reserve(req.loadedMeshes.size());
+	for (auto& asset : req.loadedMeshes)
+		model->meshes.push_back(Mesh::CreateFromAsset(std::move(asset)));
 
 	{
 		std::unique_lock lock(My_map::s_Mutex);
