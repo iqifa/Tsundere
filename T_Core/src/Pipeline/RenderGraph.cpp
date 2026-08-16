@@ -9,7 +9,7 @@ RenderGraph::~RenderGraph()
 RGTextureHandle RenderGraph::CreateTexture(
     const RDGTextureDesc& desc,
     std::string_view name) {
-    ResourceId id = resources_.size();
+    ResourceId id = (ResourceId)resources_.size();
     RGResource resource;
     resource.name = std::string(name);
     resource.type = RGResourceType::Texture;
@@ -17,7 +17,7 @@ RGTextureHandle RenderGraph::CreateTexture(
 
     resources_.push_back(resource);
 
-    return { id };
+    return { id, generation_ };
 }
 
 RGTextureHandle RenderGraph::ImportTexture(RHITexture2D* texture, const RDGTextureDesc& desc, std::string_view name)
@@ -32,7 +32,7 @@ RGTextureHandle RenderGraph::ImportTexture(RHITexture2D* texture, const RDGTextu
     resource.importedTexture = texture;
 
     resources_.push_back(std::move(resource));
-    return { id };
+    return { id, generation_ };
 }
 
 void RenderGraph::ExportTexture(RGTextureHandle handle)
@@ -48,14 +48,14 @@ void RenderGraph::ExportTexture(RGTextureHandle handle)
 
 RGBufferHandle RenderGraph::CreateBuffer(const RDGBufferDesc& desc, std::string_view name)
 {
-    ResourceId id = resources_.size();
+    ResourceId id = (ResourceId)resources_.size();
     RGResource resource;
     resource.name = std::string(name);
     resource.type = RGResourceType::Buffer;
     resource.bufferDesc = desc;
     resources_.push_back(resource);
 
-    return{ id };
+    return{ id, generation_ };
 }
 
 RGBufferHandle RenderGraph::ImportBuffer(RHIBuffer* buffer, const RDGBufferDesc& desc, std::string_view name)
@@ -70,7 +70,7 @@ RGBufferHandle RenderGraph::ImportBuffer(RHIBuffer* buffer, const RDGBufferDesc&
     resource.importedBuffer = buffer;
 
     resources_.push_back(std::move(resource));
-    return { id };
+    return { id, generation_ };
 }
 
 void RenderGraph::ExportBuffer(RGBufferHandle handle)
@@ -82,6 +82,42 @@ void RenderGraph::ExportBuffer(RGBufferHandle handle)
     }
 
     resources_[handle.id].exported = true;
+}
+
+// Which barrier, if any, a dependency needs.
+//
+// Only writes that land in *incoherent* memory need one. A render-target write
+// is already ordered against a later read by the GL pipeline, and a copy
+// (glCopyImageSubData) is coherent ‚Äî neither requires a barrier. An image store
+// from a compute shader does, and that is exactly the ShadowRay -> ShadowApply
+// case this exists for.
+//
+// The bit is chosen by how the *reader* touches the resource, matching GL's
+// glMemoryBarrier semantics: the bits describe accesses that happen after the
+// barrier, not the write that preceded it.
+static BarrierFlags DeriveBarrier(
+    RGAccess writerAccess,
+    RGAccess readerAccess,
+    RGResourceType type)
+{
+    if (writerAccess != RGAccess::WriteUAV)
+        return BarrierFlags::None;
+
+    if (type == RGResourceType::Buffer)
+        return BarrierFlags::StorageBuffer;
+
+    switch (readerAccess)
+    {
+    case RGAccess::ReadSRV:      return BarrierFlags::TextureFetch;
+    case RGAccess::WriteUAV:     return BarrierFlags::ShaderImage;
+    // glCopyImageSubData reads the image as texture memory.
+    case RGAccess::CopySrc:
+    case RGAccess::CopyDst:      return BarrierFlags::TextureFetch;
+    case RGAccess::RenderTarget:
+    case RGAccess::DepthRead:
+    case RGAccess::DepthWrite:   return BarrierFlags::Framebuffer;
+    default:                     return BarrierFlags::TextureFetch;
+    }
 }
 
 void RenderGraph::Compile()
@@ -100,9 +136,11 @@ void RenderGraph::Compile()
     }
 
     std::vector<ResourceDependencyState> dependencyStates(resources_.size());
-    for (int index = 0; index < passes_.size(); ++index)
+    for (PassId index = 0; index < passes_.size(); ++index)
     {
         auto& pass = passes_[index];
+        pass.barriers = BarrierFlags::None;
+
         for (auto& [resourceid, access] : pass.reads)
         {
             if (resourceid >= resources_.size())
@@ -116,13 +154,14 @@ void RenderGraph::Compile()
 
             auto& resource = resources_[resourceid];
 
-            resource.lastPass = index;
-            if (resource.firstPass == -1)
-                resource.firstPass = index;
-
-            if (state.lastWriter != (int)InvalidPassId)
+            if (state.lastWriter != InvalidPassId)
             {
                 AddEdge(state.lastWriter, index);
+
+                // RAW: this pass reads what lastWriter wrote. If that write was
+                // an image store, the read needs a barrier before this pass.
+                pass.barriers |= DeriveBarrier(
+                    state.lastWriterAccess, access, resource.type);
             }
 
             if (state.lastWriter == InvalidPassId && !resource.imported)
@@ -144,18 +183,14 @@ void RenderGraph::Compile()
 
             auto& state = dependencyStates[resourceid];
 
-            auto& resource = resources_[resourceid];
-
-
-            resource.lastPass = index;
-            if (resource.firstPass == -1)
-            {
-                resource.firstPass = index;
-            }
-
-            if (state.lastWriter != (int)InvalidPassId)
+            if (state.lastWriter != InvalidPassId)
             {
                 AddEdge(state.lastWriter, index);
+
+                // WAW: two image stores to the same resource are not ordered
+                // against each other without a barrier.
+                pass.barriers |= DeriveBarrier(
+                    state.lastWriterAccess, access, resources_[resourceid].type);
             }
 
             for (auto reader : state.readers)
@@ -165,22 +200,115 @@ void RenderGraph::Compile()
             state.readers.clear();
 
             state.lastWriter = index;
+            state.lastWriterAccess = access;
         }
     }
 
     BuildExecutionOrder();
+    ComputeResourceLifetimes();
     AllocateTransientResources();
 }
 
 void RenderGraph::Execute(RHIContext& context)
 {
+    Ref<RHICommandBuffer> commandBuffer = context.GetCommandBuffer();
+    if (!commandBuffer)
+    {
+        Error_Core("RenderGraph: no command buffer available");
+        return;
+    }
+
     RenderGraphResources graphResources(*this);
+
+    commandBuffer->Begin();
+
     for (PassId passId : executionOrder_)
     {
         auto& pass = passes_[passId];
         if (!pass.culled && pass.execute)
-            pass.execute(context, graphResources);
+            ExecutePass(pass, *commandBuffer, graphResources);
     }
+
+    commandBuffer->End();
+    commandBuffer->Submit();
+}
+
+void RenderGraph::ExecutePass(RGPass& pass, RHICommandBuffer& commandBuffer, RenderGraphResources& resources)
+{
+    // Barriers derived in Compile() from this pass reads of resources an
+    // earlier pass wrote incoherently (image store / SSBO). Issued here, before
+    // the pass runs, because glMemoryBarrier bits describe the accesses that
+    // come *after* the barrier. BarrierFlags::None makes this a no-op.
+    commandBuffer.MemoryBarrier(pass.barriers);
+
+    const bool hasDepth = pass.depthAttachment.has_value();
+
+    // No attachments at all: a compute or copy pass. Nothing to bind.
+    if (pass.colorAttachments.empty() && !hasDepth)
+    {
+        pass.execute(commandBuffer, resources);
+        return;
+    }
+
+    // Attachments carry explicit slots, so flatten them into a dense,
+    // slot-ordered list before handing them to the framebuffer cache.
+    uint32_t maxSlot = 0;
+    for (const auto& attachment : pass.colorAttachments)
+        maxSlot = (std::max)(maxSlot, attachment.slot);
+
+    std::vector<RGTextureHandle> colorHandles;
+    if (!pass.colorAttachments.empty())
+        colorHandles.resize(maxSlot + 1);
+
+    for (const auto& attachment : pass.colorAttachments)
+        colorHandles[attachment.slot] = attachment.texture;
+
+    for (uint32_t slot = 0; slot < colorHandles.size(); ++slot)
+    {
+        if (colorHandles[slot].id == InvalidResourceId)
+        {
+            Error_Core("RenderGraph: pass {0} leaves color slot {1} unassigned", pass.name, slot);
+            return;
+        }
+    }
+
+    RGTextureHandle depthHandle = hasDepth ? pass.depthAttachment->texture : RGTextureHandle{};
+
+    Ref<RHIFramebuffer> framebuffer = GetFramebuffer(colorHandles, depthHandle);
+    if (!framebuffer)
+        return;
+
+    // Translate the declared load ops into clear directives.
+    RenderPassBeginInfo beginInfo;
+    beginInfo.colorClears.resize(colorHandles.size());
+
+    for (const auto& attachment : pass.colorAttachments)
+    {
+        ColorClear& clear = beginInfo.colorClears[attachment.slot];
+        clear.enabled = (attachment.loadOp == RGLoadOp::Clear);
+        clear.value = attachment.clearColor;
+    }
+
+    if (hasDepth)
+    {
+        beginInfo.clearDepth = (pass.depthAttachment->loadOp == RGLoadOp::Clear);
+        beginInfo.depthClearValue = pass.depthAttachment->clearDepth;
+    }
+
+    commandBuffer.BeginRenderPass(framebuffer, beginInfo);
+
+    Viewport viewport;
+    viewport.x = 0.0f;
+    viewport.y = 0.0f;
+    viewport.width = static_cast<float>(
+        pass.viewportWidth != 0 ? pass.viewportWidth : framebuffer->GetWidth());
+    viewport.height = static_cast<float>(
+        pass.viewportHeight != 0 ? pass.viewportHeight : framebuffer->GetHeight());
+    commandBuffer.SetViewport(viewport);
+
+    pass.execute(commandBuffer, resources);
+
+    commandBuffer.EndRenderPass();
 }
 
 void RenderGraph::BuildExecutionOrder()
@@ -201,7 +329,7 @@ void RenderGraph::BuildExecutionOrder()
     std::vector<PassId> ready;
     ready.reserve(passes_.size());
 
-    // ∞¥ pass ÃÌº”À≥–Ú»Î∂”£¨±£÷§Œ»∂®À≥–Ú
+    // Seed in declaration order so the resulting order is stable.
     for (PassId i = 0; i < passes_.size(); ++i)
     {
         if (indegree[i] == 0)
@@ -226,9 +354,51 @@ void RenderGraph::BuildExecutionOrder()
         Error_Core("RenderGraph: dependency cycle detected");
         executionOrder_.clear();
 
-        // fallback£∫±£≥÷ÃÌº”À≥–Ú£¨∑Ω±„œ»≈‹∆¿¥
+        // Fallback: declaration order, so a cycle degrades instead of dropping passes.
         for (PassId i = 0; i < passes_.size(); ++i)
             executionOrder_.push_back(i);
+    }
+}
+
+void RenderGraph::ComputeResourceLifetimes()
+{
+    // Lifetimes must be expressed in execution positions, not declaration
+    // indices ‚Äî the topological sort may reorder passes, and a later aliasing
+    // scheme will compare these ranges to decide what can share memory.
+    std::vector<int> executionIndexOf(passes_.size(), -1);
+    for (size_t executionIndex = 0; executionIndex < executionOrder_.size(); ++executionIndex)
+        executionIndexOf[executionOrder_[executionIndex]] = (int)executionIndex;
+
+    for (auto& resource : resources_)
+    {
+        resource.firstPass = -1;
+        resource.lastPass = -1;
+    }
+
+    auto touch = [&](ResourceId resourceId, int executionIndex)
+    {
+        if (resourceId >= resources_.size() || executionIndex < 0)
+            return;
+
+        RGResource& resource = resources_[resourceId];
+
+        if (resource.firstPass == -1 || executionIndex < resource.firstPass)
+            resource.firstPass = executionIndex;
+
+        if (executionIndex > resource.lastPass)
+            resource.lastPass = executionIndex;
+    };
+
+    for (PassId passId = 0; passId < passes_.size(); ++passId)
+    {
+        const int executionIndex = executionIndexOf[passId];
+        const RGPass& pass = passes_[passId];
+
+        for (const auto& access : pass.reads)
+            touch(access.resource, executionIndex);
+
+        for (const auto& access : pass.writes)
+            touch(access.resource, executionIndex);
     }
 }
 
@@ -263,18 +433,26 @@ void RenderGraph::AllocateTransientResources()
 
         case RGResourceType::Texture:
         {
-            resource.physicalTexture = RHITexture2D::Create({
-                resource.textureDesc.width,
-                resource.textureDesc.height,
-                resource.textureDesc.format,
-                FilterMode::Linear,
-                FilterMode::Linear,
-                WrapMode::ClampToEdge,
-                WrapMode::ClampToEdge,
-                false,
-                nullptr,
-                4
-                });
+            // Named fields, not aggregate initialisation: Texture2DDesc's last
+            // member is filePath, and passing the resource name there would make
+            // GLTexture2D try to stbi_load("SceneColor").
+            Texture2DDesc desc;
+            desc.width = resource.textureDesc.width;
+            desc.height = resource.textureDesc.height;
+            desc.format = resource.textureDesc.format;
+            desc.minFilter = resource.textureDesc.minFilter;
+            desc.magFilter = resource.textureDesc.magFilter;
+            desc.wrapS = resource.textureDesc.wrapS;
+            desc.wrapT = resource.textureDesc.wrapT;
+            desc.generateMipmaps = resource.textureDesc.mipLevel > 1;
+            desc.pixelData = nullptr;
+            desc.dataChannels = 4;
+            desc.borderColor[0] = resource.textureDesc.borderColor[0];
+            desc.borderColor[1] = resource.textureDesc.borderColor[1];
+            desc.borderColor[2] = resource.textureDesc.borderColor[2];
+            desc.borderColor[3] = resource.textureDesc.borderColor[3];
+
+            resource.physicalTexture = RHITexture2D::Create(desc);
             if (!resource.physicalTexture)
                 Error_Core("RenderGraph: failed to create texture {}", resource.name);
         }
@@ -303,6 +481,13 @@ RHITexture2D* RenderGraph::GetTexture(RGTextureHandle handle)
         return nullptr;
     }
 
+    if (handle.generation != generation_)
+    {
+        Error_Core("RenderGraph: stale texture handle (generation {0}, graph is {1})",
+            handle.generation, generation_);
+        return nullptr;
+    }
+
     RGResource& resource = resources_[handle.id];
 
     if (resource.type != RGResourceType::Texture)
@@ -325,6 +510,13 @@ RHIBuffer* RenderGraph::GetBuffer(RGBufferHandle handle)
         return nullptr;
     }
 
+    if (handle.generation != generation_)
+    {
+        Error_Core("RenderGraph: stale buffer handle (generation {0}, graph is {1})",
+            handle.generation, generation_);
+        return nullptr;
+    }
+
     RGResource& resource = resources_[handle.id];
 
     if (resource.type != RGResourceType::Buffer)
@@ -338,7 +530,42 @@ RHIBuffer* RenderGraph::GetBuffer(RGBufferHandle handle)
 
     return resource.physicalBuffer.get();
 }
-bool Matches(
+
+RHITexture2D* RenderGraph::GetExportedTexture(RGTextureHandle handle)
+{
+    if (handle.id >= resources_.size())
+    {
+        Error_Core("RenderGraph: invalid exported texture handle");
+        return nullptr;
+    }
+
+    if (!resources_[handle.id].exported)
+    {
+        Error_Core("RenderGraph: texture {} was not exported", resources_[handle.id].name);
+        return nullptr;
+    }
+
+    return GetTexture(handle);
+}
+
+RHIBuffer* RenderGraph::GetExportedBuffer(RGBufferHandle handle)
+{
+    if (handle.id >= resources_.size())
+    {
+        Error_Core("RenderGraph: invalid exported buffer handle");
+        return nullptr;
+    }
+
+    if (!resources_[handle.id].exported)
+    {
+        Error_Core("RenderGraph: buffer {} was not exported", resources_[handle.id].name);
+        return nullptr;
+    }
+
+    return GetBuffer(handle);
+}
+
+static bool Matches(
     const RDGFrameBuffer& fb,
     const std::vector<RGTextureHandle>& colors,
     RGTextureHandle depth)
@@ -357,88 +584,88 @@ bool Matches(
 
     return true;
 }
-unsigned int RenderGraph::GetFramebuffer(const std::vector<RGTextureHandle>& colors, RGTextureHandle depth)
+
+Ref<RHIFramebuffer> RenderGraph::GetFramebuffer(const std::vector<RGTextureHandle>& colors, RGTextureHandle depth)
 {
-
-
     for (auto& fb : framebuffers_)
     {
         if (Matches(fb, colors, depth))
-            return fb.fbo;
+            return fb.framebuffer;
     }
 
-    RDGFrameBuffer fb;
-    glGenFramebuffers(1, &fb.fbo);
-    glBindFramebuffer(GL_FRAMEBUFFER, fb.fbo);
+    // Resolve every attachment up front. Building a framebuffer from a partial
+    // attachment set would also poison the cache key, so that the same request
+    // would miss forever and leak an FBO per frame.
+    FramebufferViewDesc viewDesc;
+    viewDesc.colorAttachments.reserve(colors.size());
 
-    std::vector<GLenum> drawBuffers;
-
-    for (uint32_t i = 0; i < colors.size(); ++i) {
-        RHITexture2D* tex = GetTexture(colors[i]);
-
-        if (!tex)
-            continue;
-
-        auto glTex = static_cast<unsigned int>(tex->GetNativeID());
-
-
-        glFramebufferTexture2D(
-            GL_FRAMEBUFFER,
-            GL_COLOR_ATTACHMENT0 + i,
-            GL_TEXTURE_2D,
-            glTex,
-            0);
-
-
-        drawBuffers.push_back(GL_COLOR_ATTACHMENT0 + i);
-        fb.colors.push_back(colors[i].id);
-    }
-
-    if (!drawBuffers.empty())
-        glDrawBuffers((GLsizei)drawBuffers.size(), drawBuffers.data());
-    else
+    for (size_t i = 0; i < colors.size(); ++i)
     {
-        glDrawBuffer(GL_NONE);
-        glReadBuffer(GL_NONE);
-    }
+        RHITexture2D* texture = GetTexture(colors[i]);
+        if (!texture)
+        {
+            Error_Core("[RenderGraph]: cannot build framebuffer, color {} unresolved", i);
+            return nullptr;
+        }
 
+        viewDesc.colorAttachments.push_back(texture);
+
+        if (viewDesc.width == 0)
+        {
+            viewDesc.width = texture->GetWidth();
+            viewDesc.height = texture->GetHeight();
+        }
+    }
 
     if (depth.id != InvalidResourceId)
     {
-        RHITexture2D* depthTex = GetTexture(depth);
-        if (depthTex)
+        RHITexture2D* depthTexture = GetTexture(depth);
+        if (!depthTexture)
         {
-            glFramebufferTexture2D(
-                GL_FRAMEBUFFER,
-                GL_DEPTH_ATTACHMENT,
-                GL_TEXTURE_2D,
-                (GLuint)depthTex->GetNativeID(),
-                0);
-            fb.depth = depth.id;
+            Error_Core("[RenderGraph]: cannot build framebuffer, depth unresolved");
+            return nullptr;
+        }
+
+        viewDesc.depthAttachment = depthTexture;
+        viewDesc.depthFormat = resources_[depth.id].textureDesc.format;
+
+        if (viewDesc.width == 0)
+        {
+            viewDesc.width = depthTexture->GetWidth();
+            viewDesc.height = depthTexture->GetHeight();
         }
     }
-    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
-        Error_Core("[RenderGraph]: framebuffer incomplete");
 
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    RDGFrameBuffer fb;
+    fb.framebuffer = RHIFramebuffer::CreateView(viewDesc);
+    if (!fb.framebuffer)
+    {
+        Error_Core("[RenderGraph]: failed to create framebuffer view");
+        return nullptr;
+    }
+
+    fb.width = viewDesc.width;
+    fb.height = viewDesc.height;
+    fb.depth = depth.id;
+    for (const auto& color : colors)
+        fb.colors.push_back(color.id);
 
     framebuffers_.push_back(fb);
-    return fb.fbo;
+    return fb.framebuffer;
 }
 
 void RenderGraph::Reset()
 {
-    for (auto& framebuffer : framebuffers_)
-    {
-        if (framebuffer.fbo)
-            glDeleteFramebuffers(1, &framebuffer.fbo);
-    }
-
+    // Framebuffer views own their FBO names; releasing the refs deletes them.
+    // The attachment textures they point at are owned by resources_ below.
     framebuffers_.clear();
     executionOrder_.clear();
     edges_.clear();
     passes_.clear();
     resources_.clear();
+
+    // Invalidate handles issued before this point.
+    ++generation_;
 }
 
 
@@ -449,6 +676,15 @@ void RenderGraphPassBuilder::ReadTexture(RGTextureHandle texture, RGAccess acces
 
 void RenderGraphPassBuilder::WriteTexture(RGTextureHandle texture, RGAccess access)
 {
+    // Render targets carry a slot and load/store ops that this call cannot
+    // express, and the attachment setters already register the write.
+    if (access == RGAccess::RenderTarget || access == RGAccess::DepthWrite)
+    {
+        Error_Core("RenderGraph: pass {} must declare render targets via "
+                   "SetColorAttachment/SetDepthAttachment, not WriteTexture", pass_.name);
+        return;
+    }
+
     pass_.writes.push_back({ texture.id,access });
 }
 
@@ -460,4 +696,66 @@ void RenderGraphPassBuilder::ReadBuffer(RGBufferHandle buffer, RGAccess access)
 void RenderGraphPassBuilder::WriteBuffer(RGBufferHandle buffer, RGAccess access)
 {
     pass_.writes.push_back({ buffer.id,access });
+}
+
+void RenderGraphPassBuilder::SetColorAttachment(
+    uint32_t slot,
+    RGTextureHandle texture,
+    RGLoadOp loadOp,
+    const std::array<float, 4>& clearColor)
+{
+    for (const auto& existing : pass_.colorAttachments)
+    {
+        if (existing.slot == slot)
+        {
+            Error_Core("RenderGraph: pass {0} binds color slot {1} twice", pass_.name, slot);
+            return;
+        }
+    }
+
+    RGColorAttachment attachment;
+    attachment.texture = texture;
+    attachment.slot = slot;
+    attachment.loadOp = loadOp;
+    attachment.clearColor = clearColor;
+
+    pass_.colorAttachments.push_back(attachment);
+
+    // An attachment is a write. Registering it here is what keeps callers from
+    // having to declare the same dependency twice.
+    pass_.writes.push_back({ texture.id, RGAccess::RenderTarget });
+}
+
+void RenderGraphPassBuilder::SetDepthAttachment(
+    RGTextureHandle texture,
+    RGLoadOp loadOp,
+    float clearDepth,
+    bool readOnly)
+{
+    if (pass_.depthAttachment.has_value())
+    {
+        Error_Core("RenderGraph: pass {} binds a depth attachment twice", pass_.name);
+        return;
+    }
+
+    RGDepthAttachment attachment;
+    attachment.texture = texture;
+    attachment.loadOp = loadOp;
+    attachment.clearDepth = clearDepth;
+    attachment.readOnly = readOnly;
+
+    pass_.depthAttachment = attachment;
+
+    // Depth-test-only usage does not modify the buffer, so it is a read
+    // dependency; only a depth-writing pass registers a write.
+    if (readOnly)
+        pass_.reads.push_back({ texture.id, RGAccess::DepthRead });
+    else
+        pass_.writes.push_back({ texture.id, RGAccess::DepthWrite });
+}
+
+void RenderGraphPassBuilder::SetViewport(uint32_t width, uint32_t height)
+{
+    pass_.viewportWidth = width;
+    pass_.viewportHeight = height;
 }

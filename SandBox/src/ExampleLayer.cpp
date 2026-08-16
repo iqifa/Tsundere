@@ -126,6 +126,14 @@ void ExampleLayer::OnUpdate()
 		return;
 	}
 
+	// RenderGraph forward path. The legacy chain below is untouched and stays
+	// reachable by turning this off, so the two can be compared side by side.
+	if (m_UseRenderGraph)
+	{
+		ExecuteRenderGraph();
+		return;
+	}
+
 
 	Renderer renderer;
 
@@ -243,12 +251,17 @@ void ExampleLayer::OnUpdate()
 
 void ExampleLayer::OnImGuiRender()
 {
-	ShowDockSpace();
+	
 
 	ImGui::Begin("State");
 	ImGui::Checkbox(
 		"RenderGraph Smoke Test?",
 		&m_EnableRenderGraphTest);
+	if (ImGui::Checkbox("Use RenderGraph (forward)?", &m_UseRenderGraph))
+		m_GraphDirty = true;
+	if (m_UseRenderGraph)
+		ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f),
+			"RDG: ShadowMap -> Geometry -> TAA");
 	ImGui::Checkbox("Deferred Rendering?", &useDeferred);
 	ImGui::Checkbox("OpenMsaa?", &open_Msaa);
 	if (useDeferred && open_Msaa)
@@ -405,6 +418,9 @@ void ExampleLayer::OnImGuiRender()
 		if (pathTracePass) pathTracePass->OnResize(m_ViewPortSize.x, m_ViewPortSize.y);
 		if (m_DDGIPass) m_DDGIPass->OnResize(m_ViewPortSize.x, m_ViewPortSize.y);
 		currentcamera->SetAspect(m_ViewPortSize.x, m_ViewPortSize.y);
+
+		// Graph resources are sized at build time, so a resize invalidates them.
+		m_GraphDirty = true;
 	}
 
 
@@ -501,150 +517,391 @@ void ExampleLayer::DrawEntityNode(Entity entity)
 	}
 }
 
-void ExampleLayer::RunRenderGraphSmokeTest()
+// Builds the smoke-test graph. Called on first use and whenever the viewport
+// resizes — not every frame. Rebuilding per frame would recreate every physical
+// texture and FBO, and would invalidate handles the caller still holds.
+// =============================================================================
+// RenderGraph forward path
+// =============================================================================
+
+// Declares the forward chain into the graph and compiles it.
+//
+// Called only when the structure changes (resize, or a toggle that adds/removes
+// a pass) — not per frame. Handles from a previous build are invalidated by
+// Reset(), which is why they are stored as members and refreshed here.
+vec3 ExampleLayer::SceneLightDir() const
 {
-	if (m_ViewPortSize.x <= 0.0f || m_ViewPortSize.y <= 0.0f)
+	// Same default as the passes use when no DirectionalLight exists.
+	vec3 lightDir = vec3(-0.5f, -1.0f, -0.5f);
+
+	if (!m_Context)
+		return lightDir;
+
+	for (auto entityID : m_Context->m_Registry.view<Component::DirectionalLight>())
+	{
+		lightDir = m_Context->m_Registry.get<Component::DirectionalLight>(entityID).Direction;
+		break;
+	}
+
+	return lightDir;
+}
+
+void ExampleLayer::BuildRenderGraph(uint32_t width, uint32_t height)
+{
+	m_RenderGraph.Reset();
+
+	if (!m_GraphFrameData)
+		m_GraphFrameData = CreateRef<RGFrameData>();
+
+	m_GraphFrameData->ShadowLightViewProj = glm::mat4(1.0f);
+	m_GraphFrameData->HasShadowMap = false;
+	m_GraphFrameData->ShadowMapDepthID = 0;
+
+	m_GraphFinalColor = {};
+	m_GraphVelocity = {};
+
+	// --- ShadowMapPass: depth-only target, no color attachments ---
+	RGTextureHandle shadowDepth;
+	if (shadowMapPass && shadowMapPass->Enabled)
+	{
+		shadowDepth = shadowMapPass->AddToGraph(
+			m_RenderGraph,
+			m_Context,
+			m_GraphFrameData);
+	}
+
+	// TAA needs all three regardless of which path produced them.
+	RGTextureHandle sceneColor;
+	RGTextureHandle velocity;
+	RGTextureHandle depth;
+
+	if (useDeferred)
+	{
+		// --- Deferred: GBuffer (5 MRT + depth) -> DeferredLighting ---
+		GBufferPass::GraphOutputs gbuffer = gbufferPass->AddToGraph(
+			m_RenderGraph,
+			m_Context,
+			width,
+			height);
+
+		// ShadowPass (compute) has to run before lighting samples its mask.
+		// Handing the mask handle to DeferredLighting is what creates that
+		// ordering: both passes otherwise only *read* gbuffer.Depth, and two
+		// readers of one resource produce no edge between them.
+		RGTextureHandle shadowMask;
+		if (shadowPass && shadowPass->Enabled)
+		{
+			shadowPass->SetLightDir(SceneLightDir());
+
+			shadowMask = shadowPass->AddToGraph(
+				m_RenderGraph,
+				m_Context,
+				gbuffer.Depth,
+				width,
+				height);
+		}
+
+		sceneColor = deferredLightingPass->AddToGraph(
+			m_RenderGraph,
+			m_Context,
+			m_GraphFrameData,
+			gbuffer,
+			width,
+			height,
+			shadowMask);
+
+		velocity = gbuffer.Velocity;
+		depth    = gbuffer.Depth;
+	}
+	else
+	{
+		// --- Forward: GeometryPass writes color + velocity + depth in one pass ---
+		GeometryPass::GraphOutputs geometry = geometrypass->AddToGraph(
+			m_RenderGraph,
+			m_Context,
+			m_GraphFrameData,
+			shadowDepth,
+			width,
+			height);
+
+		sceneColor = geometry.SceneColor;
+		velocity   = geometry.Velocity;
+		depth      = geometry.Depth;
+	}
+
+	m_GraphVelocity = velocity;
+
+	// --- ShadowPass (compute) + ShadowApply, forward only for now ---
+	//
+	// ShadowPass is a compute pass writing an R8 storage image; ShadowApply then
+	// composites it over the scene color. The read of the mask by ShadowApply is
+	// what orders the two.
+	//
+	// Deferred does not come through here: there the mask is consumed by
+	// DeferredLighting instead of a separate composite, so ShadowPass is added
+	// inside the deferred branch above and its handle passed straight in.
+	if (!useDeferred && shadowPass && shadowPass->Enabled && shadowApplyPass)
+	{
+		// Light direction is CPU state read at execute time by Execute(); the
+		// graph path needs it set before the pass runs.
+		shadowPass->SetLightDir(SceneLightDir());
+
+		RGTextureHandle shadowMask = shadowPass->AddToGraph(
+			m_RenderGraph,
+			m_Context,
+			depth,
+			width,
+			height);
+
+		if (shadowMask.id != InvalidResourceId)
+		{
+			sceneColor = shadowApplyPass->AddToGraph(
+				m_RenderGraph,
+				sceneColor,
+				shadowMask,
+				width,
+				height);
+		}
+	}
+
+	// --- TAAPass: imported cross-frame history + copy-back ---
+	if (taaPass && taaPass->Enabled)
+	{
+		sceneColor = taaPass->AddToGraph(
+			m_RenderGraph,
+			sceneColor,
+			velocity,
+			depth,
+			width,
+			height);
+	}
+
+	m_GraphFinalColor = sceneColor;
+
+	// Both are read back by ImGui after execution, so they must outlive the graph
+	// run and must not be aliased onto other resources later.
+	m_RenderGraph.ExportTexture(m_GraphFinalColor);
+	m_RenderGraph.ExportTexture(m_GraphVelocity);
+
+	m_RenderGraph.Compile();
+
+	m_GraphBuiltWidth = width;
+	m_GraphBuiltHeight = height;
+	m_GraphBuiltShadowMap = shadowMapPass ? shadowMapPass->Enabled : false;
+	m_GraphBuiltTAA = taaPass ? taaPass->Enabled : false;
+	m_GraphBuiltDeferred = useDeferred;
+	m_GraphBuiltShadowRay = shadowPass ? shadowPass->Enabled : false;
+	m_GraphDirty = false;
+}
+
+void ExampleLayer::ExecuteRenderGraph()
+{
+	const uint32_t width = static_cast<uint32_t>(m_ViewPortSize.x);
+	const uint32_t height = static_cast<uint32_t>(m_ViewPortSize.y);
+
+	if (width == 0 || height == 0)
 		return;
 
+	// Rebuild when the structure changes: viewport size, or a toggle that adds
+	// or removes a pass. A value-only change (jitter, light direction) is read
+	// inside the pass lambdas each frame and needs no rebuild.
+	const bool shadowMapEnabled = shadowMapPass ? shadowMapPass->Enabled : false;
+	const bool taaEnabled = taaPass ? taaPass->Enabled : false;
+	const bool shadowRayEnabled = shadowPass ? shadowPass->Enabled : false;
+
+	if (m_GraphDirty
+		|| width != m_GraphBuiltWidth
+		|| height != m_GraphBuiltHeight
+		|| shadowMapEnabled != m_GraphBuiltShadowMap
+		|| taaEnabled != m_GraphBuiltTAA
+		|| useDeferred != m_GraphBuiltDeferred
+		|| shadowRayEnabled != m_GraphBuiltShadowRay)
+	{
+		BuildRenderGraph(width, height);
+	}
+
+	if (m_ViewportFocused)
+		currentcamera->GLPrecessInput(m_WindowHandle, 0.5f);
+
+	Ref<RHIContext> context = RHIRenderer::GetContext();
+	if (!context)
+	{
+		Error_Core("[RenderGraph]: RHI context is null");
+		return;
+	}
+
+	// DDGI runs outside the graph, before it. It reads no graph-owned resource
+	// (only the scene + BVH) and writes its own ping-ponged atlases, so it needs
+	// no dependency edge. The atlas it exposes changes every frame, which is why
+	// the IDs travel through RGFrameData and are read at execute time instead of
+	// being captured when the graph was built.
+	if (useDeferred && m_DDGIPass && m_DDGIPass->Enabled)
+	{
+		m_DDGIPass->Execute(m_Context, renderResources);
+
+		if (m_GraphFrameData)
+		{
+			m_GraphFrameData->DDGIIrradianceAtlasID = renderResources.DDGIIrradianceAtlas;
+			m_GraphFrameData->DDGIDepthAtlasID      = renderResources.DDGIDepthAtlas;
+		}
+	}
+	else if (m_GraphFrameData)
+	{
+		m_GraphFrameData->DDGIIrradianceAtlasID = 0;
+		m_GraphFrameData->DDGIDepthAtlasID      = 0;
+	}
+
+	// Ray-traced ShadowPass reads the graph-owned depth texture, so unlike DDGI it
+	// cannot be hoisted out of the graph. That needs stage 7; until then deferred
+	// lighting runs without a shadow mask, which Execute() already handles as 0.
+	if (m_GraphFrameData)
+		m_GraphFrameData->ShadowMaskID = 0;
+
+	m_RenderGraph.Execute(*context);
+
+	// Read the exported results after execution. Ordinary transient resources
+	// have no guaranteed contents here, which is why these two were exported.
+	RHITexture2D* finalColor = m_RenderGraph.GetExportedTexture(m_GraphFinalColor);
+	renderResources.SceneColorTexture = finalColor
+		? static_cast<unsigned int>(finalColor->GetNativeID())
+		: 0;
+
+	RHITexture2D* velocity = m_RenderGraph.GetExportedTexture(m_GraphVelocity);
+	renderResources.VelocityTexture = velocity
+		? static_cast<unsigned int>(velocity->GetNativeID())
+		: 0;
+
+	// Keep the shadow-map debug view working in graph mode.
+	if (m_GraphFrameData)
+		renderResources.ShadowMapDepth = m_GraphFrameData->ShadowMapDepthID;
+}
+
+void ExampleLayer::BuildRenderGraphSmokeTest(uint32_t width, uint32_t height)
+{
 	m_RenderGraphTest.Reset();
 	m_RenderGraphTestOutput = 0;
 
-	const uint32_t width =
-		static_cast<uint32_t>(m_ViewPortSize.x);
-	const uint32_t height =
-		static_cast<uint32_t>(m_ViewPortSize.y);
+	m_SmokeOrder = CreateRef<std::vector<std::string>>();
 
 	RDGTextureDesc colorDesc;
-	colorDesc.width = width;
+	colorDesc.width  = width;
 	colorDesc.height = height;
-	colorDesc.mipLevel = 1;
-	colorDesc.arrayLayers = 1;
 	colorDesc.format = Format::RGBA8_UNORM;
-	colorDesc.usage = TextureUsage::ColorAttachment;
+	colorDesc.usage  = TextureUsage::ColorAttachment;
 
 	RGTextureHandle intermediate =
-		m_RenderGraphTest.CreateTexture(
-			colorDesc,
-			"RDG.Smoke.Intermediate");
+		m_RenderGraphTest.CreateTexture(colorDesc, "RDG.Smoke.Intermediate");
 
 	RGTextureHandle output =
-		m_RenderGraphTest.CreateTexture(
-			colorDesc,
-			"RDG.Smoke.Output");
+		m_RenderGraphTest.CreateTexture(colorDesc, "RDG.Smoke.Output");
 
-	// 使用 shared_ptr，避免 graph 中的 lambda 捕获局部引用。
-	auto producerExecuted = std::make_shared<bool>(false);
+	// Producer: clears Intermediate to red. Declared second in the graph on
+	// purpose is NOT what happens here — it is declared first, but the ordering
+	// that matters is proven by Consumer's read dependency below.
+	auto order = m_SmokeOrder;
 
 	m_RenderGraphTest.AddPass(
 		"RDG.Smoke.Producer",
 		[intermediate](RenderGraphPassBuilder& builder)
 		{
-			builder.WriteTexture(
+			// Attachment registers the write itself — no WriteTexture() needed.
+			builder.SetColorAttachment(
+				0,
 				intermediate,
-				RGAccess::RenderTarget);
+				RGLoadOp::Clear,
+				{ 1.0f, 0.0f, 0.0f, 1.0f });
 		},
-		[intermediate, producerExecuted](
-			RHIContext&,
-			RenderGraphResources& resources)
+		[order](RHICommandBuffer&, RenderGraphResources&)
 		{
-			RHITexture2D* texture =
-				resources.GetTexture(intermediate);
-
-			unsigned int framebuffer =
-				resources.GetFramebuffer({ intermediate });
-
-			if (!texture || !framebuffer)
-			{
-				Error_Core(
-					"[RenderGraph Smoke]: invalid producer resource");
-				return;
-			}
-
-			glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
-			glViewport(
-				0,
-				0,
-				texture->GetWidth(),
-				texture->GetHeight());
-
-			glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
-			glClear(GL_COLOR_BUFFER_BIT);
-
-			glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-			*producerExecuted = true;
+			// The graph already bound the framebuffer, set the viewport and
+			// cleared to red. Nothing for the pass body to do but record that
+			// it ran.
+			order->push_back("Producer");
 		});
 
+	// Consumer: reads Intermediate, writes Output. The read is what forces
+	// Producer to execute first.
 	m_RenderGraphTest.AddPass(
 		"RDG.Smoke.Consumer",
 		[intermediate, output](RenderGraphPassBuilder& builder)
 		{
-			builder.ReadTexture(
-				intermediate,
-				RGAccess::ReadSRV);
+			builder.ReadTexture(intermediate, RGAccess::ReadSRV);
 
-			builder.WriteTexture(
+			builder.SetColorAttachment(
+				0,
 				output,
-				RGAccess::RenderTarget);
+				RGLoadOp::Clear,
+				{ 0.1f, 0.8f, 0.2f, 1.0f });   // green
 		},
-		[this, intermediate, output, producerExecuted](
-			RHIContext&,
-			RenderGraphResources& resources)
+		[order, intermediate](RHICommandBuffer&, RenderGraphResources& resources)
 		{
-			RHITexture2D* input =
-				resources.GetTexture(intermediate);
+			// Resolving the input proves handle lookup works for a resource
+			// produced by an earlier pass.
+			if (!resources.GetTexture(intermediate))
+				Error_Core("[RDG Smoke]: Consumer could not resolve Intermediate");
 
-			RHITexture2D* outputTexture =
-				resources.GetTexture(output);
-
-			unsigned int framebuffer =
-				resources.GetFramebuffer({ output });
-
-			if (!input || !outputTexture || !framebuffer)
-			{
-				Error_Core(
-					"[RenderGraph Smoke]: invalid consumer resource");
-				return;
-			}
-
-			glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
-			glViewport(
-				0,
-				0,
-				outputTexture->GetWidth(),
-				outputTexture->GetHeight());
-
-			if (*producerExecuted)
-			{
-				// 绿色：Producer 在 Consumer 前正确执行。
-				glClearColor(0.1f, 0.8f, 0.2f, 1.0f);
-			}
-			else
-			{
-				// 洋红色：执行顺序错误。
-				glClearColor(1.0f, 0.0f, 1.0f, 1.0f);
-			}
-
-			glClear(GL_COLOR_BUFFER_BIT);
-			glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-			m_RenderGraphTestOutput =
-				static_cast<unsigned int>(
-					outputTexture->GetNativeID());
+			order->push_back("Consumer");
 		});
 
 	m_RenderGraphTest.ExportTexture(output);
-
 	m_RenderGraphTest.Compile();
+
+	m_SmokeOutput       = output;
+	m_SmokeBuiltWidth   = width;
+	m_SmokeBuiltHeight  = height;
+}
+
+void ExampleLayer::RunRenderGraphSmokeTest()
+{
+	if (m_ViewPortSize.x <= 0.0f || m_ViewPortSize.y <= 0.0f)
+		return;
+
+	const uint32_t width  = static_cast<uint32_t>(m_ViewPortSize.x);
+	const uint32_t height = static_cast<uint32_t>(m_ViewPortSize.y);
+
+	if (width != m_SmokeBuiltWidth || height != m_SmokeBuiltHeight)
+		BuildRenderGraphSmokeTest(width, height);
 
 	Ref<RHIContext> context = RHIRenderer::GetContext();
 	if (!context)
 	{
-		Error_Core(
-			"[RenderGraph Smoke]: RHI context is null");
+		Error_Core("[RDG Smoke]: RHI context is null");
 		return;
 	}
 
+	if (m_SmokeOrder)
+		m_SmokeOrder->clear();
+
 	m_RenderGraphTest.Execute(*context);
+
+	// Verify the dependency actually ordered the passes. Producer must run
+	// first because Consumer declared a read of what Producer writes.
+	if (m_SmokeOrder)
+	{
+		const bool ordered =
+			m_SmokeOrder->size() == 2
+			&& (*m_SmokeOrder)[0] == "Producer"
+			&& (*m_SmokeOrder)[1] == "Consumer";
+
+		if (!ordered)
+		{
+			static bool reported = false;
+			if (!reported)
+			{
+				Error_Core("[RDG Smoke]: wrong execution order, {} pass(es) ran",
+					m_SmokeOrder->size());
+				reported = true;
+			}
+		}
+	}
+
+	// Read the output from outside the graph. A pass lambda should not be
+	// responsible for handing results to the UI.
+	RHITexture2D* outputTexture =
+		m_RenderGraphTest.GetExportedTexture(m_SmokeOutput);
+
+	m_RenderGraphTestOutput = outputTexture
+		? static_cast<unsigned int>(outputTexture->GetNativeID())
+		: 0;
 }
 #endif // Drop

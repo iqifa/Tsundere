@@ -11,11 +11,11 @@ class SandBox :public Engine::Application
 public:
 	SandBox() {
 		Ref <Scene>m_ActivateScene = CreateRef<Scene>();
-		PushLayer(new ExampleLayer(m_ActivateScene,"Example"));
-		PushLayer(new Engine::ImGuiLayer("IMGUI"));
-		PushLayer(new Inspect(m_ActivateScene, "Inspect"));
-		PushLayer(new ModelImportPanel("Model Import"));
-		PushLayer(new TextureImportPanel("Texture Import"));
+		//PushLayer(new Engine::ImGuiLayer("IMGUI"));
+		//PushLayer(new ExampleLayer(m_ActivateScene,"Example"));
+		//PushLayer(new Inspect(m_ActivateScene, "Inspect"));
+		//PushLayer(new ModelImportPanel("Model Import"));
+		//PushLayer(new TextureImportPanel("Texture Import"));
 	}
 	~SandBox() {}
 
