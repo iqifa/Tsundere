@@ -2,23 +2,8 @@
 #include"IndexBuffer.h"
 #include"VertexBuffer.h"
 #include"VertexArray.h"
-#include"Shader.h"
-#include"RenderAPI.h"
+#include"GLShader.h"
 using namespace std;
-void GLClearError()
-{
-	while (glGetError() != GL_NO_ERROR);
-}
-
-bool GLLogCall(const char* function, const char* file, int line)
-{
-	while (GLenum error = glGetError())
-	{
-		cout << "[Opengl Error]" << "(" << error << ")" << ":" << function << " " << file << ":" << line << endl;
-		return false;
-	}
-	return true;
-}
 
 void Renderer::DrawElement(const VertexArray& va, const IndexBuffer& ib, const RHIShader& shader)const
 {
@@ -59,5 +44,5 @@ void Renderer::Submission(Ref<VertexArray>& vertexArray,Ref<RHIShader>& shader)
 {
 	shader->Bind();
 	vertexArray->Bind();
-	RenderAPI(GLCall(glDrawArrays(GL_TRIANGLES, 0, vertexArray->GetCount())))
+	GLCall(glDrawArrays(GL_TRIANGLES, 0, vertexArray->GetCount()));
 }

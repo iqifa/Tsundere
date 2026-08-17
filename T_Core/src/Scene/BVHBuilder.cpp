@@ -105,13 +105,13 @@ void BVHBuilder::BuildBVH(unsigned int leafSize)
 
 void BVHBuilder::UploadToGPU()
 {
-	m_TriSSBO = StorageBuffer::Create(
-		m_GPUTriangles.size() * sizeof(GPUTriangle),
-		m_GPUTriangles.data(), 0);
+	m_TriSSBO = CreateRef<GLBuffer>(BufferDesc{
+		(uint32_t)(m_GPUTriangles.size() * sizeof(GPUTriangle)),
+		BufferUsage::Storage, false, m_GPUTriangles.data() });
 
-	m_BVHSSBO = StorageBuffer::Create(
-		m_BVHNodes.size() * sizeof(GPUBVHNode),
-		m_BVHNodes.data(), 0);
+	m_BVHSSBO = CreateRef<GLBuffer>(BufferDesc{
+		(uint32_t)(m_BVHNodes.size() * sizeof(GPUBVHNode)),
+		BufferUsage::Storage, false, m_BVHNodes.data() });
 }
 
 unsigned int BVHBuilder::BuildNodeRecursive(unsigned int start, unsigned int end, unsigned int depth)

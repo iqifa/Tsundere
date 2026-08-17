@@ -1,7 +1,6 @@
 #pragma once
 
 #include "Platform/RHI/RHIFramebuffer.h"
-#include "FrameBuffer.h"   // FrameBufferSpecification for legacy interop
 
 // GL implementation of RHIFramebuffer.
 // Wraps an OpenGL FBO with color + depth attachments.

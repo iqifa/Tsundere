@@ -1,5 +1,5 @@
 #include "GLStorageImage.h"
-#include "Renderer.h"
+#include "GLDebug.h"
 
 static void GetGLFormat(Format fmt, unsigned int& internalFmt, unsigned int& dataFmt, unsigned int& dataType)
 {

@@ -1,5 +1,5 @@
 #include "GLTextureCube.h"
-#include "Renderer.h"
+#include "GLDebug.h"
 #include "Debug/Debug.h"
 #include "stb_image/stb_image.h"
 

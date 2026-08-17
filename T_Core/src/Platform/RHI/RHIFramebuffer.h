@@ -19,6 +19,15 @@ struct FramebufferDesc
     uint32_t samples = 1;                          // MSAA sample count (applies to all attachments)
 };
 
+// Legacy viewport-size carrier, moved here from Platform/GL/FrameBuffer.h.
+// Passes keep one of these purely to remember the current render-target size
+// (Width/Height) across Init/Resize; it is not used to create framebuffers.
+struct FrameBufferSpecification
+{
+    unsigned int Width = 1080, Height = 960;
+    unsigned int Samples = 1;
+};
+
 // Forward declaration — a view attaches textures owned by someone else.
 class RHITexture2D;
 

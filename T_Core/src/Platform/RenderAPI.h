@@ -45,6 +45,7 @@
     #include "Platform/GL/GLPipeline.h"
     #include "Platform/GL/GLDescriptorSet.h"
     #include "Platform/GL/GLSwapChain.h"
+    #include "Platform/GL/GLShader.h"
     #include"Platform/Windows/GLWindow.h"
 #endif
 

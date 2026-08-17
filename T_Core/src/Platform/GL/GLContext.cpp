@@ -1,7 +1,7 @@
 #include "GLContext.h"
 #include "GLCommandBuffer.h"
 #include "GLSwapChain.h"
-#include "Renderer.h"       // GLCall, ASSERT
+#include "GLDebug.h"
 #include "Debug/Debug.h"    // Info_Core, Error_Core
 #include "Platform/RenderAPI.h"  // RenderAPI_OpenGL / RenderAPI_Vulkan
 #include "GL/glew.h"

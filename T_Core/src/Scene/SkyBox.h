@@ -4,13 +4,12 @@
 
 #include"GLHead.h"
 #include"HeadLine.h"
-#include"CubeMap.h"
 
 	struct SkyBox
 	{
 		std::vector<std::string> texpaths;
 
-		std::unique_ptr<CubeMap>m_Cmp;
+		Ref<RHITextureCube>m_Cmp;
 		std::unique_ptr<GLShader>m_Shader;
 		std::unique_ptr<VertexArray>m_vao;
 		std::unique_ptr<VertexBuffer>m_VertexBuffer;
@@ -63,8 +62,8 @@
 				-1.0f, -1.0f,  1.0f,
 				 1.0f, -1.0f,  1.0f
 			};
-			m_Cmp = std::make_unique<CubeMap>(texpaths);
-			m_Cmp->Bind();
+			m_Cmp = RHITextureCube::Create(TextureCubeDesc{ 0, Format::RGBA8_UNORM, texpaths, FilterMode::Linear, FilterMode::Linear });
+			m_Cmp->Bind(0);
 
 			m_Shader = std::make_unique<GLShader>("D:\\Code\\C++\\Tsundere\\res/shaders/SkyBox.shader");
 			m_Shader->Bind();
@@ -79,7 +78,7 @@
 		void Bind()
 		{
 			glActiveTexture(GL_TEXTURE0);
-			glBindTexture(GL_TEXTURE_CUBE_MAP, m_Cmp->GetMap());
+			glBindTexture(GL_TEXTURE_CUBE_MAP, (unsigned int)m_Cmp->GetNativeID());
 		}
 		void UnBind()
 		{

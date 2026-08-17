@@ -1,6 +1,6 @@
 #include "GLDescriptorSet.h"
 #include "GLBuffer.h"
-#include "Renderer.h"
+#include "GLDebug.h"
 #include <GL/glew.h>
 
 void GLDescriptorSet::BindTexture(uint32_t binding, Ref<RHITexture2D> texture, uint32_t unit)

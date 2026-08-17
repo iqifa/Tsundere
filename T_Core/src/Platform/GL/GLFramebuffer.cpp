@@ -1,5 +1,5 @@
 #include "GLFramebuffer.h"
-#include "Renderer.h"
+#include "GLDebug.h"
 #include "Debug/Debug.h"
 #include "Platform/RHI/RHITexture.h"   // GLFramebufferView needs RHITexture2D::GetNativeID()
 

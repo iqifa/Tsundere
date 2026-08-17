@@ -4,7 +4,6 @@
 
 #include"Trans/SceneCamera.h"
 #include"GLHead.h"
-#include"CubeMap.h"
 #include"Panels/Material.h"
 #include<random>
 #include "Modle.h"

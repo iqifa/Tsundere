@@ -1,6 +1,6 @@
 #include "GLPipeline.h"
 #include "GLBuffer.h"
-#include "Renderer.h"
+#include "GLDebug.h"
 #include <GL/glew.h>
 
 // --- GL enum conversion helpers ---

@@ -3,7 +3,7 @@
 #include "GLFramebuffer.h"
 #include "GLPipeline.h"
 #include "GLDescriptorSet.h"
-#include "Renderer.h"   // GLCall, GLClearError, GLLogCall, ASSERT macros
+#include "GLDebug.h"
 #include "Platform/RenderAPI.h"  // RenderAPI_OpenGL / RenderAPI_Vulkan
 #include "GL/glew.h"
 

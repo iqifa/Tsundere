@@ -1,5 +1,5 @@
 #include "GLBuffer.h"
-#include "Renderer.h"   // for GLCall, ASSERT
+#include "GLDebug.h"
 
 GLBuffer::GLBuffer(const BufferDesc& desc)
     : m_Size(desc.size)
