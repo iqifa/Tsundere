@@ -1,5 +1,6 @@
 #include "Application.h"
 #include "Core/Threading/ResourceLoader.h"
+#include "Core/Assets/GPUDeletionQueue.h"
 #include "Platform/RHI/RHIRenderer.h"
 #include"Platform/RHI/RHIImGuiRenderer.h"
 #include "Debug/Debug.h"
@@ -14,7 +15,6 @@ namespace Engine {
 		m_Window = std::unique_ptr<Window>(Window::Create());
 		m_Window->SetEventCallback(BIND_EVENT_FN(OnEvents));
 
-		//m_iml = new ImGuiLayer();
 	}
 
 	Application::~Application()
@@ -25,7 +25,6 @@ namespace Engine {
 	{
 		// Initialize RHI (GL: wraps GLEW init + frame management)
 		RHIRenderer::Init(static_cast<GLFWwindow*>(m_Window->GetWindow()));
-		Info_Core("RHI Renderer initialized (OpenGL backend)");
 
 		RHIImGUIRenderer::Init(*this);
 
@@ -37,6 +36,9 @@ namespace Engine {
 		{
 			// Phase 0: Complete any async resource loads (GPU upload on main thread)
 			ResourceLoader::ProcessMainThreadCompletions();
+
+			// Phase 0.5: Flush deferred GL deletions (safe thread-agnostic GPU resource cleanup)
+			GPUDeletionQueue::Flush();
 
 			// Phase 1: Dispatch queued load requests to worker thread
 			ResourceLoader::DispatchQueuedLoads();

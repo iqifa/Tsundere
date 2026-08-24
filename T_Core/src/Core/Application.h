@@ -15,7 +15,7 @@ namespace Engine {
 
 
 		void Run();
-		void OnEvents(Eventing::Event<> &ev);
+		void OnEvents(Eventing::Event<>& ev);
 		void PushLayer(Layer* layer);
 		void PopLayer(Layer* layer);
 		Window& GetWindow() { return *m_Window; }
@@ -30,7 +30,7 @@ namespace Engine {
 		ImGuiLayer* m_iml;
 
 		float m_Time = 0.0f;
-		};
+	};
 
 	Application* CreateApplication();
 }
