@@ -2,29 +2,24 @@
 #ifndef GUILAYER
 #define GUILAYER
 
-#include"ExternalFiles.h"
-#include"Core/Layer/LayerStack.h"
-namespace Engine {
-	class T_API ImGuiLayer :public Layer
-	{
-	public:
+#include "ExternalFiles.h"
+#include "Core/Layer/LayerStack.h"
 
-		ImGuiLayer(std::string name="Layer");
-		~ImGuiLayer() = default;
+namespace Engine
+{
+    class T_API ImGuiLayer : public Layer
+    {
+    public:
+        explicit ImGuiLayer(std::string name = "Layer");
+        ~ImGuiLayer() = default;
 
-		void OnAttach()override;
-		void OnDetach()override;
-		void OnUpdate()override;
-		void OnImGuiRender()override;
-		//virtual void OnEvent(Event& e);
+        void OnAttach() override;
+        void OnDetach() override;
+        void OnUpdate() override;
+        void OnImGuiRender() override;
 
-		void Begin();
-		void End();
-
-		void BlockEvent(bool block) {}
-	private:
-		float m_Time=0.0f;
-	};
+        void BlockEvent(bool block) { (void)block; }
+    };
 }
 
 #endif

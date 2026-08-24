@@ -1,8 +1,8 @@
 #pragma once
 #include "Core/Layer/Layer.h"
 #include "ExternalFiles.h"
-#include "Platform/GL/Texture.h"
-#include "Platform/GL/FileDialog.h"
+#include "Platform/RHI/RHITextureLibrary.h"
+#include "Platform/FileDialog.h"
 #include "Core/Threading/ResourceLoader.h"
 #include "HeadLine.h"
 
@@ -52,7 +52,7 @@ public:
 				removePath = path;
 
 			ImGui::SameLine();
-			GLuint texID = tex->GetTextureID();
+			GLuint texID = (GLuint)tex->GetNativeID();
 			if (texID)
 				ImGui::Image((ImTextureID)(uintptr_t)texID, { 64, 64 }, { 0, 1 }, { 1, 0 });
 			else
@@ -62,7 +62,7 @@ public:
 			ImGui::BeginGroup();
 			std::string display = path.substr(path.find_last_of("/\\") + 1);
 			ImGui::TextUnformatted(display.c_str());
-			ImGui::Text("%d x %d", tex->GetWidth(), tex->GetHeight());
+			ImGui::Text("%d x %d", (int)tex->GetWidth(), (int)tex->GetHeight());
 			if (ImGui::IsItemHovered())
 			{
 				ImGui::BeginTooltip();

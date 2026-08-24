@@ -32,6 +32,13 @@ public:
 
     virtual void Bind(uint32_t slot) = 0;
     virtual void Unbind() = 0;
+
+    // Bind as a storage image for compute shaders. Only meaningful for
+    // storage-capable textures (created with TextureUsage::Storage). Default
+    // no-op for plain sampled textures; GL/VK backends implement it.
+    virtual void BindAsImage(uint32_t slot, ImageAccess access) { (void)slot; (void)access; }
+    virtual void UnbindAsImage(uint32_t slot) { (void)slot; }
+
     virtual void Resize(uint32_t w, uint32_t h) {}   // default: no-op (static textures)
     virtual uint32_t GetWidth() const = 0;
     virtual uint32_t GetHeight() const = 0;
@@ -39,6 +46,10 @@ public:
     // Returns a backend-specific native handle (GLuint / VkImageView)
     // Used by ImGui::Image() and interop with legacy code
     virtual uintptr_t GetNativeID() const = 0;
+
+    // Source file path (empty for procedurally-created / borrowed textures).
+    // Used for material serialization and debugging.
+    virtual const std::string& GetPath() const = 0;
 
     static Ref<RHITexture2D> Create(const Texture2DDesc& desc);
 };
@@ -80,6 +91,10 @@ public:
 
     // Bind for compute shader image load/store
     virtual void BindAsImage(uint32_t slot, ImageAccess access) = 0;
+
+    // Unbind a slot previously bound with BindAsImage, so the texture can be
+    // sampled as a texture again (GL: glBindImageTexture(slot, 0, ...)).
+    virtual void UnbindAsImage(uint32_t slot) = 0;
 
     // Bind for regular texture sampling
     virtual void BindAsTexture(uint32_t slot) = 0;

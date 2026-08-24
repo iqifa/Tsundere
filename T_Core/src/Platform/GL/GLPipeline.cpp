@@ -12,6 +12,7 @@ unsigned int GLPipelineUtil::ToGLPrimitive(PrimitiveTopology topo)
     case PrimitiveTopology::Triangles:     return GL_TRIANGLES;
     case PrimitiveTopology::TriangleStrip: return GL_TRIANGLE_STRIP;
     case PrimitiveTopology::Lines:         return GL_LINES;
+    case PrimitiveTopology::Points:        return GL_POINTS;
     default:                               return GL_TRIANGLES;
     }
 }
@@ -69,6 +70,40 @@ unsigned int GLPipelineUtil::ToGLVertexType(VertexFormat fmt, int& count)
     case VertexFormat::Int4:       count = 4; return GL_INT;
     case VertexFormat::UByte4Norm: count = 4; return GL_UNSIGNED_BYTE;
     default:                       count = 3; return GL_FLOAT;
+    }
+}
+
+void GLPipelineUtil::SetupVertexAttributes(const VertexLayout& layout)
+{
+    for (auto& attr : layout.attributes)
+    {
+        GLCall(glEnableVertexAttribArray(attr.location));
+
+        int count = 0;
+        unsigned int type = ToGLVertexType(attr.format, count);
+
+        bool isInt = (attr.format == VertexFormat::Int  || attr.format == VertexFormat::Int2 ||
+                      attr.format == VertexFormat::Int3 || attr.format == VertexFormat::Int4);
+
+        if (isInt)
+        {
+            GLCall(glVertexAttribIPointer(
+                attr.location,
+                count,
+                type,
+                static_cast<GLsizei>(layout.stride),
+                reinterpret_cast<void*>(static_cast<uintptr_t>(attr.offset))));
+        }
+        else
+        {
+            GLCall(glVertexAttribPointer(
+                attr.location,
+                count,
+                type,
+                GL_FALSE,                                             // normalized
+                static_cast<GLsizei>(layout.stride),
+                reinterpret_cast<void*>(static_cast<uintptr_t>(attr.offset))));
+        }
     }
 }
 
@@ -147,6 +182,11 @@ void GLPipeline::Unbind()
         m_Shader->UnBind();
 }
 
+void GLPipeline::BindVertexArray()
+{
+    GLCall(glBindVertexArray(m_VAO));
+}
+
 void GLPipeline::SetupVertexFormat(Ref<RHIBuffer> vb)
 {
     if (!vb || m_Desc.vertexLayout.attributes.empty())
@@ -158,21 +198,7 @@ void GLPipeline::SetupVertexFormat(Ref<RHIBuffer> vb)
     GLCall(glBindVertexArray(m_VAO));
     GLCall(glBindBuffer(GL_ARRAY_BUFFER, glBuf->GetGLID()));
 
-    for (auto& attr : m_Desc.vertexLayout.attributes)
-    {
-        GLCall(glEnableVertexAttribArray(attr.location));
-
-        int count = 0;
-        unsigned int type = GLPipelineUtil::ToGLVertexType(attr.format, count);
-
-        GLCall(glVertexAttribPointer(
-            attr.location,
-            count,
-            type,
-            GL_FALSE,                                             // normalized
-            static_cast<GLsizei>(m_Desc.vertexLayout.stride),
-            reinterpret_cast<void*>(static_cast<uintptr_t>(attr.offset))));
-    }
+    GLPipelineUtil::SetupVertexAttributes(m_Desc.vertexLayout);
 
     GLCall(glBindVertexArray(0));
     GLCall(glBindBuffer(GL_ARRAY_BUFFER, 0));

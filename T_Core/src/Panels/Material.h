@@ -18,7 +18,7 @@ class T_API Material
 public:
 	Ref<RHIShader> shader;
 	int shaderindex = 0;
-	Texture texture;
+	Ref<RHITexture2D> texture;
 	std::string m_FilePath;
 	Material(const Material& other) : shader(other.shader), shaderindex(other.shaderindex), texture(other.texture), m_FilePath(other.m_FilePath) {
 		for (auto& var : other.varies) {
@@ -32,14 +32,14 @@ public:
 			case ValueType::CHAR:   { char* v = new char(*(char*)oldPtr); varies.push_back({ (unsigned int)v, type, name }); break; }
 			case ValueType::VEC2:   { vec2* v = new vec2(*(vec2*)oldPtr); varies.push_back({ (unsigned int)v, type, name }); break; }
 			case ValueType::VEC3:   { vec3* v = new vec3(*(vec3*)oldPtr); varies.push_back({ (unsigned int)v, type, name }); break; }
-			case ValueType::TEXTURE:{ Texture* v = new Texture(*(Texture*)oldPtr); varies.push_back({ (unsigned int)v, type, name }); break; }
+			case ValueType::TEXTURE:{ Ref<RHITexture2D>* v = new Ref<RHITexture2D>(*(Ref<RHITexture2D>*)oldPtr); varies.push_back({ (unsigned int)v, type, name }); break; }
 			case ValueType::HEADER: varies.push_back({ 0, type, name }); break;
 			default: break;
 			}
 		}
 	}
 	Material(const Ref<RHIShader>&shader) :shader(shader) {}
-	Material(const Ref<RHIShader>&shader, const Texture & texture) :shader(shader), texture(texture) {}
+	Material(const Ref<RHIShader>&shader, const Ref<RHITexture2D>& texture) :shader(shader), texture(texture) {}
 	Material(const std::string & path = "res/shaders/default.shader")
 	{
 		m_FilePath = path + ".mat";

@@ -2,6 +2,7 @@
 
 #include"entt/entt.hpp"
 #include"Entity.h"
+#include"Debug/Debug.h"
 class Entity;
 class Scene {
 private:

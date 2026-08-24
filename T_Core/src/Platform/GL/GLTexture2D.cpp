@@ -90,6 +90,7 @@ GLTexture2D::GLTexture2D(unsigned int existingGLID, uint32_t width, uint32_t hei
 
 GLTexture2D::GLTexture2D(const Texture2DDesc& desc)
     : m_Width(desc.width), m_Height(desc.height)
+    , m_FilePath(desc.filePath)
     , m_Format(desc.format)
     , m_MinFilter(desc.minFilter), m_MagFilter(desc.magFilter)
     , m_WrapS(desc.wrapS), m_WrapT(desc.wrapT)
@@ -144,6 +145,28 @@ void GLTexture2D::Bind(uint32_t slot)
 void GLTexture2D::Unbind()
 {
     GLCall(glBindTexture(GL_TEXTURE_2D, 0));
+}
+
+static unsigned int ToGLAccess(ImageAccess access)
+{
+    switch (access)
+    {
+    case ImageAccess::ReadOnly:  return GL_READ_ONLY;
+    case ImageAccess::WriteOnly: return GL_WRITE_ONLY;
+    case ImageAccess::ReadWrite: return GL_READ_WRITE;
+    default:                     return GL_READ_WRITE;
+    }
+}
+
+void GLTexture2D::BindAsImage(uint32_t slot, ImageAccess access)
+{
+    GLCall(glBindImageTexture(slot, m_RendererID, 0, GL_FALSE, 0,
+        ToGLAccess(access), ToGLInternalFormat(m_Format)));
+}
+
+void GLTexture2D::UnbindAsImage(uint32_t slot)
+{
+    GLCall(glBindImageTexture(slot, 0, 0, GL_FALSE, 0, GL_READ_ONLY, ToGLInternalFormat(m_Format)));
 }
 
 void GLTexture2D::Resize(uint32_t w, uint32_t h)

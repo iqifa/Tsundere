@@ -7,12 +7,24 @@
 #include <string>
 #include <vector>
 
-// Uniform metadata — parsed from shader source, used by Material editor.
-// Originally defined in Shader.h; moved here so both RHI and parser can share it.
+// Uniform metadata — parsed from shader source, drives the Material editor
+// and the per-pass UBO builder.
+//
+// Binding rules (resolved at parse time, see ShaderParser.cpp):
+//   - Default: every uniform is a member of the per-pass UBO at binding=0
+//     (descriptor set 0, binding 0). GLShader auto-injects a std140 UBO
+//     block wrapping all loose uniforms before compile, so .shader files
+//     keep writing `uniform mat4 foo;` with no extra boilerplate.
+//   - `// @binding <N>` directly above a `uniform` declaration pins that
+//     uniform to binding N (e.g. a sampler binding directly).
+//   - Samplers are auto-pinned to bindings 10..63 (one per sampler, in
+//     source order) and excluded from the UBO. Override with @binding.
 struct Uniform
 {
     std::string Name;
     std::string Type;
+    uint32_t    binding = 0;     // 0 = UBO member; N>0 = pinned binding
+    bool        inUBO   = true;  // false when pinned to a non-UBO binding
 };
 
 // Shader module interface.

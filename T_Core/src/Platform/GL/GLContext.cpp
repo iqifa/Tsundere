@@ -86,6 +86,9 @@ void GLContext::BeginFrame()
 {
     if (!m_Initialized) return;
 
+    ++m_FrameContext.FrameIndex;
+    m_FrameContext.ImageIndex = 0;
+
     // Clear the default framebuffer at the start of each frame
     GLCall(glClearColor(0.0f, 0.0f, 0.0f, 0.0f));
     GLCall(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
@@ -107,6 +110,12 @@ void GLContext::OnResize(uint32_t w, uint32_t h)
     // No need to recreate swapchain like Vulkan
 }
 
+void GLContext::WaitIdle()
+{
+    if (m_Initialized)
+        GLCall(glFinish());
+}
+
 Ref<RHISwapChain> GLContext::GetSwapChain()
 {
     return m_SwapChain;
@@ -115,4 +124,9 @@ Ref<RHISwapChain> GLContext::GetSwapChain()
 Ref<RHICommandBuffer> GLContext::GetCommandBuffer()
 {
     return m_CommandBuffer;
+}
+
+const RHIFrameContext& GLContext::GetCurrentFrame() const
+{
+    return m_FrameContext;
 }

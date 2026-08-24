@@ -10,9 +10,9 @@
 		std::vector<std::string> texpaths;
 
 		Ref<RHITextureCube>m_Cmp;
-		std::unique_ptr<GLShader>m_Shader;
-		std::unique_ptr<VertexArray>m_vao;
-		std::unique_ptr<VertexBuffer>m_VertexBuffer;
+		Ref<RHIShader>m_Shader;
+		Ref<RHIPipeline>m_Pipeline;
+		Ref<RHIBuffer>m_VertexBuffer;
 
 
 		SkyBox() = default;
@@ -65,28 +65,25 @@
 			m_Cmp = RHITextureCube::Create(TextureCubeDesc{ 0, Format::RGBA8_UNORM, texpaths, FilterMode::Linear, FilterMode::Linear });
 			m_Cmp->Bind(0);
 
-			m_Shader = std::make_unique<GLShader>("D:\\Code\\C++\\Tsundere\\res/shaders/SkyBox.shader");
+			m_Shader = RHIShader::Create("D:\\Code\\C++\\Tsundere\\res/shaders/SkyBox.shader");
 			m_Shader->Bind();
 
-			m_vao = std::make_unique<VertexArray>(36);
-			m_VertexBuffer = std::make_unique<VertexBuffer>(skyboxVertices, 36 * 5 * sizeof(float));
+			m_VertexBuffer = RHIBuffer::Create(BufferDesc{ (uint32_t)sizeof(skyboxVertices), BufferUsage::Vertex, false, skyboxVertices });
 
-			VertexBufferLayout layout;
-			layout.Push<float>(3);
-			m_vao->AddBuffer(*m_VertexBuffer, layout);
+			VertexLayout layout;
+			layout.stride = 3 * sizeof(float);
+			layout.attributes = { { 0, VertexFormat::Float3, 0 } };
+			PipelineDesc desc;
+			desc.shader = m_Shader;
+			desc.vertexLayout = layout;
+			desc.cullMode = CullMode::None;
+			desc.depthWrite = false;
+			m_Pipeline = RHIPipeline::Create(desc);
+			m_Pipeline->SetupVertexFormat(m_VertexBuffer);
 		}
 		void Bind()
 		{
-			glActiveTexture(GL_TEXTURE0);
-			glBindTexture(GL_TEXTURE_CUBE_MAP, (unsigned int)m_Cmp->GetNativeID());
-		}
-		void UnBind()
-		{
-			glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
-		}
-		void Render()
-		{
-
+			m_Cmp->Bind(0);
 		}
 	};
 

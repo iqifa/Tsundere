@@ -50,7 +50,8 @@ enum class PrimitiveTopology : uint8_t
 {
     Triangles,
     TriangleStrip,
-    Lines
+    Lines,
+    Points
 };
 
 enum class CullMode : uint8_t

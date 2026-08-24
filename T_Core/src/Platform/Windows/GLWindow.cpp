@@ -1,4 +1,5 @@
 #include"GLWindow.h"
+#include"Debug/Debug.h"
 
 namespace Engine {
 	static bool s_GLFWInitialized = false;

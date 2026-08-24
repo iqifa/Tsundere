@@ -68,6 +68,12 @@ public:
     virtual uintptr_t GetDepthAttachmentID() const = 0;
     virtual uintptr_t GetFramebufferID() const = 0;
 
+    // RHI texture objects for the attachments (non-owning — the framebuffer
+    // outlives these). Let passes bind attachments via RHITexture2D::Bind
+    // instead of the raw GL id. Default nullptr until a backend implements it.
+    virtual RHITexture2D* GetColorAttachment(uint32_t index = 0) const { (void)index; return nullptr; }
+    virtual RHITexture2D* GetDepthAttachment() const { return nullptr; }
+
     // MSAA resolve: blit from this (MSAA) to dst (non-MSAA)
     // Default: no-op (for non-MSAA framebuffers)
     virtual void ResolveTo(Ref<RHIFramebuffer> dst) {}

@@ -26,6 +26,15 @@ public:
 
     Ref<RHIShader> GetShader() const { return m_Shader; }
 
+    // Vertex layout this pipeline was created with. Needed by GLCommandBuffer
+    // to re-specify attribute pointers when a vertex buffer is bound per draw.
+    const VertexLayout& GetVertexLayout() const { return m_Desc.vertexLayout; }
+    PrimitiveTopology GetTopology() const { return m_Desc.topology; }
+
+    // Bind only this pipeline's VAO, without re-applying shader/state.
+    // Used by GLCommandBuffer's per-draw BindVertexBuffer/BindIndexBuffer.
+    void BindVertexArray();
+
     // GL-specific: one-time VAO setup (Vulkan backend: no-op overrides)
     void SetupVertexFormat(Ref<RHIBuffer> vb) override;
     void SetupIndexBuffer(Ref<RHIBuffer> ib) override;
@@ -44,6 +53,10 @@ namespace GLPipelineUtil
     unsigned int ToGLCompareOp(CompareOp op);
     unsigned int ToGLBlendFactor(BlendFactor f);
     unsigned int ToGLVertexType(VertexFormat fmt, int& count);
+
+    // Sets up all vertex attributes for a layout (VAO + VBO must already be bound).
+    // Integer attributes (Int/Int2/Int3/Int4) use glVertexAttribIPointer.
+    void SetupVertexAttributes(const VertexLayout& layout);
 }
 
 // Factory — compile-time binding

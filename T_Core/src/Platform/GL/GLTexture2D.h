@@ -17,10 +17,13 @@ public:
 
     void Bind(uint32_t slot) override;
     void Unbind() override;
+    void BindAsImage(uint32_t slot, ImageAccess access) override;
+    void UnbindAsImage(uint32_t slot) override;
     void Resize(uint32_t w, uint32_t h) override;
     uint32_t GetWidth() const override   { return m_Width; }
     uint32_t GetHeight() const override  { return m_Height; }
     uintptr_t GetNativeID() const override { return static_cast<uintptr_t>(m_RendererID); }
+    const std::string& GetPath() const override { return m_FilePath; }
 
     // GL-specific (used by legacy code interop)
     unsigned int GetGLID() const { return m_RendererID; }
@@ -31,6 +34,7 @@ private:
 
     unsigned int m_RendererID = 0;
     uint32_t m_Width = 0, m_Height = 0;
+    std::string m_FilePath;          // source path (empty for borrowed textures)
     Format m_Format;
     FilterMode m_MinFilter, m_MagFilter;
     WrapMode m_WrapS, m_WrapT;

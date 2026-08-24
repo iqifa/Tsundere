@@ -8,6 +8,8 @@
 #include "Platform/RenderAPI.h"  // RenderAPI_OpenGL / RenderAPI_Vulkan
 
 #ifdef RenderAPI_OpenGL
+#endif // RenderAPI_OpenGL
+
 // Static singleton storage
 Ref<RHIContext>   RHIRenderer::s_Context;
 Ref<RHISwapChain> RHIRenderer::s_SwapChain;
@@ -22,9 +24,7 @@ void RHIRenderer::Init(GLFWwindow* window)
 
     // Create backend context (GL: wraps GLEW init + GL state setup)
     s_Context = RHIContext::Create(window);
-
-    // Create swap chain (GL: thin wrapper around GLFW window)
-    s_SwapChain = RHISwapChain::Create(window);
+    s_SwapChain = s_Context ? s_Context->GetSwapChain() : nullptr;
 
     Info_Core("RHIRenderer initialized");
 }
@@ -74,4 +74,3 @@ void RHIRenderer::OnResize(uint32_t w, uint32_t h)
     if (s_SwapChain)
         s_SwapChain->Resize(w, h);
 }
-#endif // RenderAPI_OpenGL

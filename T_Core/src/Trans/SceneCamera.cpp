@@ -135,7 +135,6 @@ void SceneCamera::GLScrollInput(float xoffset, float yoffset)
 }
 void SceneCamera::RenderSkyBox()
 {
-	glDepthMask(GL_FALSE);
 	skybox->m_Shader->Bind();
 
 	mat4 model(1.0f);
@@ -152,10 +151,9 @@ void SceneCamera::RenderSkyBox()
 	// reads history at the same UV, and the sky smears whenever the camera turns.
 	skybox->m_Shader->SetUniformMat4f("prevViewProj", m_PrevSkyViewProj);
 
-	Renderer renderer;
-	/*glBindTexture(GL_TEXTURE_CUBE_MAP, skybox->m_Cmp->GetMap());*/
 	skybox->Bind();
-	renderer.DrawArray(*skybox->m_vao, *skybox->m_Shader);
+	skybox->m_Pipeline->Bind();
+	glDrawArrays(GL_TRIANGLES, 0, 36);
 
 	skybox->m_Shader->UnBind();
 

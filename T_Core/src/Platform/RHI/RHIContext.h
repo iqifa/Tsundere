@@ -1,13 +1,22 @@
 #pragma once
-
 #include "Core/Core.h"
 #include "HeadLine.h"
 #include "RHITypes.h"
+#include "ExternalFiles.h"
 
 // Forward declarations
 class RHICommandBuffer;
 class RHISwapChain;
 struct GLFWwindow;
+
+// State acquired/recorded for the frame currently being rendered.
+// This type is backend-neutral; native API handles belong to backend-specific
+// context interfaces such as RHIVulkanContext.
+struct RHIFrameContext
+{
+    uint64_t FrameIndex = 0;
+    uint32_t ImageIndex = 0;
+};
 
 // Singleton context — owns the device, swap chain, frame management.
 // GL backend: wraps GLFW+GLEW init, swaps buffers.
@@ -27,12 +36,18 @@ public:
     // Called when the window/viewport resizes
     virtual void OnResize(uint32_t w, uint32_t h) = 0;
 
+    // Wait until all work submitted through this context has completed.
+    // Required before destroying or recreating GPU-owned resources.
+    virtual void WaitIdle() = 0;
+
     virtual Ref<RHISwapChain> GetSwapChain() = 0;
 
     // Returns a command buffer ready for recording this frame.
     // GL: returns a singleton that executes immediately.
     // VK: returns one from the per-frame pool.
     virtual Ref<RHICommandBuffer> GetCommandBuffer() = 0;
+
+    virtual const RHIFrameContext& GetCurrentFrame() const = 0;
 
     // Factory — creates the correct backend context
     static Ref<RHIContext> Create(GLFWwindow* window);

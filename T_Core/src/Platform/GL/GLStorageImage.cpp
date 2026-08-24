@@ -68,6 +68,12 @@ void GLStorageImage::BindAsImage(uint32_t slot, ImageAccess access)
         ToGLAccess(access), m_GLInternalFmt));
 }
 
+void GLStorageImage::UnbindAsImage(uint32_t slot)
+{
+    // Read-only is arbitrary here — unbinding just detaches the image unit.
+    GLCall(glBindImageTexture(slot, 0, 0, GL_FALSE, 0, GL_READ_ONLY, m_GLInternalFmt));
+}
+
 void GLStorageImage::BindAsTexture(uint32_t slot)
 {
     GLCall(glActiveTexture(GL_TEXTURE0 + slot));

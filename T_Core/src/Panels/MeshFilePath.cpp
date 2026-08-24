@@ -1,4 +1,5 @@
 #include"MeshFilePath.h"
+#include"Debug/Debug.h"
 #include"Core/Threading/ResourceLoader.h"
 using namespace std;
 
@@ -23,7 +24,7 @@ static vector<string> ShaderPaths
 };
 
 unordered_map<string, Ref<Model>> My_map::m_ModleMap;
-unordered_map<string, Ref<GLShader>> My_map::m_ShaderMap;
+unordered_map<string, Ref<RHIShader>> My_map::m_ShaderMap;
 shared_mutex My_map::s_Mutex;
 
 Ref<Model> My_map::LoadModel(const std::string& path)

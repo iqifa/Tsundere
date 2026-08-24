@@ -5,7 +5,7 @@
 #include "Scene/Mesh.h"
 #include "Scene/Modle.h"
 #include "Panels/MeshFilePath.h"
-#include "Platform/GL/GLBuffer.h"
+#include "Platform/RHI/RHIBuffer.h"
 #include<atomic>
 
 struct BVHBuildTriangle
@@ -37,8 +37,8 @@ public:
 	// GPU upload only (called on main thread after async CPU build completes)
 	void UploadToGPU();
 
-	Ref<GLBuffer> GetTriangleBuffer() const { return m_TriSSBO; }
-	Ref<GLBuffer> GetBVHNodeBuffer() const { return m_BVHSSBO; }
+	Ref<RHIBuffer> GetTriangleBuffer() const { return m_TriSSBO; }
+	Ref<RHIBuffer> GetBVHNodeBuffer() const { return m_BVHSSBO; }
 
 	unsigned int GetTriangleCount() const { return (unsigned int)m_GPUTriangles.size(); }
 	unsigned int GetBVHNodeCount() const { return (unsigned int)m_BVHNodes.size(); }
@@ -67,8 +67,8 @@ private:
 	std::vector<GPUTriangle> m_GPUTriangles;
 	std::vector<GPUBVHNode> m_BVHNodes;
 
-	Ref<GLBuffer> m_TriSSBO;
-	Ref<GLBuffer> m_BVHSSBO;
+	Ref<RHIBuffer> m_TriSSBO;
+	Ref<RHIBuffer> m_BVHSSBO;
 
 	std::atomic<bool> m_Dirty{true};  // starts dirty so first frame builds
 	const std::unordered_map<Material*, unsigned int>* m_MaterialMap = nullptr;

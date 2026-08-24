@@ -1,4 +1,5 @@
 #include"Material.h"
+#include"Debug/Debug.h"
 using namespace std;
 template<typename T,typename... Args>
 void ValueChange(string name, unsigned int a, Ref<RHIShader> shader,Args...args)
@@ -12,12 +13,34 @@ void ValueChange<int>(string name, unsigned int a, Ref<RHIShader> shader)
 	shader->SetUniform1i(name, *value);
 }
 template<>
-void ValueChange<Texture>(string name, unsigned int a, Ref<RHIShader> shader,int count)
+void ValueChange<Ref<RHITexture2D>>(string name, unsigned int a, Ref<RHIShader> shader,int count)
 {
-	glActiveTexture(GL_TEXTURE0 + count);
-	Texture* value = (Texture*)a;
-	shader->SetUniform1i(name, count);
-	glBindTexture(GL_TEXTURE_2D, value->GetTextureID());
+	Ref<RHITexture2D>* value = (Ref<RHITexture2D>*)a;
+
+	// Find the binding for this sampler. With GLSL 420's `layout(binding=N)`,
+	// the sampler reads exclusively from texture unit N — the `uniform1i`
+	// setter is a no-op for those. The Material's job is to bind the texture
+	// to the same unit the shader reads from, not to a running counter.
+	//
+	// `count` is kept as a fallback for older shaders that don't pin a
+	// binding, but every modern shader pins via @binding or via the parser's
+	// auto-assigned sampler range starting at 10.
+	int slot = count;
+	for (const auto& u : shader->GetUniforms())
+	{
+		if (u.Name == name && u.Type == "sampler2D")
+		{
+			if (u.binding > 0) { slot = (int)u.binding; }
+			break;
+		}
+	}
+
+	if (*value)
+		(*value)->Bind(slot);
+	else
+	{
+		RHIRenderer::GetCmd()->BindTexture2D(slot, 0);
+	}
 }
 
 void Material::InitVarie(Uniform uniform)
@@ -54,7 +77,7 @@ void Material::InitVarie(Uniform uniform)
 	}
 	else if (uniform.Type == "sampler2D")
 	{
-		Texture* value = new Texture;
+		Ref<RHITexture2D>* value = new Ref<RHITexture2D>;
 		varies.push_back(tuple<unsigned int, ValueType, string>((unsigned int)value, ValueType::TEXTURE, uniform.Name));
 	}
 	else if (uniform.Type == "Head")
@@ -78,7 +101,7 @@ void Material::Render(Ref<RHIShader> overrideShader)
 		case ValueType::VEC2: { vec2* v = (vec2*)std::get<0>(value); targetShader->SetUniformVec2(std::get<2>(value), *v); break; }
 		case ValueType::VEC3: { vec3* v = (vec3*)std::get<0>(value); targetShader->SetUniformVec3(std::get<2>(value), *v); break; }
 		case ValueType::TEXTURE:
-			ValueChange<Texture>(std::get<2>(value), std::get<0>(value), targetShader, count++); break;
+			ValueChange<Ref<RHITexture2D>>(std::get<2>(value), std::get<0>(value), targetShader, count++); break;
 		default:
 			break;
 		}
@@ -105,7 +128,13 @@ void Material::Save()
 		case ValueType::DOUBLE:	fs << "double" << endl << lable << endl << *(double*)value << endl; break;
 		case ValueType::VEC2: { vec2* v = (vec2*)value; fs << "vec2" << endl << lable << endl << v->x << " " << v->y << endl; break; }
 		case ValueType::VEC3: { vec3* v = (vec3*)value; fs << "vec3" << endl << lable << endl << v->x << " " << v->y << " " << v->z << endl; break; }
-		case ValueType::TEXTURE:{ Texture* t = (Texture*)value; fs << "texture" << endl << lable << endl << t->GetPath() << endl; break; }
+		case ValueType::TEXTURE:{
+			Ref<RHITexture2D>* t = (Ref<RHITexture2D>*)value;
+			fs << "texture" << endl << lable << endl;
+			if (*t) fs << (*t)->GetPath();
+			fs << endl;
+			break;
+		}
 		case ValueType::HEADER:
 		default:
 			break;

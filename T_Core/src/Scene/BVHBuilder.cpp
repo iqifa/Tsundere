@@ -105,11 +105,11 @@ void BVHBuilder::BuildBVH(unsigned int leafSize)
 
 void BVHBuilder::UploadToGPU()
 {
-	m_TriSSBO = CreateRef<GLBuffer>(BufferDesc{
+	m_TriSSBO = RHIBuffer::Create(BufferDesc{
 		(uint32_t)(m_GPUTriangles.size() * sizeof(GPUTriangle)),
 		BufferUsage::Storage, false, m_GPUTriangles.data() });
 
-	m_BVHSSBO = CreateRef<GLBuffer>(BufferDesc{
+	m_BVHSSBO = RHIBuffer::Create(BufferDesc{
 		(uint32_t)(m_BVHNodes.size() * sizeof(GPUBVHNode)),
 		BufferUsage::Storage, false, m_BVHNodes.data() });
 }

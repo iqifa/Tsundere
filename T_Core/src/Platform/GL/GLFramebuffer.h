@@ -23,6 +23,9 @@ public:
     uintptr_t GetFramebufferID() const override;
     uint32_t GetColorAttachmentCount() const override { return m_ColorAttachmentCount; }
 
+    RHITexture2D* GetColorAttachment(uint32_t index = 0) const override;
+    RHITexture2D* GetDepthAttachment() const override;
+
     // MSAA resolve
     void ResolveTo(Ref<RHIFramebuffer> dst) override;
 
@@ -43,6 +46,12 @@ private:
     uint32_t m_ColorAttachmentCount = 1;
     std::vector<Format> m_ColorFormats;
     bool m_HasDepthStencil = true;
+
+    // Borrowed RHITexture2D wrappers over the raw GL attachment textures, so
+    // GetColorAttachment()/GetDepthAttachment() can return an RHI object
+    // without duplicating the texture. Do not delete — owned by the raw IDs.
+    std::vector<Ref<RHITexture2D>> m_ColorAttachmentRefs;
+    Ref<RHITexture2D> m_DepthAttachmentRef;
 };
 
 // Non-owning framebuffer over externally-owned textures.
@@ -73,12 +82,19 @@ public:
         return static_cast<uint32_t>(m_ColorAttachments.size());
     }
 
+    RHITexture2D* GetColorAttachment(uint32_t index = 0) const override;
+    RHITexture2D* GetDepthAttachment() const override;
+
 private:
     unsigned int m_FboID = 0;
 
     // Borrowed — owned by the caller (RenderGraph), never deleted here.
     std::vector<unsigned int> m_ColorAttachments;   // GL texture IDs
     unsigned int m_DepthAttachment = 0;
+
+    // Non-owning RHI pointers to the same attachments, for GetColorAttachment().
+    std::vector<RHITexture2D*> m_ColorAttachmentRefs;
+    RHITexture2D* m_DepthAttachmentRef = nullptr;
 
     uint32_t m_Width = 0, m_Height = 0;
 };

@@ -2,9 +2,10 @@
 
 #include "ExternalFiles.h"
 #include "GLHead.h"
+#include "Platform/RHI/RHITextureLibrary.h"
 #include "Panels/Material.h"
 #include "Panels/MeshFilePath.h"
-#include "Platform/GL/FileDialog.h"
+#include "Platform/FileDialog.h"
 #include "Input/Input.h"
 #include "Widget.h"
 #include "Scene/Scene.h"
@@ -193,13 +194,13 @@ namespace {
 				break;
 			case ValueType::TEXTURE:
 				s_MeshRenderState.MaterialWidgets.push_back(new Widget::DiyWidget([label, value]() {
-					Texture* tex = (Texture*)value;
+					Ref<RHITexture2D>* tex = (Ref<RHITexture2D>*)value;
 					ImGui::Columns(2);
 					ImGui::SetColumnWidth(0, 100.0f);
 					ImGui::Text(label.c_str());
 					ImGui::NextColumn();
 
-					GLuint texID = tex->GetTextureID();
+					GLuint texID = (*tex) ? (GLuint)(*tex)->GetNativeID() : 0;
 					if (texID)
 						ImGui::Image((ImTextureID)(uintptr_t)texID, { 50, 50 }, { 0, 1 }, { 1, 0 });
 					else
@@ -217,7 +218,7 @@ namespace {
 						{
 							if (ImGui::Selectable(path.c_str()))
 							{
-								*tex = *texture;
+								*tex = texture;
 								BVHBuilder::MarkActiveDirty();
 							}
 						}
@@ -227,8 +228,7 @@ namespace {
 							std::string importPath = OpenTextureFileDialog();
 							if (!importPath.empty())
 							{
-								auto loaded = TextureLibiary::Load(importPath);
-								*tex = *loaded;
+								*tex = TextureLibiary::Load(importPath);
 								BVHBuilder::MarkActiveDirty();
 								ImGui::CloseCurrentPopup();
 							}

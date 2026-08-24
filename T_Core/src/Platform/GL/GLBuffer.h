@@ -18,7 +18,7 @@ public:
     // GL-specific helpers (used internally by GLCommandBuffer)
     void Bind() const;
     void Unbind() const;
-    void BindToSlot(uint32_t slot) const;  // for SSBO / UBO
+    void BindToSlot(uint32_t slot) const override;  // for SSBO / UBO
     unsigned int GetGLID() const { return m_RendererID; }
 
 private:

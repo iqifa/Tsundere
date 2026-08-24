@@ -3,7 +3,7 @@
 #define MFP
 #include"HeadLine.h"
 #include"Scene/Modle.h"
-#include"Platform/GL/Shader.h"
+#include"Platform/RHI/RHIShader.h"
 #include<shared_mutex>
 
 
@@ -11,7 +11,7 @@ class T_API My_map
 {
 public:
 	static std::unordered_map<std::string, Ref<Model>> m_ModleMap;
-	static std::unordered_map<std::string, Ref<GLShader>> m_ShaderMap;
+	static std::unordered_map<std::string, Ref<RHIShader>> m_ShaderMap;
 
 	static Ref<Model> LoadModel(const std::string& path);
 	static Ref<Model> GetModel(const std::string& path);

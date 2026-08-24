@@ -11,6 +11,7 @@ public:
     ~GLStorageImage() override;
 
     void BindAsImage(uint32_t slot, ImageAccess access) override;
+    void UnbindAsImage(uint32_t slot) override;
     void BindAsTexture(uint32_t slot) override;
     void Resize(uint32_t w, uint32_t h) override;
 

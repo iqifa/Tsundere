@@ -11,14 +11,7 @@
 #pragma warning(disable:4005)
 
 // --- Backend selection ---
-#if defined(Vulkan_For_Render)
-    #define RenderAPI_Vulkan
-#elif defined(OpenGL_For_Render) || !defined(Vulkan_For_Render)
-    // OpenGL backend (default)
-    #define RenderAPI_OpenGL
-#else
-    #error Only Support OpenGL or Vulkan!
-#endif
+#include "Platform/RenderAPIConfig.h"
 
 // Include RHI interfaces (always available, backend-agnostic)
 #include "Platform/RHI/RHITypes.h"
@@ -29,6 +22,7 @@
 #include "Platform/RHI/RHIFramebuffer.h"
 #include "Platform/RHI/RHIShader.h"
 #include "Platform/RHI/RHIPipeline.h"
+#include "Platform/RHI/RHIMesh.h"
 #include "Platform/RHI/RHIDescriptorSet.h"
 #include "Platform/RHI/RHISwapChain.h"
 #include "Platform/RHI/RHIRenderer.h"
@@ -46,6 +40,7 @@
     #include "Platform/GL/GLDescriptorSet.h"
     #include "Platform/GL/GLSwapChain.h"
     #include "Platform/GL/GLShader.h"
+    #include "Platform/GL/GLMesh.h"
     #include"Platform/Windows/GLWindow.h"
 #endif
 

@@ -2,6 +2,7 @@
 #include "GLDebug.h"
 #include "Debug/Debug.h"
 #include "Platform/RHI/RHITexture.h"   // GLFramebufferView needs RHITexture2D::GetNativeID()
+#include "GLTexture2D.h"               // borrowed wrappers for GetColorAttachment()
 
 // A combined depth-stencil format must bind to GL_DEPTH_STENCIL_ATTACHMENT;
 // binding it to GL_DEPTH_ATTACHMENT leaves the FBO incomplete.
@@ -128,6 +129,16 @@ uintptr_t GLFramebuffer::GetDepthAttachmentID() const
     return static_cast<uintptr_t>(m_DepthStencilAttachment);
 }
 
+RHITexture2D* GLFramebuffer::GetColorAttachment(uint32_t index) const
+{
+    return index < m_ColorAttachmentRefs.size() ? m_ColorAttachmentRefs[index].get() : nullptr;
+}
+
+RHITexture2D* GLFramebuffer::GetDepthAttachment() const
+{
+    return m_DepthAttachmentRef.get();
+}
+
 uintptr_t GLFramebuffer::GetFramebufferID() const
 {
     return static_cast<uintptr_t>(m_FboID);
@@ -180,6 +191,8 @@ void GLFramebuffer::Cleanup()
             GLCall(glDeleteTextures(1, &tex));
     }
     m_ColorAttachments.clear();
+    m_ColorAttachmentRefs.clear();
+    m_DepthAttachmentRef.reset();
     if (m_DepthStencilAttachment)
     {
         GLCall(glDeleteTextures(1, &m_DepthStencilAttachment));
@@ -198,10 +211,12 @@ void GLFramebuffer::Invalidate()
 
     // Color attachments
     m_ColorAttachments.resize(m_ColorAttachmentCount, 0);
+    m_ColorAttachmentRefs.resize(m_ColorAttachmentCount);
     for (uint32_t i = 0; i < m_ColorAttachmentCount; i++)
     {
         unsigned int texID = GLCreateAttachment(m_ColorFormats[i], m_Samples);
         m_ColorAttachments[i] = texID;
+        m_ColorAttachmentRefs[i] = CreateRef<GLTexture2D>(texID, m_Width, m_Height, m_ColorFormats[i]);
 
         GLCall(glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i,
             target, texID, 0));
@@ -220,6 +235,7 @@ void GLFramebuffer::Invalidate()
     {
         Format depthFmt = Format::D24_UNORM_S8_UINT;
         m_DepthStencilAttachment = GLCreateAttachment(depthFmt, m_Samples);
+        m_DepthAttachmentRef = CreateRef<GLTexture2D>(m_DepthStencilAttachment, m_Width, m_Height, depthFmt);
 
         GLCall(glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT,
             target, m_DepthStencilAttachment, 0));
@@ -283,6 +299,7 @@ GLFramebufferView::GLFramebufferView(const FramebufferViewDesc& desc)
 
         unsigned int texID = static_cast<unsigned int>(tex->GetNativeID());
         m_ColorAttachments.push_back(texID);
+        m_ColorAttachmentRefs.push_back(tex);
 
         GLCall(glFramebufferTexture2D(GL_FRAMEBUFFER,
             GL_COLOR_ATTACHMENT0 + static_cast<GLenum>(i),
@@ -307,6 +324,7 @@ GLFramebufferView::GLFramebufferView(const FramebufferViewDesc& desc)
     if (desc.depthAttachment)
     {
         m_DepthAttachment = static_cast<unsigned int>(desc.depthAttachment->GetNativeID());
+        m_DepthAttachmentRef = desc.depthAttachment;
 
         GLenum attachPoint = IsDepthStencilFormat(desc.depthFormat)
             ? GL_DEPTH_STENCIL_ATTACHMENT
@@ -357,4 +375,14 @@ uintptr_t GLFramebufferView::GetColorAttachmentID(uint32_t index) const
 uintptr_t GLFramebufferView::GetDepthAttachmentID() const
 {
     return static_cast<uintptr_t>(m_DepthAttachment);
+}
+
+RHITexture2D* GLFramebufferView::GetColorAttachment(uint32_t index) const
+{
+    return index < m_ColorAttachmentRefs.size() ? m_ColorAttachmentRefs[index] : nullptr;
+}
+
+RHITexture2D* GLFramebufferView::GetDepthAttachment() const
+{
+    return m_DepthAttachmentRef;
 }

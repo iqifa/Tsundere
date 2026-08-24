@@ -3,7 +3,9 @@
 #define MESH_H
 
 #include "Scene/Vertex.h"           // Vertex struct + MAX_BONE_INFLUENCE
-#include "Platform/GL/GPUMesh.h"    // GPUMesh — GL handle (only safe on main thread)
+#include "Core/Assets/MeshAsset.h"  // MeshAsset (CPU mesh data)
+#include "Platform/RenderAPI.h"     // backend selector — provides RHIMesh + GLMesh factory
+#include <cstddef>                  // offsetof
 
 // ---------------------------------------------------------------------------
 // Mesh — 场景网格
@@ -13,7 +15,7 @@
 //
 // 两阶段构造：
 //   1. CreatePending(v, i)  — CPU only，可在任意线程构造（异步加载）
-//   2. setupMesh()          — 主线程：从 CPU 数据创建 GPUMesh（VAO/VBO/IBO）
+//   2. setupMesh()          — 主线程：从 CPU 数据创建 RHIMesh（VAO/VBO/IBO）
 //
 // IsGPUReady() == false 时禁止渲染该 Mesh。
 // ---------------------------------------------------------------------------
@@ -24,7 +26,7 @@ public:
     std::vector<unsigned int>  indices;
 
     // GPU 数据：由 setupMesh() 创建，析构时通过 GPUDeletionQueue 安全释放
-    Ref<GPUMesh> gpuMesh;
+    Ref<RHIMesh> gpuMesh;
 
     Mesh() = default;
 
@@ -60,13 +62,33 @@ public:
     void setupMesh()
     {
         if (vertices.empty()) return;
-        gpuMesh = GPUMesh::Create(vertices, indices);
+
+        VertexLayout layout;
+        layout.stride = sizeof(Vertex);
+        layout.attributes = {
+            { 0, VertexFormat::Float3, offsetof(Vertex, Position) },
+            { 1, VertexFormat::Float3, offsetof(Vertex, Normal) },
+            { 2, VertexFormat::Float2, offsetof(Vertex, TexCoords) },
+            { 3, VertexFormat::Float3, offsetof(Vertex, Tangent) },
+            { 4, VertexFormat::Float3, offsetof(Vertex, Bitangent) },
+            { 5, VertexFormat::Int4,   offsetof(Vertex, m_BoneIDs) },
+            { 6, VertexFormat::Float4, offsetof(Vertex, m_Weights) },
+        };
+
+        MeshDesc desc;
+        desc.vertexData  = vertices.data();
+        desc.vertexCount = (uint32_t)vertices.size();
+        desc.indexData   = indices.data();
+        desc.indexCount  = (uint32_t)indices.size();
+        desc.layout      = layout;
+
+        gpuMesh = RHIMesh::Create(desc);
     }
 
     bool IsGPUReady() const { return gpuMesh != nullptr; }
 
     void Bind()   const { if (gpuMesh) gpuMesh->Bind(); }
-    void UnBind() const { if (gpuMesh) gpuMesh->UnBind(); }
+    void UnBind() const { if (gpuMesh) gpuMesh->Unbind(); }
 };
 
 #endif // MESH_H

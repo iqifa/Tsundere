@@ -81,16 +81,38 @@ public:
     virtual void Dispatch(uint32_t groupsX, uint32_t groupsY = 1, uint32_t groupsZ = 1) = 0;
 
     // Blanket barrier — conservative, covers image access + texture fetch.
-    virtual void MemoryBarrier() = 0;
+    // Not named "MemoryBarrier": the Win32 SDK #defines MemoryBarrier to
+    // __faststorefence on x64, which would rewrite this token.
+    virtual void ResourceBarrier() = 0;
 
     // Targeted barrier. A render graph derives the flags from the declared
     // accesses of adjacent passes, so only the transitions that actually
     // happened are synchronised instead of a blanket flush every pass.
-    virtual void MemoryBarrier(BarrierFlags flags) = 0;
+    virtual void ResourceBarrier(BarrierFlags flags) = 0;
 
     // --- State ---
     virtual void SetViewport(const Viewport& vp) = 0;
     virtual void SetScissor(const Scissor& sc) = 0;
+
+    // --- Dynamic rasterizer/depth state ---
+    // GL applies these immediately; VK maps them to dynamic state
+    // (vkCmdSetDepthTestEnable / vkCmdSetDepthCompareOp / vkCmdSetCullMode).
+    // Needed because some draw paths (RHIMesh::Draw) bind their own VAO and
+    // bypass pipelines, so depth/cull must be settable without one.
+    virtual void SetDepthTest(bool enable) = 0;
+    virtual void SetDepthFunc(CompareOp op) = 0;
+    virtual void SetCullMode(CullMode mode) = 0;
+    virtual void SetPointSize(float size) = 0;
+    virtual void SetBlendState(bool enable, BlendFactor src = BlendFactor::One, BlendFactor dst = BlendFactor::Zero) = 0;
+
+    // Full-texture copy (same size). GL: glCopyImageSubData; VK: vkCmdCopyImage.
+    virtual void CopyTexture(RHITexture2D* src, RHITexture2D* dst) = 0;
+
+    // Bind a 2D texture / cubemap to a sampler slot by its opaque native handle
+    // (RHITexture2D::GetNativeID()). A handle of 0 unbinds. The GL backend maps
+    // this onto glActiveTexture + glBindTexture; VK binds a descriptor set.
+    virtual void BindTexture2D(uint32_t slot, uintptr_t nativeID) = 0;
+    virtual void BindTextureCube(uint32_t slot, uintptr_t nativeID) = 0;
 
     // --- Blit ---
     virtual void BlitDepth(Ref<RHIFramebuffer> src, Ref<RHIFramebuffer> dst) = 0;

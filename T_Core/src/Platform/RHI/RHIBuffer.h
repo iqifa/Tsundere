@@ -26,6 +26,12 @@ public:
 
     virtual uint32_t GetSize() const = 0;
 
+    // Bind this buffer to a shader storage / uniform binding slot.
+    // GL: glBindBufferBase(GL_SHADER_STORAGE_BUFFER, slot, id).
+    // VK: maps to a descriptor-set write for a storage buffer at that binding.
+    // Default no-op so non-storage buffers (vertex/index) don't need it.
+    virtual void BindToSlot(uint32_t slot) const { (void)slot; }
+
     // Factory — backend selected at compile time
     static Ref<RHIBuffer> Create(const BufferDesc& desc);
 };

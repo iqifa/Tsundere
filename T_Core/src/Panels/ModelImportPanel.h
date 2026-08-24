@@ -2,7 +2,7 @@
 #include "Core/Layer/Layer.h"
 #include "ExternalFiles.h"
 #include "Panels/MeshFilePath.h"
-#include "Platform/GL/FileDialog.h"
+#include "Platform/FileDialog.h"
 #include "Core/Threading/ResourceLoader.h"
 #include "HeadLine.h"
 
