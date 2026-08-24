@@ -15,7 +15,6 @@
 #include<Debug/Debug.h>
 #include<Pipeline/RenderGraph.h>
 class Scene;
-class  FrameBuffer;
 
 // CPU-side values that graph passes hand to each other.
 //
@@ -64,7 +63,7 @@ struct  RenderResources
 	unsigned int DDGIDepthAtlas = 0;
 
 	// 渲染目标尺寸
-	unsigned int SourceFBO = 0;        // 几何 Pass 的主 FBO（用于深度拷贝）
+	Ref<RHIFramebuffer> SourceFBO;     // 几何 Pass 的主 FBO（用于深度拷贝）
 
 	// --- RHI handles (set by RHI-migrated passes, nullptr until migrated) ---
 	// These coexist with the legacy raw IDs during the transition.
@@ -82,7 +81,7 @@ class  RenderPass
 public:
 	virtual ~RenderPass() = default;
 
-	virtual void Init(Ref<FrameBuffer>& m_GBuffer, Ref<RHIFramebuffer> RHIFrameBuffer = nullptr) {}
+	virtual void Init(Ref<RHIFramebuffer> fb = nullptr) {}
 
 	virtual void Execute(Ref<Scene> scene, RenderResources& resources) = 0;
 };

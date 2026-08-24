@@ -4,9 +4,9 @@
 class ShadowApplyPass : public RenderPass
 {
 public:
-	void Init(Ref<FrameBuffer>& fb, Ref<RHIFramebuffer> RHIFrameBuffer = nullptr) override
+	void Init(Ref<RHIFramebuffer> fb) override
 	{
-		m_Spec = fb->GetSpecification();
+		m_Spec = { fb->GetWidth(), fb->GetHeight() };
 
 		float quadVertices[] = {
 			-1.0f,  1.0f,  0.0f, 1.0f,
@@ -16,15 +16,23 @@ public:
 		};
 		unsigned int quadIndices[] = { 0, 1, 2, 2, 3, 0 };
 
-		m_QuadVA = CreatePtr<VertexArray>(4);
-		m_QuadVB = CreatePtr<VertexBuffer>(quadVertices, sizeof(quadVertices));
-		m_QuadIB = CreatePtr<IndexBuffer>(quadIndices, 6);
-		VertexBufferLayout quadLayout;
-		quadLayout.Push<float>(2);
-		quadLayout.Push<float>(2);
-		m_QuadVA->AddBuffer(*m_QuadVB, quadLayout);
+		m_Shader = RHIShader::Create("D:/Code/C++/Tsundere/res/shaders/ShadowApply.shader");
 
-		m_Shader = CreatePtr<GLShader>("D:/Code/C++/Tsundere/res/shaders/ShadowApply.shader");
+		m_QuadVB = RHIBuffer::Create(BufferDesc{ (uint32_t)sizeof(quadVertices), BufferUsage::Vertex, false, quadVertices });
+		m_QuadIB = RHIBuffer::Create(BufferDesc{ (uint32_t)(6 * sizeof(unsigned int)), BufferUsage::Index, false, quadIndices });
+		m_QuadIndexCount = 6;
+		VertexLayout quadLayout;
+		quadLayout.stride = 4 * sizeof(float);
+		quadLayout.attributes = {
+			{ 0, VertexFormat::Float2, 0 },
+			{ 1, VertexFormat::Float2, 2 * sizeof(float) },
+		};
+		PipelineDesc quadDesc;
+		quadDesc.shader = m_Shader;
+		quadDesc.vertexLayout = quadLayout;
+		quadDesc.cullMode = CullMode::None;
+		quadDesc.depthTest = false;
+		m_QuadPipeline = RHIPipeline::Create(quadDesc);
 		CreateOutputTex(m_Spec.Width, m_Spec.Height);
 	}
 
@@ -33,26 +41,27 @@ public:
 		if (!resources.ShadowMask)
 			return;
 
-		// Bind intermediate FBO for output (avoids reading+writing same texture)
-		glBindFramebuffer(GL_FRAMEBUFFER, m_OutputFBO);
-		glViewport(0, 0, m_Spec.Width, m_Spec.Height);
+		auto cmd = RHIRenderer::GetCmd();
 
-		m_Shader->Bind();
+		// Bind intermediate FBO for output (avoids reading+writing same texture).
+		// Fullscreen quad overwrites every pixel, so no clear is needed.
+		RenderPassBeginInfo beginInfo;
+		cmd->BeginRenderPass(m_OutputFBO, beginInfo);
+		cmd->SetDepthTest(false);
 
-		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_2D, resources.SceneColorTexture);
-		m_Shader->SetUniform1i("u_SceneColor", 0);
+		cmd->BindPipeline(m_QuadPipeline);
+		cmd->BindVertexBuffer(m_QuadVB);
+		cmd->BindIndexBuffer(m_QuadIB);
 
-		glActiveTexture(GL_TEXTURE1);
-		glBindTexture(GL_TEXTURE_2D, resources.ShadowMask);
-		m_Shader->SetUniform1i("u_ShadowMask", 1);
+		// Samplers are at bindings 10 (u_SceneColor) and 11 (u_ShadowMask);
+		// in GLSL 420 `layout(binding=N)` makes the sampler read from unit N.
+		cmd->BindTexture2D(10, resources.SceneColorTexture);
+		cmd->BindTexture2D(11, resources.ShadowMask);
 
-		Renderer renderer;
-		renderer.DrawElement(*m_QuadVA, *m_QuadIB, *m_Shader);
+		cmd->DrawIndexed(m_QuadIndexCount);
+		cmd->EndRenderPass();
 
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-		resources.SceneColorTexture = m_OutputTex;
+		resources.SceneColorTexture = (unsigned int)m_OutputFBO->GetColorAttachmentID(0);
 	}
 
 	// --- RenderGraph path (stage 4) ---
@@ -94,22 +103,20 @@ public:
 				if (!color || !mask)
 					return;
 
-				m_Shader->Bind();
-
-				glActiveTexture(GL_TEXTURE0);
-				glBindTexture(GL_TEXTURE_2D, (GLuint)color->GetNativeID());
-				m_Shader->SetUniform1i("u_SceneColor", 0);
-
-				glActiveTexture(GL_TEXTURE1);
-				glBindTexture(GL_TEXTURE_2D, (GLuint)mask->GetNativeID());
-				m_Shader->SetUniform1i("u_ShadowMask", 1);
-
 				// Fullscreen resolve — depth testing would reject the quad against
 				// whatever depth the previous pass left bound.
-				glDisable(GL_DEPTH_TEST);
+				// Fullscreen resolve — depth testing would reject the quad against
+				// whatever depth the previous pass left bound.
+				cmd.SetDepthTest(false);
 
-				Renderer renderer;
-				renderer.DrawElement(*m_QuadVA, *m_QuadIB, *m_Shader);
+				cmd.BindPipeline(m_QuadPipeline);
+				cmd.BindVertexBuffer(m_QuadVB);
+				cmd.BindIndexBuffer(m_QuadIB);
+
+				cmd.BindTexture2D(10, color->GetNativeID());
+				cmd.BindTexture2D(11, mask->GetNativeID());
+
+				cmd.DrawIndexed(m_QuadIndexCount);
 			});
 
 		return output;
@@ -125,32 +132,16 @@ public:
 private:
 	void CreateOutputTex(unsigned int w, unsigned int h)
 	{
-		if (m_OutputTex)
-			glDeleteTextures(1, &m_OutputTex);
-		if (m_OutputFBO)
-			glDeleteFramebuffers(1, &m_OutputFBO);
-
-		glGenTextures(1, &m_OutputTex);
-		glBindTexture(GL_TEXTURE_2D, m_OutputTex);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
-		glGenFramebuffers(1, &m_OutputFBO);
-		glBindFramebuffer(GL_FRAMEBUFFER, m_OutputFBO);
-		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_OutputTex, 0);
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-		glBindTexture(GL_TEXTURE_2D, 0);
+		m_OutputFBO = RHIFramebuffer::Create(FramebufferDesc{
+			w, h, { { Format::RGBA8_UNORM, 1 } }, false, 1 });
 	}
 
 	FrameBufferSpecification m_Spec;
-	Ptr<GLShader> m_Shader;
-	Ptr<VertexArray> m_QuadVA;
-	Ptr<VertexBuffer> m_QuadVB;
-	Ptr<IndexBuffer> m_QuadIB;
-	unsigned int m_OutputTex = 0;
-	unsigned int m_OutputFBO = 0;
+	Ref<RHIShader> m_Shader;
+	Ref<RHIBuffer> m_QuadVB;
+	Ref<RHIBuffer> m_QuadIB;
+	Ref<RHIPipeline> m_QuadPipeline;
+	unsigned int m_QuadIndexCount = 0;
+	Ref<RHIFramebuffer> m_OutputFBO;
 };
 

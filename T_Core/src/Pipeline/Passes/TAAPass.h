@@ -6,9 +6,9 @@ class TAAPass : public RenderPass
 public:
 	bool Enabled = true;
 
-	void Init(Ref<FrameBuffer>& fb, Ref<RHIFramebuffer> RHIFrameBuffer = nullptr) override
+	void Init(Ref<RHIFramebuffer> fb) override
 	{
-		m_Spec = fb->GetSpecification();
+		m_Spec = { fb->GetWidth(), fb->GetHeight() };
 
 		float quadVertices[] = {
 			-1.0f,  1.0f,  0.0f, 1.0f,
@@ -18,15 +18,27 @@ public:
 		};
 		unsigned int quadIndices[] = { 0, 1, 2, 2, 3, 0 };
 
-		m_QuadVA = CreatePtr<VertexArray>(4);
-		m_QuadVB = CreatePtr<VertexBuffer>(quadVertices, sizeof(quadVertices));
-		m_QuadIB = CreatePtr<IndexBuffer>(quadIndices, 6);
-		VertexBufferLayout quadLayout;
-		quadLayout.Push<float>(2);
-		quadLayout.Push<float>(2);
-		m_QuadVA->AddBuffer(*m_QuadVB, quadLayout);
+		m_Shader = RHIShader::Create("D:/Code/C++/Tsundere/res/shaders/TAA.shader");
 
-		m_Shader = CreatePtr<GLShader>("D:/Code/C++/Tsundere/res/shaders/TAA.shader");
+		m_QuadVB = RHIBuffer::Create(BufferDesc{ (uint32_t)sizeof(quadVertices), BufferUsage::Vertex, false, quadVertices });
+		m_QuadIB = RHIBuffer::Create(BufferDesc{ (uint32_t)(6 * sizeof(unsigned int)), BufferUsage::Index, false, quadIndices });
+		m_QuadIndexCount = 6;
+		VertexLayout quadLayout;
+		quadLayout.stride = 4 * sizeof(float);
+		quadLayout.attributes = {
+			{ 0, VertexFormat::Float2, 0 },
+			{ 1, VertexFormat::Float2, 2 * sizeof(float) },
+		};
+		PipelineDesc quadDesc;
+		quadDesc.shader = m_Shader;
+		quadDesc.vertexLayout = quadLayout;
+		quadDesc.cullMode = CullMode::None;
+		quadDesc.depthTest = false;
+		m_QuadPipeline = RHIPipeline::Create(quadDesc);
+
+		// TAA's per-pass UBO: 2 mat4s. std140 layout packs each mat4 at
+		// 16-byte alignment, 64 bytes total.
+		m_UBO = RHIBuffer::Create(BufferDesc{ sizeof(TAAUBO), BufferUsage::Uniform, true, nullptr });
 	}
 
 	void Execute(Ref<Scene>, RenderResources& resources) override
@@ -36,11 +48,11 @@ public:
 
 		if (!m_HistoryFBOs[0])
 		{
-			m_HistoryFBOs[0] = CreatePtr<FrameBuffer>(m_Spec);
-			m_HistoryFBOs[1] = CreatePtr<FrameBuffer>(m_Spec);
+			m_HistoryFBOs[0] = RHIFramebuffer::Create(FramebufferDesc{ m_Spec.Width, m_Spec.Height, { { Format::RGBA8_UNORM, 1 } }, true, 1 });
+			m_HistoryFBOs[1] = RHIFramebuffer::Create(FramebufferDesc{ m_Spec.Width, m_Spec.Height, { { Format::RGBA8_UNORM, 1 } }, true, 1 });
 		}
 		if (!m_PrevDepthFBO)
-			m_PrevDepthFBO = CreatePtr<FrameBuffer>(m_Spec);
+			m_PrevDepthFBO = RHIFramebuffer::Create(FramebufferDesc{ m_Spec.Width, m_Spec.Height, { { Format::RGBA8_UNORM, 1 } }, true, 1 });
 
 		int nextIdx = (m_CurrentIdx + 1) % 2;
 
@@ -48,70 +60,67 @@ public:
 		mat4 proj = currentcamera->GetProj();
 		mat4 currentViewProj = proj * view;
 
-		m_HistoryFBOs[nextIdx]->Bind();
-		glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		auto cmd = RHIRenderer::GetCmd();
+
+		RenderPassBeginInfo beginInfo;
+		beginInfo.colorClears = { { true, { 0.1f, 0.1f, 0.1f, 1.0f } } };
+		beginInfo.clearDepth      = true;
+		beginInfo.depthClearValue = 1.0f;
+		cmd->BeginRenderPass(m_HistoryFBOs[nextIdx], beginInfo);
 
 		if (m_Shader)
 		{
-			m_Shader->Bind();
+			// Fill the per-pass UBO and push it. The struct mirrors
+			// PerPass_TAA in TAA.shader (std140 layout).
+			TAAUBO ubo;
+			ubo.u_InverseViewProj = glm::inverse(currentViewProj);
+			ubo.u_PrevViewProj    = m_PrevViewProj;
+			m_UBO->Upload(&ubo, sizeof(ubo));
 
+			// Bind samplers. With GLSL 420's `layout(binding=N)` qualifier,
+			// sampler N reads from texture unit N. The texture unit we hand
+			// the descriptor set must match the binding. Phase 3 will fold
+			// these into the descriptor set too; for now keep cmd->BindTexture2D.
+			RHITexture2D* historyCol = m_HistoryFBOs[m_CurrentIdx]->GetColorAttachment(0);
+			RHITexture2D* historyDep = m_PrevDepthFBO->GetDepthAttachment();
+			cmd->BindTexture2D(10, resources.SceneColorTexture);
+			if (historyCol) cmd->BindTexture2D(11, historyCol->GetNativeID());
+			cmd->BindTexture2D(12, resources.VelocityTexture);
+			cmd->BindTexture2D(13, resources.DepthTexture);
+			if (historyDep) cmd->BindTexture2D(14, historyDep->GetNativeID());
+			// Bind the UBO at binding 0 — the descriptor set owns this
+			// binding from here on.
+			m_DescriptorSet->Reset();
+			m_DescriptorSet->BindUniformBuffer(0, m_UBO);
+			m_DescriptorSet->Apply(0);
 
+			cmd->BindPipeline(m_QuadPipeline);
+			cmd->BindVertexBuffer(m_QuadVB);
+			cmd->BindIndexBuffer(m_QuadIB);
 
-
-			glActiveTexture(GL_TEXTURE0);
-			glBindTexture(GL_TEXTURE_2D, resources.SceneColorTexture);
-			m_Shader->SetUniform1i("u_CurrentColor", 0);
-
-			glActiveTexture(GL_TEXTURE1);
-			glBindTexture(GL_TEXTURE_2D, m_HistoryFBOs[m_CurrentIdx]->GetClolorAttachmentRenderID());
-			m_Shader->SetUniform1i("u_HistoryColor", 1);
-
-			glActiveTexture(GL_TEXTURE2);
-			glBindTexture(GL_TEXTURE_2D, resources.VelocityTexture);
-			m_Shader->SetUniform1i("u_VelocityTex", 2);
-
-			glActiveTexture(GL_TEXTURE3);
-			glBindTexture(GL_TEXTURE_2D, resources.DepthTexture);
-			m_Shader->SetUniform1i("u_DepthTex", 3);
-
-			glActiveTexture(GL_TEXTURE4);
-			glBindTexture(GL_TEXTURE_2D, m_PrevDepthFBO->GetDepthAttachmentRenderID());
-			m_Shader->SetUniform1i("u_HistoryDepthTex", 4);
-
-			m_Shader->SetUniformMat4f("u_InverseViewProj", glm::inverse(currentViewProj));
-			m_Shader->SetUniformMat4f("u_PrevViewProj", m_PrevViewProj);
-
-			Renderer renderer;
-			renderer.DrawElement(*m_QuadVA, *m_QuadIB, *m_Shader);
+			cmd->DrawIndexed(m_QuadIndexCount);
 		}
 
-		m_HistoryFBOs[nextIdx]->UnBind();
+		cmd->EndRenderPass();
 
 		if (resources.SourceFBO)
 		{
-			glBindFramebuffer(GL_READ_FRAMEBUFFER, resources.SourceFBO);
-			glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_PrevDepthFBO->GetFrameID());
-			glBlitFramebuffer(0, 0, m_Spec.Width, m_Spec.Height,
-				0, 0, m_Spec.Width, m_Spec.Height,
-				GL_DEPTH_BUFFER_BIT, GL_NEAREST);
-			glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
-			glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+			cmd->BlitDepth(resources.SourceFBO, m_PrevDepthFBO);
 		}
 
 		m_PrevViewProj = currentViewProj;
 		m_CurrentIdx = nextIdx;
 
-		resources.SceneColorTexture = m_HistoryFBOs[m_CurrentIdx]->GetClolorAttachmentRenderID();
+		resources.SceneColorTexture = (unsigned int)m_HistoryFBOs[m_CurrentIdx]->GetColorAttachmentID(0);
 	}
 
 	void OnResize(unsigned int w, unsigned int h)
 	{
 		m_Spec.Width = w;
 		m_Spec.Height = h;
-		if (m_HistoryFBOs[0]) m_HistoryFBOs[0]->Rsetsize({ w, h });
-		if (m_HistoryFBOs[1]) m_HistoryFBOs[1]->Rsetsize({ w, h });
-		if (m_PrevDepthFBO)  m_PrevDepthFBO->Rsetsize({ w, h });
+		if (m_HistoryFBOs[0]) m_HistoryFBOs[0]->Resize(w, h);
+		if (m_HistoryFBOs[1]) m_HistoryFBOs[1]->Resize(w, h);
+		if (m_PrevDepthFBO)  m_PrevDepthFBO->Resize(w, h);
 
 		// Graph-path history is owned here too, so it resizes with the viewport.
 		if (m_GraphHistory)   m_GraphHistory->Resize(w, h);
@@ -179,37 +188,44 @@ public:
 				if (!m_Shader)
 					return;
 
+				// A fullscreen resolve must not be depth-rejected by the target.
+				cmd.SetDepthTest(false);
+
+				// match the legacy path: UBO at binding 0, samplers at 10..14.
+				// The shader parser no longer exposes u_InverseViewProj /
+				// u_PrevViewProj as standalone uniforms — they live in PerPass_TAA
+				// now, so the only way to feed them is via the UBO + descriptor set.
+				TAAUBO ubo;
 				mat4 view = currentcamera->GetViewFront();
 				mat4 proj = currentcamera->GetProj();
 				mat4 currentViewProj = proj * view;
+				ubo.u_InverseViewProj = glm::inverse(currentViewProj);
+				ubo.u_PrevViewProj    = m_PrevViewProj;
+				m_UBO->Upload(&ubo, sizeof(ubo));
 
-				auto bindTex = [&](uint32_t unit, RGTextureHandle handle, const char* uniform)
+				m_DescriptorSet->Reset();
+				m_DescriptorSet->BindUniformBuffer(0, m_UBO);
+				m_DescriptorSet->Apply(0);
+
+				auto bindTex = [&](uint32_t unit, RGTextureHandle handle)
 				{
 					RHITexture2D* tex = resources.GetTexture(handle);
-					glActiveTexture(GL_TEXTURE0 + unit);
-					glBindTexture(GL_TEXTURE_2D,
-						tex ? (unsigned int)tex->GetNativeID() : 0);
-					m_Shader->SetUniform1i(uniform, (int)unit);
+					cmd.BindTexture2D(unit, tex ? tex->GetNativeID() : 0);
 				};
 
-				m_Shader->Bind();
+				bindTex(10, sceneColor);
+				bindTex(11, history);
+				bindTex(12, velocity);
+				bindTex(13, depth);
+				bindTex(14, prevDepth);
 
-				bindTex(0, sceneColor, "u_CurrentColor");
-				bindTex(1, history,    "u_HistoryColor");
-				bindTex(2, velocity,   "u_VelocityTex");
-				bindTex(3, depth,      "u_DepthTex");
-				bindTex(4, prevDepth,  "u_HistoryDepthTex");
+				cmd.BindPipeline(m_QuadPipeline);
+				cmd.BindVertexBuffer(m_QuadVB);
+				cmd.BindIndexBuffer(m_QuadIB);
 
-				m_Shader->SetUniformMat4f("u_InverseViewProj", glm::inverse(currentViewProj));
-				m_Shader->SetUniformMat4f("u_PrevViewProj", m_PrevViewProj);
+				cmd.DrawIndexed(m_QuadIndexCount);
 
-				// A fullscreen resolve must not be depth-rejected by the target.
-				glDisable(GL_DEPTH_TEST);
-
-				Renderer renderer;
-				renderer.DrawElement(*m_QuadVA, *m_QuadIB, *m_Shader);
-
-				glEnable(GL_DEPTH_TEST);
+				cmd.SetDepthTest(true);
 
 				// Advanced at execute time, not build time: the graph is built
 				// once and replayed, so per-frame state must update in here.
@@ -233,10 +249,7 @@ public:
 				if (!src || !dst)
 					return;
 
-				glCopyImageSubData(
-					(unsigned int)src->GetNativeID(), GL_TEXTURE_2D, 0, 0, 0, 0,
-					(unsigned int)dst->GetNativeID(), GL_TEXTURE_2D, 0, 0, 0, 0,
-					(int)width, (int)height, 1);
+				cmd.CopyTexture(src, dst);
 			});
 
 		graph.AddPass(
@@ -254,10 +267,7 @@ public:
 				if (!src || !dst)
 					return;
 
-				glCopyImageSubData(
-					(unsigned int)src->GetNativeID(), GL_TEXTURE_2D, 0, 0, 0, 0,
-					(unsigned int)dst->GetNativeID(), GL_TEXTURE_2D, 0, 0, 0, 0,
-					(int)width, (int)height, 1);
+				cmd.CopyTexture(src, dst);
 			});
 
 		return output;
@@ -296,12 +306,24 @@ private:
 		}
 	}
 
-	Ptr<FrameBuffer> m_HistoryFBOs[2];
-	Ptr<FrameBuffer> m_PrevDepthFBO;
-	Ptr<GLShader> m_Shader;
-	Ptr<VertexArray> m_QuadVA;
-	Ptr<VertexBuffer> m_QuadVB;
-	Ptr<IndexBuffer> m_QuadIB;
+	Ref<RHIFramebuffer> m_HistoryFBOs[2];
+	Ref<RHIFramebuffer> m_PrevDepthFBO;
+	Ref<RHIShader> m_Shader;
+	Ref<RHIBuffer> m_QuadVB;
+	Ref<RHIBuffer> m_QuadIB;
+	Ref<RHIPipeline> m_QuadPipeline;
+	unsigned int m_QuadIndexCount = 0;
+
+	// Per-pass UBO (matches PerPass_TAA in TAA.shader). std140 packs each
+	// mat4 at 16-byte alignment, so the struct must use glm::mat4 (already
+	// 16-byte aligned) and not any custom packing.
+	struct TAAUBO
+	{
+		glm::mat4 u_InverseViewProj;   // offset  0
+		glm::mat4 u_PrevViewProj;      // offset 64
+	};
+	Ref<RHIBuffer>       m_UBO;
+	Ref<RHIDescriptorSet> m_DescriptorSet = RHIDescriptorSet::Create();
 
 	// RenderGraph path only — the legacy path keeps using m_HistoryFBOs.
 	Ref<RHITexture2D> m_GraphHistory;

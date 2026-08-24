@@ -20,6 +20,45 @@ class  GeometryPass : public RenderPass
 public:
 	bool EnableJitter = true;
 
+	// PerDraw_Geometry UBO: 5 mat4 = 320 bytes, uploaded every draw.
+	struct GeometryDrawUBO
+	{
+		glm::mat4 MVP_matrix;       //   0
+		glm::mat4 model;            //  64
+		glm::mat4 prevModel;        // 128
+		glm::mat4 viewProj;         // 192
+		glm::mat4 prevViewProj;     // 256
+	};
+	// PerFrame_Geometry UBO: vec4(16)+vec4(16)+float(4)+12pad+vec4(16)+mat4(64)+int(4)+int(4)+vec2(8)+float(4)+12pad = 160 bytes
+	struct GeometryFrameUBO
+	{
+		glm::vec4 lightDir;             //   0  (vec3 → vec4)
+		glm::vec4 lightColor;           //  16  (vec3 → vec4)
+		float     ambientStrength;      //  32
+		float     _pad0[3];             //  36..47 — std140 vec4 align
+		glm::vec4 viewPos;              //  48  (vec3 → vec4)
+		glm::mat4 u_LightViewProj;      //  64
+		int32_t   hasNormalMap;         // 128
+		int32_t   u_ShadowMapEnabled;   // 132
+		glm::vec2 u_ShadowMapSize;      // 136
+		float     u_LightSize;          // 144
+		int32_t   _pad1[3];             // 148..159 — std140 vec4 align
+	};
+	static_assert(sizeof(GeometryDrawUBO)  == 320, "GeometryDrawUBO");
+	static_assert(sizeof(GeometryFrameUBO) == 160, "GeometryFrameUBO");
+
+	Ref<RHIBuffer> m_DrawUBO  = RHIBuffer::Create(BufferDesc{ sizeof(GeometryDrawUBO),  BufferUsage::Uniform, true, nullptr });
+	Ref<RHIBuffer> m_FrameUBO = RHIBuffer::Create(BufferDesc{ sizeof(GeometryFrameUBO), BufferUsage::Uniform, true, nullptr });
+
+	// The pass has two UBOs that share shader binding 0 — one per-frame
+	// (light/view), one per-draw (model/viewproj). On GL, applying a desc set
+	// is just glBindBufferBase, so applying the draw UBO after the frame UBO
+	// at the same binding gives the draw UBO priority (the last writer wins).
+	// On Vulkan this would need two descriptor sets bound at two different
+	// binding slots, which requires splitting the PerFrame_Geometry UBO into
+	// a separate set; deferred until a Vulkan backend exists.
+	Ref<RHIDescriptorSet> m_GeometryDescriptorSet;
+
 	void Execute(Ref<Scene> scene, RenderResources& resources) override {
 		mat4 view = currentcamera->GetViewFront();
 		mat4 proj = currentcamera->GetProj();
@@ -41,29 +80,37 @@ public:
 			break;
 		}
 
-		Renderer renderer;
-		bool drewSomething = false;
-		RHI_DefaultTex->Bind(0);
-
-		// Shadow Map — Bind shader FIRST so uniforms go to the correct program
+		auto cmd = RHIRenderer::GetCmd();
 		m_LitShader->Bind();
-		glActiveTexture(GL_TEXTURE5);
-		if (resources.ShadowMapDepth)
-		{
-			glBindTexture(GL_TEXTURE_2D, resources.ShadowMapDepth);
-			m_LitShader->SetUniform1i("u_ShadowMapEnabled", 1);
-			m_LitShader->SetUniformMat4f("u_LightViewProj", resources.ShadowLightViewProj);
-		}
-		else
-		{
-			glBindTexture(GL_TEXTURE_2D, 0);
-			m_LitShader->SetUniform1i("u_ShadowMapEnabled", 0);
-			m_LitShader->SetUniformMat4f("u_LightViewProj", glm::mat4(1.0f));
-		}
-		m_LitShader->SetUniform1i("u_ShadowMap", 5);
-		m_LitShader->SetUniformVec2("u_ShadowMapSize", glm::vec2(2048.0f, 2048.0f));
-		m_LitShader->SetUniform1f("u_LightSize", 50.0f);
+		cmd->BindTexture2D(13, resources.ShadowMapDepth);
+		m_LitShader->SetUniform1i("u_ShadowMap", 13);
 
+		// PerFrame_Geometry UBO upload.
+		GeometryFrameUBO fubo;
+		fubo.lightDir           = glm::vec4(lightDir, 0.0f);
+		fubo.lightColor         = glm::vec4(lightColor, 0.0f);
+		fubo.ambientStrength    = ambientStrength;
+		fubo.viewPos            = glm::vec4(viewPos, 0.0f);
+		fubo.u_LightViewProj    = resources.ShadowMapDepth
+			? resources.ShadowLightViewProj
+			: glm::mat4(1.0f);
+		fubo.u_ShadowMapEnabled = resources.ShadowMapDepth ? 1 : 0;
+		fubo.u_ShadowMapSize    = glm::vec2(2048.0f, 2048.0f);
+		fubo.u_LightSize        = 50.0f;
+		fubo.hasNormalMap       = 0;
+		m_FrameUBO->Upload(&fubo, sizeof(fubo));
+
+		// Apply the per-frame UBO at binding 0. The descriptor set issues
+		// glBindBufferBase(GL_UNIFORM_BUFFER, 0, frameUBO), which is what
+		// actually exposes the data to the shader — Upload() only writes
+		// bytes, it does not bind to a slot.
+		if (!m_GeometryDescriptorSet)
+			m_GeometryDescriptorSet = RHIDescriptorSet::Create();
+		m_GeometryDescriptorSet->Reset();
+		m_GeometryDescriptorSet->BindUniformBuffer(0, m_FrameUBO);
+		m_GeometryDescriptorSet->Apply(0);
+
+		bool drewSomething = false;
 		for (auto [entityID, transform, meshrender] : scene->m_Registry.view<Component::Transform, Component::MeshRender>().each())
 		{
 			if (meshrender.ModelPath.empty() || meshrender.materials.empty())
@@ -87,30 +134,26 @@ public:
 
 				mat->Render(m_LitShader);
 
-				// Material::Render() re-uploads every uniform it found in the
-				// shader source, and Lit.shader declares u_ShadowMap as a
-				// sampler2D — so the material claims it as its 4th texture and
-				// overwrites u_ShadowMap with slot 4 (an empty material texture).
-				// u_ShadowMapSize / u_LightSize get zeroed the same way. The
-				// shadow map itself is still bound to GL_TEXTURE5; only the
-				// uniforms were clobbered, so restore them.
-				m_LitShader->SetUniform1i("u_ShadowMap", 5);
-				m_LitShader->SetUniform1i("u_ShadowMapEnabled", resources.ShadowMapDepth ? 1 : 0);
-				m_LitShader->SetUniformVec2("u_ShadowMapSize", glm::vec2(2048.0f, 2048.0f));
-				m_LitShader->SetUniform1f("u_LightSize", 50.0f);
+				// Per-draw UBO: 5 mat4s.
+				GeometryDrawUBO dubo;
+				dubo.MVP_matrix   = proj * view * modelMat;
+				dubo.model        = modelMat;
+				dubo.prevModel    = modelMat;
+				dubo.viewProj     = currentViewProj;
+				dubo.prevViewProj = m_PrevViewProjMatrix;
+				m_DrawUBO->Upload(&dubo, sizeof(dubo));
 
-				m_LitShader->SetUniformMat4f("MVP_matrix", proj * view * modelMat);
-				m_LitShader->SetUniformMat4f("model", modelMat);
-				m_LitShader->SetUniformMat4f("prevModel", modelMat);
-				m_LitShader->SetUniformMat4f("viewProj", currentViewProj);
-				m_LitShader->SetUniformMat4f("prevViewProj", m_PrevViewProjMatrix);
-				m_LitShader->SetUniformVec3("lightDir", lightDir);
-				m_LitShader->SetUniformVec3("lightColor", lightColor);
-				m_LitShader->SetUniform1f("ambientStrength", ambientStrength);
-				m_LitShader->SetUniformVec3("viewPos", viewPos);
-				m_LitShader->SetUniform1i("hasNormalMap", 0);
+				// Per-draw UBO at binding 0. With the per-frame UBO also at
+				// binding 0, the GL backend only sees the last apply — so we
+				// re-bind both, with the draw UBO last (matches the order in
+				// the legacy path which wrote draw UBO immediately before draw).
+				// The Vulkan backend will need two separate descriptor sets
+				// for that to be correct; see the comment on the struct.
+				m_GeometryDescriptorSet->Reset();
+				m_GeometryDescriptorSet->BindUniformBuffer(0, m_DrawUBO);
+				m_GeometryDescriptorSet->Apply(0);
 
-				mesh.gpuMesh->Draw();  // shader already bound by mat->Render()
+				mesh.gpuMesh->Draw();
 				drewSomething = true;
 			}
 		}
@@ -118,23 +161,32 @@ public:
 		if (!drewSomething)
 		{
 			m_LitShader->Bind();
-			m_LitShader->SetUniformMat4f("viewProj", currentViewProj);
-			m_LitShader->SetUniformMat4f("prevViewProj", m_PrevViewProjMatrix);
-			m_LitShader->SetUniformVec3("lightDir", lightDir);
-			m_LitShader->SetUniformVec3("lightColor", lightColor);
-			m_LitShader->SetUniform1f("ambientStrength", ambientStrength);
-			m_LitShader->SetUniformVec3("viewPos", viewPos);
-			m_LitShader->SetUniform1i("hasNormalMap", 0);
-
 			{
-				auto cmd = RHIRenderer::GetCmd();
+				// Fallback cube path. The sampler bindings (10/11/12) are
+				// still whatever the previous frame left, so pin them to
+				// 1x1 white before drawing — otherwise the cube samples
+				// stale history color or shadow mask and renders as
+				// random colors that drift with the camera.
+				RHI_DefaultTex->Bind(10);
+				RHI_DefaultTex->Bind(11);
+				RHI_DefaultTex->Bind(12);
 
 				// Draw cube (pipeline binds shader — set MVP first)
 				mat4 model = scale(mat4(1.0f), vec3(1.0f, 2.0f, 1.0f));
 				mat4 mvp = proj * view * model;
-				m_LitShader->SetUniformMat4f("MVP_matrix", mvp);
-				m_LitShader->SetUniformMat4f("model", model);
-				m_LitShader->SetUniformMat4f("prevModel", model);
+
+				GeometryDrawUBO dubo;
+				dubo.MVP_matrix   = mvp;
+				dubo.model        = model;
+				dubo.prevModel    = model;
+				dubo.viewProj     = currentViewProj;
+				dubo.prevViewProj = m_PrevViewProjMatrix;
+				m_DrawUBO->Upload(&dubo, sizeof(dubo));
+
+				m_GeometryDescriptorSet->Reset();
+				m_GeometryDescriptorSet->BindUniformBuffer(0, m_DrawUBO);
+				m_GeometryDescriptorSet->Apply(0);
+
 				cmd->BindPipeline(m_CubePipeline);
 				cmd->DrawIndexed(36);  // cube
 
@@ -142,9 +194,15 @@ public:
 				mat4 floorModel = translate(mat4(1.0f), vec3(0.0f, -2.0f, 0.0f));
 				floorModel = scale(floorModel, vec3(10.0f, 0.05f, 10.0f));
 				mat4 floorMVP = proj * view * floorModel;
-				m_LitShader->SetUniformMat4f("MVP_matrix", floorMVP);
-				m_LitShader->SetUniformMat4f("model", floorModel);
-				m_LitShader->SetUniformMat4f("prevModel", floorModel);
+				dubo.MVP_matrix   = floorMVP;
+				dubo.model        = floorModel;
+				dubo.prevModel    = floorModel;
+				m_DrawUBO->Upload(&dubo, sizeof(dubo));
+
+				m_GeometryDescriptorSet->Reset();
+				m_GeometryDescriptorSet->BindUniformBuffer(0, m_DrawUBO);
+				m_GeometryDescriptorSet->Apply(0);
+
 				cmd->DrawIndexed(36);  // floor
 
 				m_CubePipeline->Unbind();
@@ -238,37 +296,48 @@ public:
 				// Depth testing is not enabled globally in the app init path, and
 				// the mesh draw path below does not bind a pipeline that would set
 				// it. Enable it explicitly so graph geometry depth-sorts correctly.
-				glEnable(GL_DEPTH_TEST);
-				glDepthFunc(GL_LESS);
+				cmd.SetDepthTest(true);
+				cmd.SetDepthFunc(CompareOp::Less);
 
 				// Skybox first, matching the legacy forward chain, which drew it
 				// into the bound FBO before the geometry pass ran. It masks depth
 				// writes internally and restores them, leaving the state above intact.
 				currentcamera->RenderSkyBox();
 
-				Renderer renderer;
+				// PerFrame_Geometry UBO. Uniform paths no longer drive these
+				// fields — they live in PerFrame_Geometry now — so the only
+				// way to feed them is via the UBO + descriptor set.
+				RHITexture2D* shadowTex = hasShadow ? resources.GetTexture(shadowDepth) : nullptr;
+
+				GeometryFrameUBO fubo;
+				fubo.lightDir           = glm::vec4(lightDir, 0.0f);
+				fubo.lightColor         = glm::vec4(lightColor, 0.0f);
+				fubo.ambientStrength    = ambientStrength;
+				fubo.viewPos            = glm::vec4(viewPos, 0.0f);
+				fubo.u_LightViewProj    = shadowTex
+					? frameData->ShadowLightViewProj
+					: glm::mat4(1.0f);
+				fubo.u_ShadowMapEnabled = shadowTex ? 1 : 0;
+				fubo.u_ShadowMapSize    = glm::vec2(2048.0f, 2048.0f);
+				fubo.u_LightSize        = 50.0f;
+				fubo.hasNormalMap       = 0;
+				m_FrameUBO->Upload(&fubo, sizeof(fubo));
+
+				// Bind shader before applying the descriptor set so the next
+				// glBindBufferBase lands on a program that reads it.
+				m_LitShader->Bind();
+
+				if (!m_GeometryDescriptorSet)
+					m_GeometryDescriptorSet = RHIDescriptorSet::Create();
+				m_GeometryDescriptorSet->Reset();
+				m_GeometryDescriptorSet->BindUniformBuffer(0, m_FrameUBO);
+				m_GeometryDescriptorSet->Apply(0);
+
+				// u_ShadowMap is a sampler at binding 13, not a UBO field.
+				cmd.BindTexture2D(13, shadowTex ? shadowTex->GetNativeID() : 0);
+
 				bool drewSomething = false;
 				RHI_DefaultTex->Bind(0);
-
-				// Bind shader before setting uniforms so they reach this program.
-				m_LitShader->Bind();
-				glActiveTexture(GL_TEXTURE5);
-				RHITexture2D* shadowTex = hasShadow ? resources.GetTexture(shadowDepth) : nullptr;
-				if (shadowTex)
-				{
-					glBindTexture(GL_TEXTURE_2D, (GLuint)shadowTex->GetNativeID());
-					m_LitShader->SetUniform1i("u_ShadowMapEnabled", 1);
-					m_LitShader->SetUniformMat4f("u_LightViewProj", frameData->ShadowLightViewProj);
-				}
-				else
-				{
-					glBindTexture(GL_TEXTURE_2D, 0);
-					m_LitShader->SetUniform1i("u_ShadowMapEnabled", 0);
-					m_LitShader->SetUniformMat4f("u_LightViewProj", glm::mat4(1.0f));
-				}
-				m_LitShader->SetUniform1i("u_ShadowMap", 5);
-				m_LitShader->SetUniformVec2("u_ShadowMapSize", glm::vec2(2048.0f, 2048.0f));
-				m_LitShader->SetUniform1f("u_LightSize", 50.0f);
 
 				for (auto [entityID, transform, meshrender] : scene->m_Registry.view<Component::Transform, Component::MeshRender>().each())
 				{
@@ -293,24 +362,19 @@ public:
 
 						mat->Render(m_LitShader);
 
-						// See the same restore in Execute(): Material::Render()
-						// claims u_ShadowMap as one of its own textures and
-						// zeroes u_ShadowMapSize / u_LightSize.
-						m_LitShader->SetUniform1i("u_ShadowMap", 5);
-						m_LitShader->SetUniform1i("u_ShadowMapEnabled", shadowTex ? 1 : 0);
-						m_LitShader->SetUniformVec2("u_ShadowMapSize", glm::vec2(2048.0f, 2048.0f));
-						m_LitShader->SetUniform1f("u_LightSize", 50.0f);
+						// Per-draw UBO; rebind at binding 0 so the draw
+						// matrices reach the shader before the draw call.
+						GeometryDrawUBO dubo;
+						dubo.MVP_matrix   = proj * view * modelMat;
+						dubo.model        = modelMat;
+						dubo.prevModel    = modelMat;
+						dubo.viewProj     = currentViewProj;
+						dubo.prevViewProj = m_PrevViewProjMatrix;
+						m_DrawUBO->Upload(&dubo, sizeof(dubo));
 
-						m_LitShader->SetUniformMat4f("MVP_matrix", proj * view * modelMat);
-						m_LitShader->SetUniformMat4f("model", modelMat);
-						m_LitShader->SetUniformMat4f("prevModel", modelMat);
-						m_LitShader->SetUniformMat4f("viewProj", currentViewProj);
-						m_LitShader->SetUniformMat4f("prevViewProj", m_PrevViewProjMatrix);
-						m_LitShader->SetUniformVec3("lightDir", lightDir);
-						m_LitShader->SetUniformVec3("lightColor", lightColor);
-						m_LitShader->SetUniform1f("ambientStrength", ambientStrength);
-						m_LitShader->SetUniformVec3("viewPos", viewPos);
-						m_LitShader->SetUniform1i("hasNormalMap", 0);
+						m_GeometryDescriptorSet->Reset();
+						m_GeometryDescriptorSet->BindUniformBuffer(0, m_DrawUBO);
+						m_GeometryDescriptorSet->Apply(0);
 
 						mesh.gpuMesh->Draw();
 						drewSomething = true;
@@ -320,28 +384,107 @@ public:
 				if (!drewSomething)
 				{
 					m_LitShader->Bind();
-					m_LitShader->SetUniformMat4f("viewProj", currentViewProj);
-					m_LitShader->SetUniformMat4f("prevViewProj", m_PrevViewProjMatrix);
-					m_LitShader->SetUniformVec3("lightDir", lightDir);
-					m_LitShader->SetUniformVec3("lightColor", lightColor);
-					m_LitShader->SetUniform1f("ambientStrength", ambientStrength);
-					m_LitShader->SetUniformVec3("viewPos", viewPos);
-					m_LitShader->SetUniform1i("hasNormalMap", 0);
+
+					// Per-frame UBO again (the mesh loop above would have
+					// rebound the draw UBO if it ran).
+					m_GeometryDescriptorSet->Reset();
+					m_GeometryDescriptorSet->BindUniformBuffer(0, m_FrameUBO);
+					m_GeometryDescriptorSet->Apply(0);
+
+					// DEBUG: dump UBO binding state
+					GLint bound0 = 0;
+					glGetIntegerv(GL_UNIFORM_BUFFER_BINDING, &bound0);
+					GLint litProg = 0;
+					glGetIntegerv(GL_CURRENT_PROGRAM, &litProg);
+					Info_Core("CUBE fallback: gl UBO slot0={}, litProg={}", bound0, litProg);
+
+					// Dump the actual draw UBO bytes. If `model` is being
+					// reuploaded with anything other than the identity scale,
+					// the normal interpolation will skew.
+					GLint prog = 0;
+					glGetIntegerv(GL_CURRENT_PROGRAM, &prog);
+					if (prog != 0)
+					{
+						// Re-upload the draw UBO RIGHT NOW so we know bytes
+						// at this exact debug point reflect what the shader
+						// will see at the draw call.
+						mat4 md = scale(mat4(1.0f), vec3(1.0f, 2.0f, 1.0f));
+						GeometryDrawUBO dd;
+						dd.MVP_matrix   = proj * view * md;
+						dd.model        = md;
+						dd.prevModel    = md;
+						dd.viewProj     = currentViewProj;
+						dd.prevViewProj = m_PrevViewProjMatrix;
+						m_DrawUBO->Upload(&dd, sizeof(dd));
+
+						// Dump CPU-side first
+						Info_Core("  CPU-side dd:");
+						Info_Core("    MVP col 0: [{},{},{},{}]", dd.MVP_matrix[0][0], dd.MVP_matrix[0][1], dd.MVP_matrix[0][2], dd.MVP_matrix[0][3]);
+						Info_Core("    Model col 0: [{},{},{},{}]", dd.model[0][0], dd.model[0][1], dd.model[0][2], dd.model[0][3]);
+						Info_Core("    Model col 1: [{},{},{},{}]", dd.model[1][0], dd.model[1][1], dd.model[1][2], dd.model[1][3]);
+						Info_Core("    Model col 2: [{},{},{},{}]", dd.model[2][0], dd.model[2][1], dd.model[2][2], dd.model[2][3]);
+						Info_Core("    Model col 3: [{},{},{},{}]", dd.model[3][0], dd.model[3][1], dd.model[3][2], dd.model[3][3]);
+
+						m_GeometryDescriptorSet->Reset();
+						m_GeometryDescriptorSet->BindUniformBuffer(0, m_DrawUBO);
+						m_GeometryDescriptorSet->Apply(0);
+
+						GLint boundDraw = 0;
+						glGetIntegerv(GL_UNIFORM_BUFFER_BINDING, &boundDraw);
+						glBindBuffer(GL_UNIFORM_BUFFER, boundDraw);
+						float* p = (float*)glMapBufferRange(GL_UNIFORM_BUFFER, 0, sizeof(GeometryDrawUBO), GL_MAP_READ_BIT);
+						if (p)
+						{
+							Info_Core("  GPU drawUBO:");
+							Info_Core("    MVP col 0   : [{},{},{},{}]", p[0], p[1], p[2], p[3]);
+							Info_Core("    Model col 0: [{},{},{},{}]", p[16], p[17], p[18], p[19]);
+							Info_Core("    Model col 1: [{},{},{},{}]", p[20], p[21], p[22], p[23]);
+							Info_Core("    Model col 2: [{},{},{},{}]", p[24], p[25], p[26], p[27]);
+							Info_Core("    Model col 3: [{},{},{},{}]", p[28], p[29], p[30], p[31]);
+							glUnmapBuffer(GL_UNIFORM_BUFFER);
+						}
+						glBindBuffer(GL_UNIFORM_BUFFER, 0);
+					}
+					// Fallback cube path has no material, so the diffuse /
+					// specular / normal samplers would otherwise sample
+					// whatever was last bound to units 10/11/12 — leftover
+					// from the previous frame's history color, shadow mask,
+					// etc. Pin them to the 1x1 white so the cube renders
+					// solid white and lighting math has a stable input.
+					RHI_DefaultTex->Bind(10);
+					RHI_DefaultTex->Bind(11);
+					RHI_DefaultTex->Bind(12);
 
 					mat4 model = scale(mat4(1.0f), vec3(1.0f, 2.0f, 1.0f));
 					mat4 mvp = proj * view * model;
-					m_LitShader->SetUniformMat4f("MVP_matrix", mvp);
-					m_LitShader->SetUniformMat4f("model", model);
-					m_LitShader->SetUniformMat4f("prevModel", model);
+
+					GeometryDrawUBO dubo;
+					dubo.MVP_matrix   = mvp;
+					dubo.model        = model;
+					dubo.prevModel    = model;
+					dubo.viewProj     = currentViewProj;
+					dubo.prevViewProj = m_PrevViewProjMatrix;
+					m_DrawUBO->Upload(&dubo, sizeof(dubo));
+
+					m_GeometryDescriptorSet->Reset();
+					m_GeometryDescriptorSet->BindUniformBuffer(0, m_DrawUBO);
+					m_GeometryDescriptorSet->Apply(0);
+
 					cmd.BindPipeline(m_CubePipeline);
 					cmd.DrawIndexed(36);
 
 					mat4 floorModel = translate(mat4(1.0f), vec3(0.0f, -2.0f, 0.0f));
 					floorModel = scale(floorModel, vec3(10.0f, 0.05f, 10.0f));
 					mat4 floorMVP = proj * view * floorModel;
-					m_LitShader->SetUniformMat4f("MVP_matrix", floorMVP);
-					m_LitShader->SetUniformMat4f("model", floorModel);
-					m_LitShader->SetUniformMat4f("prevModel", floorModel);
+					dubo.MVP_matrix   = floorMVP;
+					dubo.model        = floorModel;
+					dubo.prevModel    = floorModel;
+					m_DrawUBO->Upload(&dubo, sizeof(dubo));
+
+					m_GeometryDescriptorSet->Reset();
+					m_GeometryDescriptorSet->BindUniformBuffer(0, m_DrawUBO);
+					m_GeometryDescriptorSet->Apply(0);
+
 					cmd.DrawIndexed(36);
 
 					m_CubePipeline->Unbind();
@@ -354,8 +497,8 @@ public:
 		return out;
 	}
 
-	void Init(Ref<FrameBuffer>& m_GBuffer, Ref<RHIFramebuffer> RHIFrameBuffer = nullptr)override {
-		this->m_RHIGbuffer = RHIFrameBuffer;
+	void Init(Ref<RHIFramebuffer> fb)override {
+		this->m_RHIGbuffer = fb;
 
 
 		float position[] =

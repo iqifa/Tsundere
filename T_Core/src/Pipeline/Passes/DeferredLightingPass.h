@@ -107,9 +107,9 @@ public:
 		return output;
 	}
 
-	void Init(Ref<FrameBuffer>& fb, Ref<RHIFramebuffer> RHIFrameBuffer = nullptr) override
+	void Init(Ref<RHIFramebuffer> fb) override
 	{
-		m_Spec = fb->GetSpecification();
+		m_Spec = { fb->GetWidth(), fb->GetHeight() };
 
 		float quadVertices[] = {
 			-1.0f,  1.0f,  0.0f, 1.0f,
@@ -119,31 +119,36 @@ public:
 		};
 		unsigned int quadIndices[] = { 0, 1, 2, 2, 3, 0 };
 
-		m_QuadVA = CreatePtr<VertexArray>(4);
-		m_QuadVB = CreatePtr<VertexBuffer>(quadVertices, sizeof(quadVertices));
-		m_QuadIB = CreatePtr<IndexBuffer>(quadIndices, 6);
-		VertexBufferLayout quadLayout;
-		quadLayout.Push<float>(2);
-		quadLayout.Push<float>(2);
-		m_QuadVA->AddBuffer(*m_QuadVB, quadLayout);
-
 		m_Shader = ShaderLibiray::Get("D:/Code/C++/Tsundere/res/shaders/DeferredLighting.shader");
-		m_ClusterShader = GLShader::CreateCompute("D:/Code/C++/Tsundere/res/shaders/ClusterLightCulling.shader");
+
+		m_QuadVB = RHIBuffer::Create(BufferDesc{ (uint32_t)sizeof(quadVertices), BufferUsage::Vertex, false, quadVertices });
+		m_QuadIB = RHIBuffer::Create(BufferDesc{ (uint32_t)(6 * sizeof(unsigned int)), BufferUsage::Index, false, quadIndices });
+		m_QuadIndexCount = 6;
+		VertexLayout quadLayout;
+		quadLayout.stride = 4 * sizeof(float);
+		quadLayout.attributes = {
+			{ 0, VertexFormat::Float2, 0 },
+			{ 1, VertexFormat::Float2, 2 * sizeof(float) },
+		};
+		PipelineDesc quadDesc;
+		quadDesc.shader = m_Shader;
+		quadDesc.vertexLayout = quadLayout;
+		quadDesc.cullMode = CullMode::None;
+		quadDesc.depthTest = false;
+		m_QuadPipeline = RHIPipeline::Create(quadDesc);
+		m_ClusterShader = RHIShader::CreateCompute("D:/Code/C++/Tsundere/res/shaders/ClusterLightCulling.shader");
 
 		unsigned char white[4] = { 255, 255, 255, 255 };
-		glGenTextures(1, &m_DefaultWhiteTex);
-		glBindTexture(GL_TEXTURE_2D, m_DefaultWhiteTex);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, white);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		// Default black texture for DDGI fallback
+		m_DefaultWhiteTex = RHITexture2D::Create(Texture2DDesc{
+			1, 1, Format::RGBA8_UNORM, FilterMode::Linear, FilterMode::Linear,
+			WrapMode::ClampToEdge, WrapMode::ClampToEdge, false, white });
 		unsigned char black2[4] = { 0, 0, 0, 255 };
-		glGenTextures(1, &m_DefaultBlackTex);
-		glBindTexture(GL_TEXTURE_2D, m_DefaultBlackTex);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, black2);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		m_DefaultBlackTex = RHITexture2D::Create(Texture2DDesc{
+			1, 1, Format::RGBA8_UNORM, FilterMode::Linear, FilterMode::Linear,
+			WrapMode::ClampToEdge, WrapMode::ClampToEdge, false, black2 });
 
+		// 1x1 black fallback cubemap. No procedural-cubemap path in RHI yet, so
+		// this one texture is still created through the GL backend directly.
 		unsigned char black[4] = { 0, 0, 0, 255 };
 		glGenTextures(1, &m_DefaultCubemap);
 		glBindTexture(GL_TEXTURE_CUBE_MAP, m_DefaultCubemap);
@@ -188,132 +193,109 @@ public:
 		// In graph mode the RenderGraph has already bound its own attachment and
 		// set the viewport. Binding m_OutputFBO here would redirect the draw into
 		// this pass's private target, leaving the graph's texture empty.
+		auto cmd = RHIRenderer::GetCmd();
 		if (!m_GraphManagedTarget)
 		{
-			glBindFramebuffer(GL_FRAMEBUFFER, m_OutputFBO);
-			glViewport(0, 0, m_Spec.Width, m_Spec.Height);
+			// Fullscreen quad overwrites every pixel; no clear needed.
+			RenderPassBeginInfo beginInfo;
+			cmd->BeginRenderPass(m_OutputFBO, beginInfo);
 		}
-		glDisable(GL_DEPTH_TEST);
+		cmd->SetDepthTest(false);
 
-		m_Shader->Bind();
-
-		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_2D, resources.GBufferPosition);
-		m_Shader->SetUniform1i("u_GBufferPosition", 0);
-
-		glActiveTexture(GL_TEXTURE1);
-		glBindTexture(GL_TEXTURE_2D, resources.GBufferNormal);
-		m_Shader->SetUniform1i("u_GBufferNormal", 1);
-
-		glActiveTexture(GL_TEXTURE2);
-		glBindTexture(GL_TEXTURE_2D, resources.GBufferAlbedo);
-		m_Shader->SetUniform1i("u_GBufferAlbedo", 2);
-
-		glActiveTexture(GL_TEXTURE3);
-		glBindTexture(GL_TEXTURE_2D, resources.GBufferSpecular);
-		m_Shader->SetUniform1i("u_GBufferSpecular", 3);
-
-		glActiveTexture(GL_TEXTURE4);
-		if (resources.ShadowMask)
-			glBindTexture(GL_TEXTURE_2D, resources.ShadowMask);
-		else
-			glBindTexture(GL_TEXTURE_2D, m_DefaultWhiteTex);
-		m_Shader->SetUniform1i("u_ShadowMask", 4);
-
-		glActiveTexture(GL_TEXTURE5);
-		glBindTexture(GL_TEXTURE_2D, resources.DepthTexture);
-		m_Shader->SetUniform1i("u_Depth", 5);
-
-		m_Shader->SetUniformVec3("u_LightDir", lightDir);
-		m_Shader->SetUniformVec3("u_LightColor", lightColor);
-		m_Shader->SetUniform1f("u_AmbientStrength", ambientStrength);
-		m_Shader->SetUniformVec3("u_ViewPos", viewPos);
-
+		// Build the per-pass UBO. Field order mirrors PerPass_DeferredLighting
+		// in DeferredLighting.shader (std140 layout).
+		DeferredLightingUBO ubo;
 		mat4 viewNoTrans = mat4(mat3(currentcamera->GetViewFront()));
 		mat4 proj = currentcamera->GetProj();
-		mat4 invViewProjNoTrans = inverse(proj * viewNoTrans);
-		m_Shader->SetUniformMat4f("u_InvViewProjNoTrans", invViewProjNoTrans);
-
-		glActiveTexture(GL_TEXTURE6);
-		if (currentcamera->skybox && currentcamera->skybox->m_Cmp)
-			glBindTexture(GL_TEXTURE_CUBE_MAP, currentcamera->skybox->m_Cmp->GetMap());
-		else
-			glBindTexture(GL_TEXTURE_CUBE_MAP, m_DefaultCubemap);
-		m_Shader->SetUniform1i("u_Skybox", 6);
-
-		// --- DDGI indirect diffuse ---
-		glActiveTexture(GL_TEXTURE7);
-		if (m_DDGIPass && DDGIEnabled && resources.DDGIIrradianceAtlas)
-		{
-			glBindTexture(GL_TEXTURE_2D, resources.DDGIIrradianceAtlas);
-			m_Shader->SetUniform1i("u_DDGIEnabled", 1);
-		}
-		else
-		{
-			glBindTexture(GL_TEXTURE_2D, m_DefaultBlackTex);
-			m_Shader->SetUniform1i("u_DDGIEnabled", 0);
-		}
-		m_Shader->SetUniform1i("u_DDGIIrradiance", 7);
-
-		glActiveTexture(GL_TEXTURE8);
-		if (m_DDGIPass && DDGIEnabled && resources.DDGIDepthAtlas)
-			glBindTexture(GL_TEXTURE_2D, resources.DDGIDepthAtlas);
-		else
-			glBindTexture(GL_TEXTURE_2D, m_DefaultWhiteTex);
-		m_Shader->SetUniform1i("u_DDGIDepth", 8);
-
-		// --- Shadow Map (texture unit 9) ---
-		glActiveTexture(GL_TEXTURE9);
-		if (resources.ShadowMapDepth)
-		{
-			glBindTexture(GL_TEXTURE_2D, resources.ShadowMapDepth);
-			m_Shader->SetUniform1i("u_ShadowMapEnabled", 1);
-			m_Shader->SetUniformMat4f("u_LightViewProj", resources.ShadowLightViewProj);
-		}
-		else
-		{
-			glBindTexture(GL_TEXTURE_2D, m_DefaultWhiteTex);
-			m_Shader->SetUniform1i("u_ShadowMapEnabled", 0);
-			m_Shader->SetUniformMat4f("u_LightViewProj", glm::mat4(1.0f));
-		}
-		m_Shader->SetUniform1i("u_ShadowMap", 9);
-		m_Shader->SetUniformVec2("u_ShadowMapSize", glm::vec2(2048.0f, 2048.0f));
-		m_Shader->SetUniform1f("u_LightSize", 50.0f);
-
-		// DDGI grid parameters
+		ubo.u_InvViewProjNoTrans = inverse(proj * viewNoTrans);
+		ubo.u_View              = currentcamera->GetViewFront();
+		ubo.u_LightViewProj     = resources.ShadowLightViewProj;
+		ubo.u_LightDir          = glm::vec4(lightDir, 0.0f);
+		ubo.u_LightColor        = glm::vec4(lightColor, 0.0f);
+		ubo.u_ViewPos           = glm::vec4(viewPos, 0.0f);
+		ubo.u_ViewportSize      = glm::vec2((float)m_Spec.Width, (float)m_Spec.Height);
+		ubo.u_ShadowMapSize     = glm::vec2(2048.0f, 2048.0f);
+		ubo.u_AmbientStrength   = ambientStrength;
+		ubo.u_Near              = 0.1f;
+		ubo.u_Far               = 100.0f;
+		ubo.u_LightSize         = 50.0f;
+		ubo.u_DDGIEnabled       = (m_DDGIPass && DDGIEnabled) ? 1 : 0;
+		ubo.u_ShadowMapEnabled  = resources.ShadowMapDepth ? 1 : 0;
+		ubo.u_TileSize          = ClusterTileSize;
+		ubo.u_ClusterCountX     = (int32_t)m_ClusterCountX;
+		ubo.u_ClusterCountY     = (int32_t)m_ClusterCountY;
+		ubo.u_ClusterCountZ     = (int32_t)m_ClusterCountZ;
+		ubo.u_MaxLightsPerCluster = MaxLightsPerCluster;
+		ubo.u_LocalLightCount   = (int32_t)m_GPULights.size();
+		ubo.u_ClusteredLightingEnabled = clusteredLighting ? 1 : 0;
+		ubo.u_DebugMode         = DebugMode;
 		if (m_DDGIPass && DDGIEnabled)
 		{
 			const glm::ivec3& gs = m_DDGIPass->GetGridSize();
-			m_Shader->SetUniform1i("u_DDGIGridSizeX", gs.x);
-			m_Shader->SetUniform1i("u_DDGIGridSizeY", gs.y);
-			m_Shader->SetUniform1i("u_DDGIGridSizeZ", gs.z);
-			m_Shader->SetUniformVec3("u_DDGIGridOrigin", m_DDGIPass->GetGridOrigin());
-			m_Shader->SetUniform1f("u_DDGISpacing", m_DDGIPass->GetSpacing());
-			m_Shader->SetUniform1f("u_DDGIProbeRadius", m_DDGIPass->GetProbeRadius());
-			m_Shader->SetUniform1f("u_DDGIDepthSharpness", m_DDGIPass->GetDepthSharpness());
-			m_Shader->SetUniform1i("u_DDGIProbesPerRow", m_DDGIPass->GetProbesPerRow());
+			ubo.u_DDGIGridSizeX = gs.x;
+			ubo.u_DDGIGridSizeY = gs.y;
+			ubo.u_DDGIGridSizeZ = gs.z;
+			ubo.u_DDGISpacing     = m_DDGIPass->GetSpacing();
+			ubo.u_DDGIProbeRadius = m_DDGIPass->GetProbeRadius();
+			ubo.u_DDGIDepthSharpness = m_DDGIPass->GetDepthSharpness();
+			ubo.u_DDGIProbesPerRow = m_DDGIPass->GetProbesPerRow();
+			ubo.u_DDGIGridOrigin = glm::vec4(m_DDGIPass->GetGridOrigin(), 0.0f);
 		}
 		else
 		{
-			m_Shader->SetUniform1i("u_DDGIGridSizeX", 0);
+			ubo.u_DDGIGridSizeX = 0;
+			ubo.u_DDGIGridSizeY = 0;
+			ubo.u_DDGIGridSizeZ = 0;
+			ubo.u_DDGISpacing     = 0.0f;
+			ubo.u_DDGIProbeRadius = 0.0f;
+			ubo.u_DDGIDepthSharpness = 0.0f;
+			ubo.u_DDGIProbesPerRow = 0;
+			ubo.u_DDGIGridOrigin = glm::vec4(0.0f);
 		}
 
-		m_Shader->SetUniform1f("u_Near", 0.1f);
-		m_Shader->SetUniform1f("u_Far", 100.0f);
-		m_Shader->SetUniform1i("u_DebugMode", DebugMode);
-		m_Shader->SetUniform1i("u_LocalLightCount", (int)m_GPULights.size());
-		m_Shader->SetUniform1i("u_ClusteredLightingEnabled", clusteredLighting ? 1 : 0);
-		m_Shader->SetUniformVec2("u_ViewportSize", glm::vec2((float)m_Spec.Width, (float)m_Spec.Height));
-		m_Shader->SetUniform1i("u_TileSize", ClusterTileSize);
-		m_Shader->SetUniform1i("u_ClusterCountX", (int)m_ClusterCountX);
-		m_Shader->SetUniform1i("u_ClusterCountY", (int)m_ClusterCountY);
-		m_Shader->SetUniform1i("u_ClusterCountZ", (int)m_ClusterCountZ);
-		m_Shader->SetUniform1i("u_MaxLightsPerCluster", MaxLightsPerCluster);
-		m_Shader->SetUniformMat4f("u_View", currentcamera->GetViewFront());
-		BindLightBuffers();
+		if (!m_DeferredLightingUBO)
+			m_DeferredLightingUBO = RHIBuffer::Create(BufferDesc{ sizeof(ubo), BufferUsage::Uniform, true, nullptr });
+		m_DeferredLightingUBO->Upload(&ubo, sizeof(ubo));
 
-		Renderer renderer;
-		renderer.DrawElement(*m_QuadVA, *m_QuadIB, *m_Shader);
+		// Bind samplers. GLSL samplers at binding 10..19 read from unit N.
+		RHITexture2D* whiteTex = m_DefaultWhiteTex.get();
+		RHITexture2D* blackTex = m_DefaultBlackTex.get();
+		cmd->BindTexture2D(10, resources.GBufferPosition);
+		cmd->BindTexture2D(11, resources.GBufferNormal);
+		cmd->BindTexture2D(12, resources.GBufferAlbedo);
+		cmd->BindTexture2D(13, resources.GBufferSpecular);
+		cmd->BindTexture2D(14, resources.ShadowMask ? resources.ShadowMask : (whiteTex ? whiteTex->GetNativeID() : 0));
+		cmd->BindTexture2D(15, resources.DepthTexture);
+		if (currentcamera->skybox && currentcamera->skybox->m_Cmp)
+			cmd->BindTextureCube(16, currentcamera->skybox->m_Cmp->GetNativeID());
+		else
+			cmd->BindTextureCube(16, m_DefaultCubemap);
+		if (ubo.u_DDGIEnabled == 1 && resources.DDGIIrradianceAtlas)
+			cmd->BindTexture2D(17, resources.DDGIIrradianceAtlas);
+		else
+			cmd->BindTexture2D(17, blackTex ? blackTex->GetNativeID() : 0);
+		if (ubo.u_DDGIEnabled == 1 && resources.DDGIDepthAtlas)
+			cmd->BindTexture2D(18, resources.DDGIDepthAtlas);
+		else
+			cmd->BindTexture2D(18, whiteTex ? whiteTex->GetNativeID() : 0);
+		cmd->BindTexture2D(19, resources.ShadowMapDepth
+			? resources.ShadowMapDepth
+			: (whiteTex ? whiteTex->GetNativeID() : 0));
+
+		// Descriptor set: UBO at binding 0 + 3 SSBOs.
+		m_DeferredDescriptorSet->Reset();
+		m_DeferredDescriptorSet->BindUniformBuffer(0, m_DeferredLightingUBO);
+		if (m_LightSSBO)        m_DeferredDescriptorSet->BindStorageBuffer(LightBufferBinding,  m_LightSSBO);
+		if (m_ClusterMetaSSBO)  m_DeferredDescriptorSet->BindStorageBuffer(ClusterMetaBinding,  m_ClusterMetaSSBO);
+		if (m_ClusterIndexSSBO) m_DeferredDescriptorSet->BindStorageBuffer(ClusterIndexBinding, m_ClusterIndexSSBO);
+		m_DeferredDescriptorSet->Apply(0);
+
+		m_Shader->Bind();
+
+		cmd->BindPipeline(m_QuadPipeline);
+		cmd->BindVertexBuffer(m_QuadVB);
+		cmd->BindIndexBuffer(m_QuadIB);
+		cmd->DrawIndexed(m_QuadIndexCount);
 
 			// --- DDGI probe debug overlay (rendered into the lighting output) ---
 			if (m_DDGIPass && m_DDGIPass->ShowProbes)
@@ -323,15 +305,15 @@ public:
 				m_DDGIPass->RenderProbeDebug(view, proj);
 			}
 
-		glEnable(GL_DEPTH_TEST);
+		cmd->SetDepthTest(true);
 
 		// In graph mode the graph owns the render target: it unbinds via
 		// EndRenderPass, and the output handle is returned by AddToGraph rather
 		// than published through RenderResources.
 		if (!m_GraphManagedTarget)
 		{
-			glBindFramebuffer(GL_FRAMEBUFFER, 0);
-			resources.SceneColorTexture = m_OutputTex;
+			cmd->EndRenderPass();
+			resources.SceneColorTexture = (unsigned int)m_OutputFBO->GetColorAttachmentID(0);
 		}
 	}
 
@@ -363,26 +345,49 @@ private:
 	static constexpr unsigned int ClusterMetaBinding = 11;
 	static constexpr unsigned int ClusterIndexBinding = 12;
 
+	// PerPass_DeferredLighting UBO. Field order and padding exactly match
+	// DeferredLighting.shader's std140 block. Total size 368 bytes.
+	struct DeferredLightingUBO
+	{
+		glm::mat4 u_InvViewProjNoTrans;     //   0
+		glm::mat4 u_View;                   //  64
+		glm::mat4 u_LightViewProj;          // 128
+		glm::vec4 u_LightDir;               // 192 (vec3→vec4)
+		glm::vec4 u_LightColor;             // 208
+		glm::vec4 u_ViewPos;                // 224
+		glm::vec2 u_ViewportSize;           // 240
+		glm::vec2 u_ShadowMapSize;          // 248
+		float     u_AmbientStrength;        // 256
+		float     u_Near;                   // 260
+		float     u_Far;                    // 264
+		float     u_LightSize;              // 268
+		float     u_DDGISpacing;            // 272
+		float     u_DDGIProbeRadius;        // 276
+		float     u_DDGIDepthSharpness;     // 280
+		int32_t   u_DDGIEnabled;            // 284
+		int32_t   u_DDGIProbesPerRow;       // 288
+		int32_t   u_TileSize;               // 292
+		int32_t   u_ClusterCountX;          // 296
+		int32_t   u_ClusterCountY;          // 300
+		int32_t   u_ClusterCountZ;          // 304
+		int32_t   u_MaxLightsPerCluster;    // 308
+		int32_t   u_LocalLightCount;        // 312
+		int32_t   u_ClusteredLightingEnabled;// 316
+		int32_t   u_DebugMode;              // 320
+		int32_t   u_ShadowMapEnabled;       // 324
+		int32_t   u_DDGIGridSizeX;          // 328
+		int32_t   u_DDGIGridSizeY;          // 332
+		int32_t   u_DDGIGridSizeZ;          // 336
+		int32_t   _pad0[3];                 // 340..351 — std140 pad: vec4 needs 16-byte align
+		glm::vec4 u_DDGIGridOrigin;         // 352
+	};
+	static_assert(sizeof(DeferredLightingUBO) == 368,
+		"DeferredLightingUBO must be 368 bytes (one UBO field offset is wrong)");
+
 	void CreateOutputTex(unsigned int w, unsigned int h)
 	{
-		if (m_OutputTex)
-			glDeleteTextures(1, &m_OutputTex);
-		if (m_OutputFBO)
-			glDeleteFramebuffers(1, &m_OutputFBO);
-
-		glGenTextures(1, &m_OutputTex);
-		glBindTexture(GL_TEXTURE_2D, m_OutputTex);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
-		glGenFramebuffers(1, &m_OutputFBO);
-		glBindFramebuffer(GL_FRAMEBUFFER, m_OutputFBO);
-		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_OutputTex, 0);
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-		glBindTexture(GL_TEXTURE_2D, 0);
+		m_OutputFBO = RHIFramebuffer::Create(FramebufferDesc{
+			w, h, { { Format::RGBA8_UNORM, 1 } }, false, 1 });
 	}
 
 	void GatherLocalLights(Ref<Scene> scene)
@@ -411,7 +416,7 @@ private:
 	{
 		size_t requiredSize = std::max<size_t>(sizeof(GPULight), m_GPULights.size() * sizeof(GPULight));
 		if (!m_LightSSBO || m_LightSSBO->GetSize() < requiredSize)
-			m_LightSSBO = StorageBuffer::Create(requiredSize, nullptr, LightBufferBinding);
+			m_LightSSBO = RHIBuffer::Create(BufferDesc{ (uint32_t)requiredSize, BufferUsage::Storage, false, nullptr });
 	}
 
 	void UploadLightBuffer()
@@ -420,11 +425,11 @@ private:
 			return;
 
 		if (!m_GPULights.empty())
-			m_LightSSBO->SetData(m_GPULights.data(), m_GPULights.size() * sizeof(GPULight));
+			m_LightSSBO->Upload(m_GPULights.data(), (uint32_t)(m_GPULights.size() * sizeof(GPULight)));
 		else
 		{
 			GPULight dummy{};
-			m_LightSSBO->SetData(&dummy, sizeof(GPULight));
+			m_LightSSBO->Upload(&dummy, (uint32_t)sizeof(GPULight));
 		}
 		m_LightSSBO->BindToSlot(LightBufferBinding);
 	}
@@ -444,9 +449,9 @@ private:
 		size_t indexSize = std::max<size_t>(sizeof(unsigned int), clusterCount * (size_t)MaxLightsPerCluster * sizeof(unsigned int));
 
 		if (!m_ClusterMetaSSBO || m_ClusterMetaSSBO->GetSize() < metaSize)
-			m_ClusterMetaSSBO = StorageBuffer::Create(metaSize, nullptr, ClusterMetaBinding);
+			m_ClusterMetaSSBO = RHIBuffer::Create(BufferDesc{ (uint32_t)metaSize, BufferUsage::Storage, false, nullptr });
 		if (!m_ClusterIndexSSBO || m_ClusterIndexSSBO->GetSize() < indexSize)
-			m_ClusterIndexSSBO = StorageBuffer::Create(indexSize, nullptr, ClusterIndexBinding);
+			m_ClusterIndexSSBO = RHIBuffer::Create(BufferDesc{ (uint32_t)indexSize, BufferUsage::Storage, false, nullptr });
 
 		m_ClusterMetaSSBO->BindToSlot(ClusterMetaBinding);
 		m_ClusterIndexSSBO->BindToSlot(ClusterIndexBinding);
@@ -457,22 +462,57 @@ private:
 		if (!m_ClusterShader || !m_LightSSBO || !m_ClusterMetaSSBO || !m_ClusterIndexSSBO)
 			return;
 
-		m_ClusterShader->Bind();
-		m_ClusterShader->SetUniformMat4f("u_View", currentcamera->GetViewFront());
-		m_ClusterShader->SetUniformMat4f("u_InvProj", glm::inverse(currentcamera->GetProj()));
-		m_ClusterShader->SetUniformVec2("u_ViewportSize", glm::vec2((float)m_Spec.Width, (float)m_Spec.Height));
-		m_ClusterShader->SetUniform1i("u_TileSize", ClusterTileSize);
-		m_ClusterShader->SetUniform1i("u_ClusterCountX", (int)m_ClusterCountX);
-		m_ClusterShader->SetUniform1i("u_ClusterCountY", (int)m_ClusterCountY);
-		m_ClusterShader->SetUniform1i("u_ClusterCountZ", (int)m_ClusterCountZ);
-		m_ClusterShader->SetUniform1i("u_MaxLightsPerCluster", MaxLightsPerCluster);
-		m_ClusterShader->SetUniform1i("u_LocalLightCount", (int)m_GPULights.size());
-		m_ClusterShader->SetUniform1f("u_Near", 0.1f);
-		m_ClusterShader->SetUniform1f("u_Far", 100.0f);
+		// PerPass_ClusterCull UBO (std140 layout — see ClusterLightCulling.shader).
+		// Field order and padding must match the GLSL block exactly.
+		struct ClusterCullUBO
+		{
+			glm::mat4 u_View;             // offset   0
+			glm::mat4 u_InvProj;          // offset  64
+			glm::vec2 u_ViewportSize;     // offset 128
+			int32_t   u_TileSize;         // offset 136
+			int32_t   u_ClusterCountX;    // offset 140
+			int32_t   u_ClusterCountY;    // offset 144
+			int32_t   u_ClusterCountZ;    // offset 148
+			int32_t   u_MaxLightsPerCluster; // offset 152
+			int32_t   u_LocalLightCount;  // offset 156
+			float     u_Near;             // offset 160
+			float     u_Far;              // offset 164
+		};
+		static_assert(sizeof(ClusterCullUBO) == 168, "ClusterCullUBO must match std140 PerPass_ClusterCull");
 
-		BindLightBuffers();
+		ClusterCullUBO ubo;
+		ubo.u_View    = currentcamera->GetViewFront();
+		ubo.u_InvProj = glm::inverse(currentcamera->GetProj());
+		ubo.u_ViewportSize = glm::vec2((float)m_Spec.Width, (float)m_Spec.Height);
+		ubo.u_TileSize = ClusterTileSize;
+		ubo.u_ClusterCountX = (int32_t)m_ClusterCountX;
+		ubo.u_ClusterCountY = (int32_t)m_ClusterCountY;
+		ubo.u_ClusterCountZ = (int32_t)m_ClusterCountZ;
+		ubo.u_MaxLightsPerCluster = MaxLightsPerCluster;
+		ubo.u_LocalLightCount = (int32_t)m_GPULights.size();
+		ubo.u_Near = 0.1f;
+		ubo.u_Far  = 100.0f;
+
+		if (!m_ClusterCullUBO)
+			m_ClusterCullUBO = RHIBuffer::Create(BufferDesc{ sizeof(ubo), BufferUsage::Uniform, true, nullptr });
+		m_ClusterCullUBO->Upload(&ubo, sizeof(ubo));
+
+		// Bind shader, descriptor set (UBO + SSBOs), then dispatch.
+		m_ClusterShader->Bind();
+		m_ClusterDescriptorSet->Reset();
+		m_ClusterDescriptorSet->BindUniformBuffer(0, m_ClusterCullUBO);
+		BindLightBuffersVia(m_ClusterDescriptorSet);
+		m_ClusterDescriptorSet->Apply(0);
+
 		m_ClusterShader->DispatchCompute(m_ClusterCountX, m_ClusterCountY, m_ClusterCountZ);
-		glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+		RHIRenderer::GetCmd()->ResourceBarrier(BarrierFlags::StorageBuffer);
+	}
+
+	void BindLightBuffersVia(Ref<RHIDescriptorSet> set)
+	{
+		if (m_LightSSBO)        set->BindStorageBuffer(LightBufferBinding,    m_LightSSBO);
+		if (m_ClusterMetaSSBO)  set->BindStorageBuffer(ClusterMetaBinding,    m_ClusterMetaSSBO);
+		if (m_ClusterIndexSSBO) set->BindStorageBuffer(ClusterIndexBinding,   m_ClusterIndexSSBO);
 	}
 
 	void BindLightBuffers()
@@ -488,25 +528,33 @@ private:
 	FrameBufferSpecification m_Spec;
 	Ref<RHIShader> m_Shader;
 	Ref<RHIShader> m_ClusterShader;
-	Ref<StorageBuffer> m_LightSSBO;
-	Ref<StorageBuffer> m_ClusterMetaSSBO;
-	Ref<StorageBuffer> m_ClusterIndexSSBO;
+	Ref<RHIBuffer> m_LightSSBO;
+	Ref<RHIBuffer> m_ClusterMetaSSBO;
+	Ref<RHIBuffer> m_ClusterIndexSSBO;
 	std::vector<GPULight> m_GPULights;
 	unsigned int m_ClusterCountX = 1;
 	unsigned int m_ClusterCountY = 1;
 	unsigned int m_ClusterCountZ = 1;
-	Ptr<VertexArray> m_QuadVA;
-	Ptr<VertexBuffer> m_QuadVB;
-	Ptr<IndexBuffer> m_QuadIB;
-	unsigned int m_OutputTex = 0;
-	unsigned int m_OutputFBO = 0;
+	Ref<RHIBuffer> m_QuadVB;
+	Ref<RHIBuffer> m_QuadIB;
+	Ref<RHIPipeline> m_QuadPipeline;
+	unsigned int m_QuadIndexCount = 0;
+	Ref<RHIFramebuffer> m_OutputFBO;
+
+	// Per-cluster-cull UBO (descriptor set 0, binding 0).
+	Ref<RHIBuffer> m_ClusterCullUBO;
+	Ref<RHIDescriptorSet> m_ClusterDescriptorSet = RHIDescriptorSet::Create();
+
+	// Per-deferred-lighting UBO and descriptor set.
+	Ref<RHIBuffer> m_DeferredLightingUBO;
+	Ref<RHIDescriptorSet> m_DeferredDescriptorSet = RHIDescriptorSet::Create();
 
 	// True only while executing inside a RenderGraph pass. The graph has already
 	// bound its own attachment and set the viewport, so Execute() must not bind
 	// m_OutputFBO over it. See AddToGraph().
 	bool m_GraphManagedTarget = false;
-	unsigned int m_DefaultWhiteTex = 0;
-	unsigned int m_DefaultBlackTex = 0;
-	unsigned int m_DefaultCubemap = 0;
+	Ref<RHITexture2D> m_DefaultWhiteTex;
+	Ref<RHITexture2D> m_DefaultBlackTex;
+	unsigned int m_DefaultCubemap = 0;  // raw: no procedural-cubemap path in RHI yet
 	DDGIPass* m_DDGIPass = nullptr;
 };

@@ -7,11 +7,11 @@ public:
 	bool Enabled = false;
 	unsigned int MaxBounces = 4;
 
-	void Init(Ref<FrameBuffer>& fb, Ref<RHIFramebuffer> RHIFrameBuffer = nullptr) override
+	void Init(Ref<RHIFramebuffer> fb) override
 	{
-		m_Spec = fb->GetSpecification();
+		m_Spec = { fb->GetWidth(), fb->GetHeight() };
 
-		m_Shader = GLShader::CreateCompute("D:/Code/C++/Tsundere/res/shaders/PathTrace.shader");
+		m_Shader = RHIShader::CreateCompute("D:/Code/C++/Tsundere/res/shaders/PathTrace.shader");
 		if (!m_Shader || m_Shader->GetID() == 0)
 		{
 			Error_Core("PathTracePass: Failed to create compute shader!");
@@ -26,7 +26,7 @@ public:
 		defMat.albedo = glm::vec4(0.8f, 0.8f, 0.8f, 0.5f);
 		defMat.emission = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
 		defMat.diffuseHandle = 0;
-		m_MaterialSSBO = StorageBuffer::Create(sizeof(GPUMaterial), &defMat, 0);
+		m_MaterialSSBO = RHIBuffer::Create(BufferDesc{ (uint32_t)sizeof(GPUMaterial), BufferUsage::Storage, false, &defMat });
 	}
 
 	// Rebuild the GPUMaterial SSBO from the scene's CPU materials.
@@ -59,7 +59,7 @@ public:
 							+ " shader=" + mat->shader->GetPath() + " vars[";
 						for (auto& v : mat->varies)
 							info += " " + std::to_string((int)std::get<1>(v)) + ":" + std::get<2>(v);
-						info += " ] texID=" + std::to_string(mat->texture.GetTextureID());
+						info += " ] texID=" + std::to_string((mat->texture ? (unsigned int)mat->texture->GetNativeID() : 0));
 						Warn_Core(info);
 					}
 				}
@@ -97,9 +97,9 @@ public:
 		}
 
 		// Upload
-		m_MaterialSSBO = StorageBuffer::Create(
-			m_GPUMaterials.size() * sizeof(GPUMaterial),
-			m_GPUMaterials.data(), 0);
+		m_MaterialSSBO = RHIBuffer::Create(BufferDesc{
+			(uint32_t)(m_GPUMaterials.size() * sizeof(GPUMaterial)),
+			BufferUsage::Storage, false, m_GPUMaterials.data() });
 	}
 
 	void Execute(Ref<Scene> scene, RenderResources& resources) override
@@ -160,36 +160,63 @@ public:
 		// Material SSBO
 		m_MaterialSSBO->BindToSlot(5);
 
-		// Skybox cubemap
-		if (currentcamera && currentcamera->skybox && currentcamera->skybox->m_Cmp)
-		{
-			glActiveTexture(GL_TEXTURE6);
-			glBindTexture(GL_TEXTURE_CUBE_MAP, currentcamera->skybox->m_Cmp->GetMap());
-			m_Shader->SetUniform1i("u_SkyBox", 6);
-		}
-
-		// Camera uniforms
 		mat4 view = currentcamera->GetViewFront();
 		mat4 proj = currentcamera->GetProj();
-		m_Shader->SetUniformMat4f("u_InvView", glm::inverse(view));
-		m_Shader->SetUniformMat4f("u_InvProj", glm::inverse(proj));
-		m_Shader->SetUniformVec3("u_CameraPos", camPos);
-		m_Shader->SetUniformVec2("u_Resolution", glm::vec2((float)m_Spec.Width, (float)m_Spec.Height));
-		m_Shader->SetUniform1f("u_SampleIndex", (float)m_SampleCount);
-		m_Shader->SetUniform1f("u_FrameSeed", (float)m_FrameIdx);
+
+		// PerPass_PathTrace UBO (matches std140 layout in PathTrace.shader).
+		// Total 160 bytes.
+		struct PathTraceUBO
+		{
+			glm::mat4 u_InvView;             //   0
+			glm::mat4 u_InvProj;             //  64
+			glm::vec4 u_CameraPos;           // 128 (vec3 → vec4)
+			glm::vec2 u_Resolution;          // 144
+			float     u_SampleIndex;         // 152
+			float     u_FrameSeed;           // 156
+		};
+		static_assert(sizeof(PathTraceUBO) == 160, "PathTraceUBO must match std140 PerPass_PathTrace");
+
+		PathTraceUBO ubo;
+		ubo.u_InvView     = glm::inverse(view);
+		ubo.u_InvProj     = glm::inverse(proj);
+		ubo.u_CameraPos   = glm::vec4(camPos, 0.0f);
+		ubo.u_Resolution  = glm::vec2((float)m_Spec.Width, (float)m_Spec.Height);
+		ubo.u_SampleIndex = (float)m_SampleCount;
+		ubo.u_FrameSeed   = (float)m_FrameIdx;
+		if (!m_PathTraceUBO)
+			m_PathTraceUBO = RHIBuffer::Create(BufferDesc{ sizeof(ubo), BufferUsage::Uniform, true, nullptr });
+		m_PathTraceUBO->Upload(&ubo, sizeof(ubo));
+
+		// Skybox cubemap (binding 6).
+		auto cmd = RHIRenderer::GetCmd();
+		if (currentcamera && currentcamera->skybox && currentcamera->skybox->m_Cmp)
+			cmd->BindTextureCube(6, currentcamera->skybox->m_Cmp->GetNativeID());
+
+		// Descriptor set: UBO at binding 0 + 3 SSBOs.
+		m_PathTraceDescriptorSet->Reset();
+		m_PathTraceDescriptorSet->BindUniformBuffer(0, m_PathTraceUBO);
+		if (m_BVHBuilder)
+		{
+			if (auto triBuf = m_BVHBuilder->GetTriangleBuffer()) m_PathTraceDescriptorSet->BindStorageBuffer(3, triBuf);
+			if (auto bvhBuf = m_BVHBuilder->GetBVHNodeBuffer())   m_PathTraceDescriptorSet->BindStorageBuffer(4, bvhBuf);
+		}
+		if (m_MaterialSSBO) m_PathTraceDescriptorSet->BindStorageBuffer(5, m_MaterialSSBO);
+		m_PathTraceDescriptorSet->Apply(0);
+
+		m_Shader->Bind();
 
 		if (m_SampleCount > 0)
-			glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL_TEXTURE_FETCH_BARRIER_BIT);
+			cmd->ResourceBarrier(BarrierFlags::ShaderImage | BarrierFlags::TextureFetch);
 
 		unsigned int gx = (m_Spec.Width + 7) / 8;
 		unsigned int gy = (m_Spec.Height + 7) / 8;
 		m_Shader->DispatchCompute(gx, gy);
 
-		glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL_TEXTURE_FETCH_BARRIER_BIT);
+		cmd->ResourceBarrier(BarrierFlags::ShaderImage | BarrierFlags::TextureFetch);
 
 		// Unbind image units so ImGui can safely sample the texture
-		glBindImageTexture(0, 0, 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA8);
-		glBindImageTexture(1, 0, 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA8);
+		m_AccumTex[0]->UnbindAsImage(0);
+		m_AccumTex[1]->UnbindAsImage(1);
 
 		// Swap ping-pong
 		m_CurrentIdx = 1 - m_CurrentIdx;
@@ -299,11 +326,11 @@ private:
 		if (!s_HasBindless)
 			return 0;
 
-		// 1) Try the material's direct texture member — only if loaded (default Texture
-		//    has uninitialized m_RendererID, so check GetPath() first to skip garbage)
+		// 1) Try the material's direct texture member — only if loaded (a null
+		//    Ref<RHITexture2D> means "no texture", so check GetPath() first)
 		unsigned int texID = 0;
-		if (!mat->texture.GetPath().empty())
-			texID = mat->texture.GetTextureID();
+		if (mat->texture && !mat->texture->GetPath().empty())
+			texID = (unsigned int)mat->texture->GetNativeID();
 		if (texID == 0)
 		{
 			// 2) Try the first "texture_diffuse1" in varies
@@ -312,8 +339,8 @@ private:
 				if (std::get<1>(var) == ValueType::TEXTURE &&
 					std::get<2>(var).find("diffuse") != std::string::npos)
 				{
-					Texture* t = (Texture*)std::get<0>(var);
-					texID = t->GetTextureID();
+					Ref<RHITexture2D>* t = (Ref<RHITexture2D>*)std::get<0>(var);
+					texID = (*t) ? (unsigned int)(*t)->GetNativeID() : 0;
 					break;
 				}
 			}
@@ -325,8 +352,8 @@ private:
 			{
 				if (std::get<1>(var) == ValueType::TEXTURE)
 				{
-					Texture* t = (Texture*)std::get<0>(var);
-					texID = t->GetTextureID();
+					Ref<RHITexture2D>* t = (Ref<RHITexture2D>*)std::get<0>(var);
+					texID = (*t) ? (unsigned int)(*t)->GetNativeID() : 0;
 					break;
 				}
 			}
@@ -360,11 +387,15 @@ private:
 	}
 
 	FrameBufferSpecification m_Spec;
-	Ref<GLShader> m_Shader;
+	Ref<RHIShader> m_Shader;
 	Ref<RHIStorageImage> m_AccumTex[2];
 	int m_CurrentIdx = 0;
 	Ref<BVHBuilder> m_BVHBuilder;
-	Ref<StorageBuffer> m_MaterialSSBO;
+	Ref<RHIBuffer> m_MaterialSSBO;
+
+	// Per-pass UBO + descriptor set.
+	Ref<RHIBuffer> m_PathTraceUBO;
+	Ref<RHIDescriptorSet> m_PathTraceDescriptorSet = RHIDescriptorSet::Create();
 
 	std::vector<GPUMaterial> m_GPUMaterials;
 	std::unordered_map<Material*, unsigned int> m_MatToGlobalIndex;

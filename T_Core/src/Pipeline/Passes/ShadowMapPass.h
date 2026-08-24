@@ -14,10 +14,10 @@ public:
 	int  ShadowMapHeight = 2048;
 	bool Enabled         = true;
 
-	void Init(Ref<FrameBuffer>& fb, Ref<RHIFramebuffer> RHIFrameBuffer = nullptr) override
+	void Init(Ref<RHIFramebuffer> fb) override
 	{
-		m_Spec = fb->GetSpecification();
-		m_DepthShader = CreateRef<GLShader>("D:/Code/C++/Tsundere/res/shaders/ShadowMapDepth.shader");
+		m_Spec = { fb->GetWidth(), fb->GetHeight() };
+		m_DepthShader = RHIShader::Create("D:/Code/C++/Tsundere/res/shaders/ShadowMapDepth.shader");
 		CreateShadowMap(ShadowMapWidth, ShadowMapHeight);
 		CreateFallbackCube();
 	}
@@ -35,19 +35,23 @@ public:
 		mat4 lightViewProj = lightProj * lightView;
 
 		// --- Step 2: render scene geometry into depth-only FBO ---
-		glBindFramebuffer(GL_FRAMEBUFFER, m_ShadowMapFBO);
-		glViewport(0, 0, ShadowMapWidth, ShadowMapHeight);
-		glClear(GL_DEPTH_BUFFER_BIT);
-		glEnable(GL_DEPTH_TEST);
-		glDepthFunc(GL_LESS);
-		glEnable(GL_CULL_FACE);
-		glCullFace(GL_BACK);  // standard culling — store closest surface depth
-		glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE); // no color writes
+		auto cmd = RHIRenderer::GetCmd();
+
+		// Depth-only pass: no color attachments, clear depth to far plane (1.0).
+		RenderPassBeginInfo beginInfo;
+		beginInfo.clearDepth      = true;
+		beginInfo.depthClearValue = 1.0f;
+		cmd->BeginRenderPass(m_ShadowMapFBO, beginInfo);
+
+		cmd->SetDepthTest(true);
+		cmd->SetDepthFunc(CompareOp::Less);
+		cmd->SetCullMode(CullMode::Back);  // standard culling — store closest surface depth
+		// No color writes needed: the depth-only FBO declares GL_NONE as its
+		// draw buffer, so fragment color output goes nowhere.
 
 		m_DepthShader->Bind();
 		m_DepthShader->SetUniformMat4f("u_LightViewProj", lightViewProj);
 
-		Renderer renderer;
 		bool drewSomething = false;
 
 		for (auto [entityID, transform, meshrender]
@@ -75,25 +79,26 @@ public:
 		// Fallback cube when no scene geometry is loaded
 		if (!drewSomething)
 		{
+			cmd->BindPipeline(m_FallbackPipeline);
+			cmd->BindVertexBuffer(m_FallbackVB);
+			cmd->BindIndexBuffer(m_FallbackIB);
+
 			// Draw cube
 			mat4 cubeModel = scale(mat4(1.0f), vec3(1.0f, 2.0f, 1.0f));
 			m_DepthShader->SetUniformMat4f("u_Model", cubeModel);
-			renderer.DrawElement(*m_FallbackVA, *m_FallbackIB, *m_DepthShader);
+			cmd->DrawIndexed(m_FallbackIndexCount);
 
 			// Draw floor plane (flattened cube) to receive shadows
 			mat4 floorModel = translate(mat4(1.0f), vec3(0.0f, -2.0f, 0.0f));
 			floorModel = scale(floorModel, vec3(10.0f, 0.05f, 10.0f));
 			m_DepthShader->SetUniformMat4f("u_Model", floorModel);
-			renderer.DrawElement(*m_FallbackVA, *m_FallbackIB, *m_DepthShader);
+			cmd->DrawIndexed(m_FallbackIndexCount);
 		}
 
-		// Restore GL state
-		glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-		glCullFace(GL_BACK);
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		cmd->EndRenderPass();
 
 		// --- Step 3: store output in resources ---
-		resources.ShadowMapDepth     = m_ShadowMapDepth;
+		resources.ShadowMapDepth      = (unsigned int)m_ShadowMapDepth->GetNativeID();
 		resources.ShadowLightViewProj = lightViewProj;
 	}
 
@@ -139,18 +144,16 @@ public:
 				mat4 lightViewProj = lightProj * lightView;
 
 				// The graph has already bound the FBO, set the viewport and
-				// cleared depth. Only per-pass GL state is left to us.
-				glEnable(GL_DEPTH_TEST);
-				glDepthFunc(GL_LESS);
-				glEnable(GL_CULL_FACE);
-				glCullFace(GL_BACK);
-				// No glColorMask needed: the depth-only FBO declares GL_NONE as
-				// its draw buffer, so fragment color output goes nowhere anyway.
+				// cleared depth. Only per-pass state is left to us.
+				cmd.SetDepthTest(true);
+				cmd.SetDepthFunc(CompareOp::Less);
+				cmd.SetCullMode(CullMode::Back);
+				// No color writes: the depth-only FBO declares GL_NONE as its
+				// draw buffer, so fragment color output goes nowhere anyway.
 
 				m_DepthShader->Bind();
 				m_DepthShader->SetUniformMat4f("u_LightViewProj", lightViewProj);
 
-				Renderer renderer;
 				bool drewSomething = false;
 
 				for (auto [entityID, transform, meshrender]
@@ -176,14 +179,18 @@ public:
 
 				if (!drewSomething)
 				{
+					cmd.BindPipeline(m_FallbackPipeline);
+					cmd.BindVertexBuffer(m_FallbackVB);
+					cmd.BindIndexBuffer(m_FallbackIB);
+
 					mat4 cubeModel = scale(mat4(1.0f), vec3(1.0f, 2.0f, 1.0f));
 					m_DepthShader->SetUniformMat4f("u_Model", cubeModel);
-					renderer.DrawElement(*m_FallbackVA, *m_FallbackIB, *m_DepthShader);
+					cmd.DrawIndexed(m_FallbackIndexCount);
 
 					mat4 floorModel = translate(mat4(1.0f), vec3(0.0f, -2.0f, 0.0f));
 					floorModel = scale(floorModel, vec3(10.0f, 0.05f, 10.0f));
 					m_DepthShader->SetUniformMat4f("u_Model", floorModel);
-					renderer.DrawElement(*m_FallbackVA, *m_FallbackIB, *m_DepthShader);
+					cmd.DrawIndexed(m_FallbackIndexCount);
 				}
 
 				// Publish the CPU-side result for GeometryPass.
@@ -207,34 +214,23 @@ private:
 	// -------------------------------------------------------------------------
 	void CreateShadowMap(unsigned int w, unsigned int h)
 	{
-		if (m_ShadowMapDepth) glDeleteTextures(1, &m_ShadowMapDepth);
-		if (m_ShadowMapFBO)  glDeleteFramebuffers(1, &m_ShadowMapFBO);
+		// Depth texture (D32_SFLOAT). ClampToBorder + default white border:
+		// a lookup outside the light frustum reads depth 1.0 ("not in shadow").
+		Texture2DDesc depthDesc;
+		depthDesc.width  = w;
+		depthDesc.height = h;
+		depthDesc.format = Format::D32_SFLOAT;
+		depthDesc.wrapS  = WrapMode::ClampToBorder;
+		depthDesc.wrapT  = WrapMode::ClampToBorder;
+		m_ShadowMapDepth = RHITexture2D::Create(depthDesc);
 
-		// Depth texture
-		glGenTextures(1, &m_ShadowMapDepth);
-		glBindTexture(GL_TEXTURE_2D, m_ShadowMapDepth);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F,
-		             w, h, 0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-		float borderColor[] = { 1.0f, 1.0f, 1.0f, 1.0f };
-		glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
-		glBindTexture(GL_TEXTURE_2D, 0);
-
-		// Depth-only FBO (no color attachments)
-		glGenFramebuffers(1, &m_ShadowMapFBO);
-		glBindFramebuffer(GL_FRAMEBUFFER, m_ShadowMapFBO);
-		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
-		                       GL_TEXTURE_2D, m_ShadowMapDepth, 0);
-		glDrawBuffer(GL_NONE);
-		glReadBuffer(GL_NONE);
-
-		if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
-			Error_Core("ShadowMapPass: depth-only FBO is not complete!");
-
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		// Depth-only FBO over that texture (no color attachments → GL_DRAW_NONE).
+		FramebufferViewDesc viewDesc;
+		viewDesc.depthAttachment = m_ShadowMapDepth.get();
+		viewDesc.depthFormat     = Format::D32_SFLOAT;
+		viewDesc.width           = w;
+		viewDesc.height          = h;
+		m_ShadowMapFBO = RHIFramebuffer::CreateView(viewDesc);
 	}
 
 	// -------------------------------------------------------------------------
@@ -290,17 +286,22 @@ private:
 			20, 21, 22,     22, 23, 20  // 底面
 		};
 
-		m_FallbackVA = CreatePtr<VertexArray>(36);
-		m_FallbackVB = CreatePtr<VertexBuffer>(position, 36 * 14 * sizeof(float));
-		m_FallbackIB = CreatePtr<IndexBuffer>(indices, 36);
+		m_FallbackVB = RHIBuffer::Create(BufferDesc{ (uint32_t)(36 * 14 * sizeof(float)), BufferUsage::Vertex, false, position });
+		m_FallbackIB = RHIBuffer::Create(BufferDesc{ (uint32_t)(36 * sizeof(unsigned int)), BufferUsage::Index, false, indices });
+		m_FallbackIndexCount = 36;
 
-		VertexBufferLayout layout;
-		layout.Push<float>(3);  // loc 0: position
-		layout.Push<float>(3);  // loc 1: normal
-		layout.Push<float>(2);  // loc 2: texcoord
-		layout.Push<float>(3);  // loc 3: tangent
-		layout.Push<float>(3);  // loc 4: bitangent
-		m_FallbackVA->AddBuffer(*m_FallbackVB, layout);
+		VertexLayout layout;
+		layout.stride = 14 * sizeof(float);
+		layout.attributes = {
+			{ 0, VertexFormat::Float3, 0 },                  // position
+			{ 1, VertexFormat::Float3, 3 * sizeof(float) },  // normal
+			{ 2, VertexFormat::Float2, 6 * sizeof(float) },  // texcoord
+			{ 3, VertexFormat::Float3, 8 * sizeof(float) },  // tangent
+			{ 4, VertexFormat::Float3, 11 * sizeof(float) }, // bitangent
+		};
+		// VB/IB are bound per draw via cmd->BindVertexBuffer / BindIndexBuffer,
+		// so no one-time VAO baking here (that's GL-only and a no-op in Vulkan).
+		m_FallbackPipeline = RHIPipeline::Create(PipelineDesc{ m_DepthShader, layout });
 	}
 
 	// -------------------------------------------------------------------------
@@ -378,11 +379,12 @@ private:
 	}
 
 	FrameBufferSpecification m_Spec;
-	Ref<GLShader>      m_DepthShader;
-	unsigned int     m_ShadowMapFBO   = 0;
-	unsigned int     m_ShadowMapDepth = 0;
-	Ptr<VertexArray> m_FallbackVA;
-	Ptr<VertexBuffer>m_FallbackVB;
-	Ptr<IndexBuffer> m_FallbackIB;
+	Ref<RHIShader>      m_DepthShader;
+	Ref<RHIFramebuffer> m_ShadowMapFBO;    // depth-only FBO view over the depth texture
+	Ref<RHITexture2D>   m_ShadowMapDepth;  // D32_SFLOAT depth texture
+	Ref<RHIBuffer> m_FallbackVB;
+	Ref<RHIBuffer> m_FallbackIB;
+	Ref<RHIPipeline> m_FallbackPipeline;
+	unsigned int m_FallbackIndexCount = 0;
 };
 

@@ -25,12 +25,12 @@ public:
 	bool      AutoPlaceGrid = true;
 
 
-	Ref<StorageBuffer>m_MaterialSSBO;
+	Ref<RHIBuffer>m_MaterialSSBO;
 
-	void Init(Ref<FrameBuffer>& fb, Ref<RHIFramebuffer> RHIFrameBuffer = nullptr) override
+	void Init(Ref<RHIFramebuffer> fb) override
 	{
-		m_Spec = fb->GetSpecification();
-		m_UpdateShader = GLShader::CreateCompute("D:/Code/C++/Tsundere/res/shaders/DDGIProbeUpdate.shader");
+		m_Spec = { fb->GetWidth(), fb->GetHeight() };
+		m_UpdateShader = RHIShader::CreateCompute("D:/Code/C++/Tsundere/res/shaders/DDGIProbeUpdate.shader");
 		if (!m_UpdateShader || m_UpdateShader->GetID() == 0)
 		{
 			Error_Core("DDGIPass: Failed to create DDGIProbeUpdate compute shader!");
@@ -70,10 +70,19 @@ public:
 		// Upload current probe positions
 		UpdateProbeRayDataSSBO();
 
-		m_UpdateShader->Bind();
+		// PerPass_DDGI UBO (std140, 32 bytes). Struct declared in class scope.
 
-		// Bind probe ray data SSBO (slot 0)
-		m_ProbeRayDataSSBO->BindToSlot(0);
+		DDGIUBO ubo;
+		ubo.u_TotalProbes     = m_TotalProbes;
+		ubo.u_ProbesPerRow    = m_ProbesPerRow;
+		ubo.u_RaysPerProbe    = RaysPerProbe;
+		ubo.u_ProbesPerUpdate = ProbesPerUpdate;
+		ubo.u_ProbeOffset     = m_CurrentProbeOffset;
+		ubo.u_Hysteresis      = Hysteresis;
+		ubo.u_FrameSeed       = (float)m_FrameIdx;
+		if (!m_DDGIUBO)
+			m_DDGIUBO = RHIBuffer::Create(BufferDesc{ sizeof(ubo), BufferUsage::Uniform, true, nullptr });
+		m_DDGIUBO->Upload(&ubo, sizeof(ubo));
 
 		// Bind output atlases as images (write-only)
 		m_IrradianceAtlas->BindAsImage(1, ImageAccess::WriteOnly);
@@ -87,46 +96,44 @@ public:
 		}
 		else
 		{
-			// First frame: no history, bind current as both
 			m_IrradianceAtlas->BindAsImage(3, ImageAccess::ReadOnly);
 			m_DepthAtlas->BindAsImage(4, ImageAccess::ReadOnly);
 		}
 
-		// Bind BVH SSBOs
-		m_BVHBuilder->GetTriangleBuffer()->BindToSlot(5);
-		m_BVHBuilder->GetBVHNodeBuffer()->BindToSlot(6);
-
-			// Build and bind material SSBO (slot 7)
-			BuildMaterialSSBO(scene);
-			m_MaterialSSBO->BindToSlot(7);
+		// Build and bind material SSBO (slot 7)
+		BuildMaterialSSBO(scene);
 
 		// Bind skybox cubemap
-		glActiveTexture(GL_TEXTURE7);
+		auto cmd = RHIRenderer::GetCmd();
 		if (currentcamera && currentcamera->skybox && currentcamera->skybox->m_Cmp)
-			glBindTexture(GL_TEXTURE_CUBE_MAP, currentcamera->skybox->m_Cmp->GetMap());
-		m_UpdateShader->SetUniform1i("u_SkyBox", 7);
+			cmd->BindTextureCube(8, currentcamera->skybox->m_Cmp->GetNativeID());
 
-		// Uniforms
-		m_UpdateShader->SetUniform1i("u_TotalProbes", m_TotalProbes);
-		m_UpdateShader->SetUniform1i("u_ProbesPerRow", m_ProbesPerRow);
-		m_UpdateShader->SetUniform1i("u_RaysPerProbe", RaysPerProbe);
-			m_UpdateShader->SetUniform1i("u_ProbesPerUpdate", ProbesPerUpdate);
-		m_UpdateShader->SetUniform1i("u_ProbeOffset", m_CurrentProbeOffset);
-		m_UpdateShader->SetUniform1f("u_Hysteresis", Hysteresis);
-		m_UpdateShader->SetUniform1f("u_FrameSeed", (float)m_FrameIdx);
+		// Descriptor set: UBO at 0 + 4 SSBOs (probe data, BVH tris, BVH nodes, materials).
+		m_DDGIDescriptorSet->Reset();
+		m_DDGIDescriptorSet->BindUniformBuffer(0, m_DDGIUBO);
+		if (m_ProbeRayDataSSBO) m_DDGIDescriptorSet->BindStorageBuffer(0, m_ProbeRayDataSSBO);
+		if (m_BVHBuilder)
+		{
+			if (auto t = m_BVHBuilder->GetTriangleBuffer()) m_DDGIDescriptorSet->BindStorageBuffer(5, t);
+			if (auto b = m_BVHBuilder->GetBVHNodeBuffer())  m_DDGIDescriptorSet->BindStorageBuffer(6, b);
+		}
+		if (m_MaterialSSBO) m_DDGIDescriptorSet->BindStorageBuffer(7, m_MaterialSSBO);
+		m_DDGIDescriptorSet->Apply(0);
+
+		m_UpdateShader->Bind();
 
 		// Dispatch: ProbesPerUpdate * RaysPerProbe threads
 		int totalRays = ProbesPerUpdate * RaysPerProbe;
 		int groups = (totalRays + 63) / 64;
 		m_UpdateShader->DispatchCompute(groups);
 
-		glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL_TEXTURE_FETCH_BARRIER_BIT);
+		cmd->ResourceBarrier(BarrierFlags::ShaderImage | BarrierFlags::TextureFetch);
 
 		// Unbind images so they can be sampled as textures later
-		glBindImageTexture(1, 0, 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA8);
-		glBindImageTexture(2, 0, 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA8);
-		glBindImageTexture(3, 0, 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA8);
-		glBindImageTexture(4, 0, 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA8);
+		m_IrradianceAtlas->UnbindAsImage(1);
+		m_DepthAtlas->UnbindAsImage(2);
+		m_IrradianceAtlas->UnbindAsImage(3);
+		m_DepthAtlas->UnbindAsImage(4);
 
 		// Advance round-robin
 		m_CurrentProbeOffset = (m_CurrentProbeOffset + ProbesPerUpdate) % m_TotalProbes;
@@ -193,28 +200,30 @@ public:
 		{
 			if (!ShowProbes || m_TotalProbes == 0) return;
 			if (!m_ProbeVisShader)
-				m_ProbeVisShader = CreatePtr<GLShader>("D:/Code/C++/Tsundere/res/shaders/ProbeVis.shader");
-			if (!m_ProbeVisVA)
+				m_ProbeVisShader = RHIShader::Create("D:/Code/C++/Tsundere/res/shaders/ProbeVis.shader");
+			if (!m_ProbeVisPipeline)
 				BuildProbeVisGeometry();
 
 			mat4 vp = proj * view;
+			auto cmd = RHIRenderer::GetCmd();
 			m_ProbeVisShader->Bind();
-			glDisable(GL_DEPTH_TEST);
-			glPointSize(10.0f);
+			cmd->SetDepthTest(false);
+			cmd->SetPointSize(10.0f);
 
 			// Draw probe points
 			m_ProbeVisShader->SetUniformVec3("u_Color", glm::vec3(0.0f, 1.0f, 0.5f));
+			cmd->BindPipeline(m_ProbeVisPipeline);
+			cmd->BindVertexBuffer(m_ProbeVisVB);
 			for (int i = 0; i < m_TotalProbes; i++)
 			{
 				glm::vec3 pos = DDGI::ProbeWorldPos(GridSize, GridOrigin, Spacing, m_ScrollOffset, i);
 				mat4 model = glm::translate(glm::mat4(1.0f), pos);
 				m_ProbeVisShader->SetUniformMat4f("u_MVP", vp * model);
-				m_ProbeVisVA->Bind();
-					glDrawArrays(GL_POINTS, 0, 1);
+				cmd->Draw(1);
 			}
 
-			glPointSize(1.0f);
-			glEnable(GL_DEPTH_TEST);
+			cmd->SetPointSize(1.0f);
+			cmd->SetDepthTest(true);
 			m_ProbeVisShader->UnBind();
 		}
 
@@ -244,8 +253,8 @@ private:
 				}
 
 				// Extract diffuse texture handle (bindless)
-				if (!mat->texture.GetPath().empty()) {
-					unsigned int texID = mat->texture.GetTextureID();
+				if (mat->texture && !mat->texture->GetPath().empty()) {
+					unsigned int texID = (mat->texture ? (unsigned int)mat->texture->GetNativeID() : 0);
 					if (texID && GLEW_ARB_bindless_texture) {
 						GLuint64 handle = glGetTextureHandleARB(texID);
 						if (handle) {
@@ -267,7 +276,7 @@ private:
 			def.diffuseHandle = 0;
 			materials.push_back(def);
 		}
-		m_MaterialSSBO = StorageBuffer::Create(materials.size() * sizeof(GPUMaterial), materials.data(), 0);
+		m_MaterialSSBO = RHIBuffer::Create(BufferDesc{ (uint32_t)(materials.size() * sizeof(GPUMaterial)), BufferUsage::Storage, false, materials.data() });
 	}
 
 	void RebuildAtlases()
@@ -286,8 +295,9 @@ private:
 		m_DepthAtlasPrev = RHIStorageImage::Create({ (uint32_t)depthAtlasW, (uint32_t)depthAtlasH, Format::R16F });
 
 		// Allocate probe ray data SSBO
-		m_ProbeRayDataSSBO = StorageBuffer::Create(
-			m_TotalProbes * sizeof(DDGI::GPUProbeRayData), nullptr, 0);
+		m_ProbeRayDataSSBO = RHIBuffer::Create(BufferDesc{
+			(uint32_t)(m_TotalProbes * sizeof(DDGI::GPUProbeRayData)),
+			BufferUsage::Storage, false, nullptr });
 
 		if (AutoPlaceGrid)
 		{
@@ -305,8 +315,8 @@ private:
 	{
 		std::vector<DDGI::GPUProbeRayData> probeData;
 		DDGI::BuildProbeRayData(probeData, GridSize, GridOrigin, Spacing, ProbeRadius, m_ScrollOffset);
-		m_ProbeRayDataSSBO->SetData(probeData.data(),
-			probeData.size() * sizeof(DDGI::GPUProbeRayData), 0);
+		m_ProbeRayDataSSBO->Upload(probeData.data(),
+			(uint32_t)(probeData.size() * sizeof(DDGI::GPUProbeRayData)));
 	}
 
 	void UpdateScrollOffset()
@@ -327,7 +337,7 @@ private:
 	}
 
 	FrameBufferSpecification m_Spec;
-	Ref<GLShader> m_UpdateShader;
+	Ref<RHIShader> m_UpdateShader;
 	Ref<BVHBuilder> m_BVHBuilder;
 
 	// Probe atlas textures (ping-pong for temporal blending)
@@ -337,7 +347,7 @@ private:
 	Ref<RHIStorageImage> m_DepthAtlasPrev;
 
 	// Probe position SSBO
-	Ref<StorageBuffer> m_ProbeRayDataSSBO;
+	Ref<RHIBuffer> m_ProbeRayDataSSBO;
 
 	// Grid state
 	glm::ivec3 m_ScrollOffset = glm::ivec3(0);
@@ -346,18 +356,40 @@ private:
 	int m_ProbesPerRow = 0;
 	int m_CurrentProbeOffset = 0;
 	unsigned int m_FrameIdx = 0;
-		Ptr<GLShader> m_ProbeVisShader;
-		Ptr<VertexArray> m_ProbeVisVA;
-		Ptr<VertexBuffer> m_ProbeVisVB;
+	Ref<RHIShader> m_ProbeVisShader;
+	Ref<RHIBuffer> m_ProbeVisVB;
+	Ref<RHIPipeline> m_ProbeVisPipeline;
+
+	// Per-pass UBO + descriptor set.
+	struct DDGIUBO
+	{
+		int32_t u_TotalProbes;
+		int32_t u_ProbesPerRow;
+		int32_t u_RaysPerProbe;
+		int32_t u_ProbesPerUpdate;
+		int32_t u_ProbeOffset;
+		float   u_Hysteresis;
+		float   u_FrameSeed;
+		int32_t _pad0;                // pad to 32 (std140 vec4 align of trailing block)
+	};
+	static_assert(sizeof(DDGIUBO) == 32, "DDGIUBO must match std140 PerPass_DDGI");
+	Ref<RHIBuffer> m_DDGIUBO;
+	Ref<RHIDescriptorSet> m_DDGIDescriptorSet = RHIDescriptorSet::Create();
 
 		void BuildProbeVisGeometry()
 		{
 			// Single point at origin — translated per-probe via MVP matrix
 			float point[] = { 0.0f, 0.0f, 0.0f };
-			m_ProbeVisVA = CreatePtr<VertexArray>(1);
-			m_ProbeVisVB = CreatePtr<VertexBuffer>(point, sizeof(point));
-			VertexBufferLayout layout;
-			layout.Push<float>(3);
-			m_ProbeVisVA->AddBuffer(*m_ProbeVisVB, layout);
+			m_ProbeVisVB = RHIBuffer::Create(BufferDesc{ (uint32_t)sizeof(point), BufferUsage::Vertex, false, point });
+			VertexLayout layout;
+			layout.stride = 3 * sizeof(float);
+			layout.attributes = { { 0, VertexFormat::Float3, 0 } };
+			PipelineDesc desc;
+			desc.shader = m_ProbeVisShader;
+			desc.vertexLayout = layout;
+			desc.topology = PrimitiveTopology::Points;
+			desc.cullMode = CullMode::None;
+			desc.depthTest = false;
+			m_ProbeVisPipeline = RHIPipeline::Create(desc);
 		}
 };

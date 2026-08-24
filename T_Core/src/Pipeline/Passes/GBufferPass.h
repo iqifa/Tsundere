@@ -3,18 +3,19 @@
 
 class  GBufferPass : public RenderPass
 {
-	Ptr<GBuffer> m_GBuffer;
+	Ref<RHIFramebuffer> m_GBuffer;
 	Ref<RHIShader> m_GBufferShader;
 
 	int m_FrameCount = 0;
-	unsigned int m_DefaultTex = 0;
+	Ref<RHITexture2D> m_DefaultTex;
 	mat4 m_PrevViewProjMatrix = mat4(1.0f);
 
-	Ptr<VertexArray>va;
-	Ptr<VertexBuffer>vb;
-	Ptr<IndexBuffer>ibo;
+	Ref<RHIBuffer> vb;
+	Ref<RHIBuffer> ibo;
+	Ref<RHIPipeline> m_FallbackPipeline;
+	unsigned int m_FallbackIndexCount = 0;
 
-	GBufferSpecification m_Spec;
+	unsigned int m_Width = 1080, m_Height = 960;
 
 public:
 	bool EnableJitter = true;
@@ -25,23 +26,28 @@ public:
 		mat4 currentViewProj = proj * view;
 
 		if (EnableJitter)
-			proj = Jittering(proj, m_Spec.Width, m_Spec.Height);
+			proj = Jittering(proj, (float)m_Width, (float)m_Height);
 
-		m_GBuffer->Bind();
+		auto cmd = RHIRenderer::GetCmd();
 
-		Renderer renderer;
-		glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-		glDisable(GL_BLEND);
+		RenderPassBeginInfo beginInfo;
+		beginInfo.colorClears = {
+			{ true, { 0.0f, 0.0f, 0.0f, 0.0f } },
+			{ true, { 0.0f, 0.0f, 0.0f, 0.0f } },
+			{ true, { 0.0f, 0.0f, 0.0f, 0.0f } },
+			{ true, { 0.0f, 0.0f, 0.0f, 0.0f } },
+			{ true, { 0.0f, 0.0f, 0.0f, 0.0f } },
+		};
+		beginInfo.clearDepth      = true;
+		beginInfo.depthClearValue = 1.0f;
+		cmd->BeginRenderPass(m_GBuffer, beginInfo);
 
-		// Ensure correct GL state for GBuffer rendering (inherited state may vary)
-		glEnable(GL_DEPTH_TEST);
-		glDepthFunc(GL_LESS);
-		glEnable(GL_CULL_FACE);
-		glCullFace(GL_BACK);
+		cmd->SetBlendState(false);
+		cmd->SetDepthTest(true);
+		cmd->SetDepthFunc(CompareOp::Less);
+		cmd->SetCullMode(CullMode::Back);
 
-		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_2D, m_DefaultTex);
+		cmd->BindTexture2D(0, m_DefaultTex->GetNativeID());
 
 		m_GBufferShader->Bind();
 		bool drewSomething = false;
@@ -78,9 +84,6 @@ public:
 				mesh.gpuMesh->Draw();  // shader already bound by mat->Render()
 				drewSomething = true;
 			}
-
-				float pixel[4] = {0};
-				glReadBuffer(GL_COLOR_ATTACHMENT1);
 		}
 
 		if (!drewSomething)
@@ -89,10 +92,12 @@ public:
 			m_GBufferShader->SetUniformMat4f("viewProj", currentViewProj);
 			m_GBufferShader->SetUniformMat4f("prevViewProj", m_PrevViewProjMatrix);
 
-			glActiveTexture(GL_TEXTURE0);
-			glBindTexture(GL_TEXTURE_2D, m_DefaultTex);
-			glActiveTexture(GL_TEXTURE1);
-			glBindTexture(GL_TEXTURE_2D, m_DefaultTex);
+			cmd->BindTexture2D(0, m_DefaultTex->GetNativeID());
+			cmd->BindTexture2D(1, m_DefaultTex->GetNativeID());
+
+			cmd->BindPipeline(m_FallbackPipeline);
+			cmd->BindVertexBuffer(vb);
+			cmd->BindIndexBuffer(ibo);
 
 			mat4 model = scale(mat4(1.0f), vec3(1.0f, 2.0f, 1.0f));
 			mat4 mvp = proj * view * model;
@@ -100,7 +105,7 @@ public:
 			m_GBufferShader->SetUniformMat4f("model", model);
 			m_GBufferShader->SetUniformMat4f("prevModel", model);
 			m_GBufferShader->SetUniform1i("hasNormalMap", 0);
-			renderer.DrawElement(*va, *ibo, *m_GBufferShader);
+			cmd->DrawIndexed(m_FallbackIndexCount);
 
 				// Draw floor plane (flattened cube) to receive shadows
 				mat4 floorModel = translate(mat4(1.0f), vec3(0.0f, -2.0f, 0.0f));
@@ -108,28 +113,38 @@ public:
 				m_GBufferShader->SetUniformMat4f("MVP_matrix", proj * view * floorModel);
 				m_GBufferShader->SetUniformMat4f("model", floorModel);
 				m_GBufferShader->SetUniformMat4f("prevModel", floorModel);
-				renderer.DrawElement(*va, *ibo, *m_GBufferShader);
+				cmd->DrawIndexed(m_FallbackIndexCount);
 		}
 
-		glEnable(GL_BLEND);
-		m_GBuffer->UnBind();
+		cmd->SetBlendState(true);
+		cmd->EndRenderPass();
 
 		m_PrevViewProjMatrix = currentViewProj;
 		m_FrameCount++;
 
-		resources.GBufferPosition = m_GBuffer->GetPositionTexture();
-		resources.GBufferNormal   = m_GBuffer->GetNormalTexture();
-		resources.GBufferAlbedo   = m_GBuffer->GetAlbedoTexture();
-		resources.GBufferSpecular = m_GBuffer->GetSpecularTexture();
-		resources.VelocityTexture = m_GBuffer->GetVelocityTexture();
-		resources.DepthTexture    = m_GBuffer->GetDepthTexture();
-		resources.SourceFBO       = m_GBuffer->GetFBO();
+		resources.GBufferPosition = (unsigned int)m_GBuffer->GetColorAttachmentID(0);
+		resources.GBufferNormal   = (unsigned int)m_GBuffer->GetColorAttachmentID(1);
+		resources.GBufferAlbedo   = (unsigned int)m_GBuffer->GetColorAttachmentID(2);
+		resources.GBufferSpecular = (unsigned int)m_GBuffer->GetColorAttachmentID(3);
+		resources.VelocityTexture = (unsigned int)m_GBuffer->GetColorAttachmentID(4);
+		resources.DepthTexture    = (unsigned int)m_GBuffer->GetDepthAttachmentID();
+		resources.SourceFBO       = m_GBuffer;
 	}
 
-	void Init(Ref<FrameBuffer>& fb, Ref<RHIFramebuffer> RHIFrameBuffer = nullptr)override {
-		m_Spec.Width  = fb->GetSpecification().Width;
-		m_Spec.Height = fb->GetSpecification().Height;
-		m_GBuffer = CreatePtr<GBuffer>(m_Spec);
+	void Init(Ref<RHIFramebuffer> fb)override {
+		m_Width  = fb->GetWidth();
+		m_Height = fb->GetHeight();
+		m_GBuffer = RHIFramebuffer::Create(FramebufferDesc{
+			m_Width, m_Height,
+			{
+				{ Format::RGBA16F, 1 },      // Position
+				{ Format::RGBA16F, 1 },      // Normal
+				{ Format::RGBA8_UNORM, 1 },  // Albedo
+				{ Format::RGBA16F, 1 },      // Specular + Shininess
+				{ Format::RG16F, 1 },        // Velocity
+			},
+			true, 1
+		});
 		m_GBufferShader = ShaderLibiray::Get("D:/Code/C++/Tsundere/res/shaders/GBuffer.shader");
 
 		float position[] =
@@ -180,29 +195,30 @@ public:
 			20, 21, 22,     22, 23, 20  // 底面
 		};
 
-		va = CreatePtr<VertexArray>(24);
-		vb = CreatePtr<VertexBuffer>(position, 24 * 14 * sizeof(float));
-		ibo = CreatePtr<IndexBuffer>(indices, 36);
-		VertexBufferLayout layout;
-		layout.Push<float>(3);
-		layout.Push<float>(3);
-		layout.Push<float>(2);
-		layout.Push<float>(3);
-		layout.Push<float>(3);
-		va->AddBuffer(*vb, layout);
+		vb = RHIBuffer::Create(BufferDesc{ (uint32_t)(24 * 14 * sizeof(float)), BufferUsage::Vertex, false, position });
+		ibo = RHIBuffer::Create(BufferDesc{ (uint32_t)(36 * sizeof(unsigned int)), BufferUsage::Index, false, indices });
+		m_FallbackIndexCount = 36;
+		VertexLayout layout;
+		layout.stride = 14 * sizeof(float);
+		layout.attributes = {
+			{ 0, VertexFormat::Float3, 0 },
+			{ 1, VertexFormat::Float3, 3 * sizeof(float) },
+			{ 2, VertexFormat::Float2, 6 * sizeof(float) },
+			{ 3, VertexFormat::Float3, 8 * sizeof(float) },
+			{ 4, VertexFormat::Float3, 11 * sizeof(float) },
+		};
+		m_FallbackPipeline = RHIPipeline::Create(PipelineDesc{ m_GBufferShader, layout });
 
 		unsigned char white[4] = { 255, 255, 255, 255 };
-		glGenTextures(1, &m_DefaultTex);
-		glBindTexture(GL_TEXTURE_2D, m_DefaultTex);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, white);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		m_DefaultTex = RHITexture2D::Create(Texture2DDesc{
+			1, 1, Format::RGBA8_UNORM, FilterMode::Linear, FilterMode::Linear,
+			WrapMode::ClampToEdge, WrapMode::ClampToEdge, false, white });
 	}
 
 	void OnFboResize(unsigned int width, unsigned int height)
 	{
-		m_Spec.Width = width;
-		m_Spec.Height = height;
+		m_Width = width;
+		m_Height = height;
 		m_GBuffer->Resize(width, height);
 	}
 
@@ -293,16 +309,13 @@ public:
 					proj = Jittering(proj, (float)width, (float)height);
 
 				// The graph has bound the FBO, set the viewport and cleared all
-				// six attachments. Only per-pass GL state remains.
-				Renderer renderer;
-				glDisable(GL_BLEND);
-				glEnable(GL_DEPTH_TEST);
-				glDepthFunc(GL_LESS);
-				glEnable(GL_CULL_FACE);
-				glCullFace(GL_BACK);
+				// six attachments. Only per-pass state remains.
+				cmd.SetBlendState(false);
+				cmd.SetDepthTest(true);
+				cmd.SetDepthFunc(CompareOp::Less);
+				cmd.SetCullMode(CullMode::Back);
 
-				glActiveTexture(GL_TEXTURE0);
-				glBindTexture(GL_TEXTURE_2D, m_DefaultTex);
+				cmd.BindTexture2D(0, m_DefaultTex->GetNativeID());
 
 				m_GBufferShader->Bind();
 				bool drewSomething = false;
@@ -348,10 +361,12 @@ public:
 					m_GBufferShader->SetUniformMat4f("viewProj", currentViewProj);
 					m_GBufferShader->SetUniformMat4f("prevViewProj", m_PrevViewProjMatrix);
 
-					glActiveTexture(GL_TEXTURE0);
-					glBindTexture(GL_TEXTURE_2D, m_DefaultTex);
-					glActiveTexture(GL_TEXTURE1);
-					glBindTexture(GL_TEXTURE_2D, m_DefaultTex);
+					cmd.BindTexture2D(0, m_DefaultTex->GetNativeID());
+					cmd.BindTexture2D(1, m_DefaultTex->GetNativeID());
+
+					cmd.BindPipeline(m_FallbackPipeline);
+					cmd.BindVertexBuffer(vb);
+					cmd.BindIndexBuffer(ibo);
 
 					mat4 model = scale(mat4(1.0f), vec3(1.0f, 2.0f, 1.0f));
 					mat4 mvp = proj * view * model;
@@ -359,7 +374,7 @@ public:
 					m_GBufferShader->SetUniformMat4f("model", model);
 					m_GBufferShader->SetUniformMat4f("prevModel", model);
 					m_GBufferShader->SetUniform1i("hasNormalMap", 0);
-					renderer.DrawElement(*va, *ibo, *m_GBufferShader);
+					cmd.DrawIndexed(m_FallbackIndexCount);
 
 					// Floor plane (flattened cube) to receive shadows
 					mat4 floorModel = translate(mat4(1.0f), vec3(0.0f, -2.0f, 0.0f));
@@ -367,10 +382,10 @@ public:
 					m_GBufferShader->SetUniformMat4f("MVP_matrix", proj * view * floorModel);
 					m_GBufferShader->SetUniformMat4f("model", floorModel);
 					m_GBufferShader->SetUniformMat4f("prevModel", floorModel);
-					renderer.DrawElement(*va, *ibo, *m_GBufferShader);
+					cmd.DrawIndexed(m_FallbackIndexCount);
 				}
 
-				glEnable(GL_BLEND);
+				cmd.SetBlendState(true);
 
 				m_PrevViewProjMatrix = currentViewProj;
 				m_FrameCount++;

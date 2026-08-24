@@ -239,7 +239,7 @@ void RenderGraph::ExecutePass(RGPass& pass, RHICommandBuffer& commandBuffer, Ren
     // earlier pass wrote incoherently (image store / SSBO). Issued here, before
     // the pass runs, because glMemoryBarrier bits describe the accesses that
     // come *after* the barrier. BarrierFlags::None makes this a no-op.
-    commandBuffer.MemoryBarrier(pass.barriers);
+    commandBuffer.ResourceBarrier(pass.barriers);
 
     const bool hasDepth = pass.depthAttachment.has_value();
 
