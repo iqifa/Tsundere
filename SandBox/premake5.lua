@@ -2,15 +2,17 @@ project "SandBox"
     kind "ConsoleApp"
     language "c++"
 
-    outputdir =
-        "build/%{prj.name}/%{cfg.buildcfg}-%{cfg.system}-%{cfg.architecture}"
-
-    targetdir("../" .. outputdir)
+    -- Exe goes straight into bin/ so it sits next to T_Core.dll / glew32.dll /
+    -- assimp dll. Windows finds DLLs next to the exe, not in a separate dir.
+    targetdir("../bin")
 
     files
     {
         "src/**.h", 
         "src/**.cpp"
+    }
+    removefiles
+    {
     }
 
 
@@ -22,6 +24,7 @@ project "SandBox"
         "../T_Core/src/Platform/GL",
         "../T_Tool/include",
         "../T_UI/include",
+        "C:/VulkanSDK/1.4.357.0/Include",
         -- "../T_Core/vender/spdlog/include",
         "../Dependence/include",
     }
@@ -30,6 +33,7 @@ project "SandBox"
         "../Dependence/lib/GLFW/",
         "../Dependence/lib/GLEW/",
         "../Dependence/lib/assimp/",
+        "C:/VulkanSDK/1.4.357.0/Lib",
         "../bin"
     }
 
@@ -41,7 +45,7 @@ project "SandBox"
 
 
     linkoptions{
-        "glfw3.lib","opengl32.lib","glew32.lib","assimp-vc143-mtd.lib","T_Core.lib"
+        "glfw3.lib","opengl32.lib","glew32.lib","assimp-vc143-mtd.lib","T_Core.lib","vulkan-1.lib","shaderc_shared.lib"
     }
 
     filter{
@@ -52,4 +56,5 @@ project "SandBox"
     defines
     {
         "T_PLATFORM_WINDOWS",
+        RenderBackend == "vulkan" and "Vulkan_For_Render" or "OpenGL_For_Render"
     }
