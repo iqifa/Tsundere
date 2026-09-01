@@ -3,6 +3,7 @@
 #include <string>
 #include <array>
 #include <optional>
+#include <unordered_map>
 #include<Platform/RenderAPI.h>
 #include<Debug/Debug.h>
 using ResourceId = uint32_t;
@@ -13,6 +14,16 @@ constexpr PassId InvalidPassId = UINT32_MAX;
 class T_API RenderGraph;
 class T_API RenderGraphResources;
 class T_API RenderGraphPassBuilder;
+class T_API RenderGraphPass;  // 新增：前向声明统一的 Pass 基类
+struct RGPass;
+
+namespace RenderGraphPipelineHelper
+{
+    bool ExtractRenderingSignature(
+        const RGPass&,
+        const RenderGraph&,
+        RenderingSignature&);
+}
 
 // Handles carry the generation of the graph that produced them. Reset() bumps
 // the generation, so a handle held across a rebuild fails validation instead of
@@ -34,6 +45,7 @@ struct T_API RDGTextureDesc {
 	uint32_t height = 0;
 	uint32_t mipLevel = 1;
 	uint32_t arrayLayers = 1;
+	uint32_t sampleCount = 1;
 	Format format = Format::RGBA8_UNORM;
 	TextureUsage usage = TextureUsage::ColorAttachment;
 
@@ -191,6 +203,7 @@ struct T_API RGPass
 	BarrierFlags barriers = BarrierFlags::None;
 
 	bool culled = false;
+	bool setupComplete = false;
 };
 
 #pragma endregion
@@ -216,13 +229,15 @@ public:
 		uint32_t slot,
 		RGTextureHandle texture,
 		RGLoadOp loadOp = RGLoadOp::Clear,
-		const std::array<float, 4>& clearColor = { 0.0f, 0.0f, 0.0f, 1.0f });
+		const std::array<float, 4>& clearColor = { 0.0f, 0.0f, 0.0f, 1.0f },
+		RGStoreOp storeOp = RGStoreOp::Store);
 
 	void SetDepthAttachment(
 		RGTextureHandle texture,
 		RGLoadOp loadOp = RGLoadOp::Clear,
 		float clearDepth = 1.0f,
-		bool readOnly = false);
+		bool readOnly = false,
+		RGStoreOp storeOp = RGStoreOp::Store);
 
 	// Overrides the viewport. By default the graph uses the first attachment's
 	// texture size, which is what a full-resolution pass wants.
@@ -235,6 +250,11 @@ private:
 class T_API RenderGraph
 {
 	friend class RenderGraphResources;
+	friend class RenderGraphBuilder;  // 新增：允许 Builder 访问私有方法
+	friend bool RenderGraphPipelineHelper::ExtractRenderingSignature(
+		const RGPass&,
+		const RenderGraph&,
+		RenderingSignature&);
 
 public:
 	~RenderGraph();
@@ -260,8 +280,16 @@ public:
 
 	void ExportBuffer(RGBufferHandle handle);
 
+	// ========================================
+	// 新接口：注册 RenderGraphPass 实例
+	// ========================================
+	// 注册一个 Pass 实例。Pass 的 Setup() 会在 Compile() 时调用，
+	// Execute() 会在 Execute() 时调用。
+	void AddPass(Ref<RenderGraphPass> pass);
 
-
+	// ========================================
+	// Legacy 接口：Lambda 风格的 Pass（保留兼容性）
+	// ========================================
 	template<typename SetupFunc, typename ExecuteFunc>
 	void AddPass(
 		std::string_view name,
@@ -296,6 +324,17 @@ public:
 	RHITexture2D* GetExportedTexture(RGTextureHandle handle);
 	RHIBuffer* GetExportedBuffer(RGBufferHandle handle);
 
+	// ========================================
+	// 新接口：按名字查找资源
+	// ========================================
+	// 按名字查找已注册的纹理/缓冲资源。如果不存在，返回 invalid handle。
+	RGTextureHandle GetTextureByName(const std::string& name);
+	RGBufferHandle GetBufferByName(const std::string& name);
+
+	// 按名字导出资源（用于 ImGui 显示等）
+	RHITexture2D* GetExportedTextureByName(const std::string& name);
+	RHIBuffer* GetExportedBufferByName(const std::string& name);
+
 	// Current handle generation. Callers holding handles across a Reset() can
 	// compare against this to know they need to rebuild.
 	uint32_t GetGeneration() const { return generation_; }
@@ -309,6 +348,16 @@ private:
 	std::vector<PassId> executionOrder_;
 
 	uint32_t generation_ = 1;
+
+	// ========================================
+	// 新增：资源名称映射
+	// ========================================
+	// 资源名称 -> Handle 的映射，用于按名字查找资源
+	std::unordered_map<std::string, RGTextureHandle> namedTextures_;
+	std::unordered_map<std::string, RGBufferHandle> namedBuffers_;
+
+	// 注册的 Pass 实例（与 passes_ 对应，索引一致）
+	std::vector<Ref<RenderGraphPass>> passInstances_;
 
 	void AllocateTransientResources();
 

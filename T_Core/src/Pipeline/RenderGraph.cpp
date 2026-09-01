@@ -1,4 +1,5 @@
 #include"RenderGraph.h"
+#include"RenderGraphPass.h"
 #include <algorithm>
 
 RenderGraph::~RenderGraph()
@@ -17,7 +18,12 @@ RGTextureHandle RenderGraph::CreateTexture(
 
     resources_.push_back(resource);
 
-    return { id, generation_ };
+    RGTextureHandle handle = { id, generation_ };
+
+    // 注册到名称映射表
+    namedTextures_[std::string(name)] = handle;
+
+    return handle;
 }
 
 RGTextureHandle RenderGraph::ImportTexture(RHITexture2D* texture, const RDGTextureDesc& desc, std::string_view name)
@@ -32,14 +38,18 @@ RGTextureHandle RenderGraph::ImportTexture(RHITexture2D* texture, const RDGTextu
     resource.importedTexture = texture;
 
     resources_.push_back(std::move(resource));
-    return { id, generation_ };
+
+    RGTextureHandle handle = { id, generation_ };
+    namedTextures_[std::string(name)] = handle;
+
+    return handle;
 }
 
 void RenderGraph::ExportTexture(RGTextureHandle handle)
 {
-    if (handle.id >= resources_.size())
+    if (handle.id >= resources_.size() || handle.generation != generation_)
     {
-        Error_Core("RenderGraph: invalid exported texture");
+        Error_Core("RenderGraph: invalid or stale exported texture");
         return;
     }
 
@@ -55,7 +65,10 @@ RGBufferHandle RenderGraph::CreateBuffer(const RDGBufferDesc& desc, std::string_
     resource.bufferDesc = desc;
     resources_.push_back(resource);
 
-    return{ id, generation_ };
+    RGBufferHandle handle = { id, generation_ };
+    namedBuffers_[std::string(name)] = handle;
+
+    return handle;
 }
 
 RGBufferHandle RenderGraph::ImportBuffer(RHIBuffer* buffer, const RDGBufferDesc& desc, std::string_view name)
@@ -70,14 +83,18 @@ RGBufferHandle RenderGraph::ImportBuffer(RHIBuffer* buffer, const RDGBufferDesc&
     resource.importedBuffer = buffer;
 
     resources_.push_back(std::move(resource));
-    return { id, generation_ };
+
+    RGBufferHandle handle = { id, generation_ };
+    namedBuffers_[std::string(name)] = handle;
+
+    return handle;
 }
 
 void RenderGraph::ExportBuffer(RGBufferHandle handle)
 {
-    if (handle.id >= resources_.size())
+    if (handle.id >= resources_.size() || handle.generation != generation_)
     {
-        Error_Core("RenderGraph: invalid exported Buffer");
+        Error_Core("RenderGraph: invalid or stale exported buffer");
         return;
     }
 
@@ -133,6 +150,33 @@ void RenderGraph::Compile()
     {
         resource.firstPass = -1;
         resource.lastPass = -1;
+    }
+
+    // Repeated Compile() calls are idempotent for object passes: setupComplete
+    // prevents Setup() from appending duplicate declarations.
+    for (size_t i = 0; i < passInstances_.size(); ++i)
+    {
+        auto& passInstance = passInstances_[i];
+        if (!passInstance)
+            continue;  // Lambda 风格的 Pass 没有实例
+
+        // 跳过禁用的 Pass
+        if (!passInstance->IsEnabled())
+        {
+            passes_[i].culled = true;
+            continue;
+        }
+
+        // Call Setup() once per graph generation.  Reset() creates a new
+        // generation and clears the pass records, so repeated Compile() calls
+        // cannot duplicate resources, writes, or dependency edges.
+        if (passes_[i].setupComplete)
+            continue;
+
+        // 调用 Setup()，让 Pass 声明资源依赖
+        RenderGraphBuilder builder(*this, passes_[i], passInstance->GetName());
+        passInstance->Setup(builder);
+        passes_[i].setupComplete = true;
     }
 
     std::vector<ResourceDependencyState> dependencyStates(resources_.size());
@@ -225,8 +269,44 @@ void RenderGraph::Execute(RHIContext& context)
     for (PassId passId : executionOrder_)
     {
         auto& pass = passes_[passId];
-        if (!pass.culled && pass.execute)
+        if (pass.culled)
+            continue;
+
+        // 检查是否有对应的 Pass 实例（新接口）
+        if (passId < passInstances_.size() && passInstances_[passId])
+        {
+            // 新接口：通过包装 Lambda 执行
+            auto& passInstance = passInstances_[passId];
+            if (!passInstance->IsEnabled())
+                continue;
+
+            // 创建 Context
+            RenderGraphContext ctx(*commandBuffer, graphResources);
+
+            // 包装成 Lambda 供 ExecutePass 调用
+            pass.execute = [&passInstance, &ctx](RHICommandBuffer&, RenderGraphResources&) {
+                passInstance->Execute(ctx);
+            };
+
             ExecutePass(pass, *commandBuffer, graphResources);
+        }
+        else if (pass.execute)
+        {
+            // Legacy 接口：直接调用
+            ExecutePass(pass, *commandBuffer, graphResources);
+        }
+    }
+
+    for (auto& resource : resources_)
+    {
+        if (!resource.exported || resource.type != RGResourceType::Texture)
+            continue;
+
+        RHITexture2D* texture = resource.imported
+            ? resource.importedTexture
+            : resource.physicalTexture.get();
+        if (texture)
+            commandBuffer->PrepareTextureForSampling(texture);
     }
 
     commandBuffer->End();
@@ -278,12 +358,41 @@ void RenderGraph::ExecutePass(RGPass& pass, RHICommandBuffer& commandBuffer, Ren
     if (!framebuffer)
         return;
 
-    // Translate the declared load ops into clear directives.
+    // Translate per-execution attachment operations. These values are not part
+    // of pipeline compatibility and therefore remain on the pass begin record.
     RenderPassBeginInfo beginInfo;
+    beginInfo.colorAttachments.resize(colorHandles.size());
     beginInfo.colorClears.resize(colorHandles.size());
+
+    const auto toLoadOp = [](RGLoadOp op)
+    {
+        switch (op)
+        {
+        case RGLoadOp::Clear:
+            return AttachmentLoadOp::Clear;
+        case RGLoadOp::DontCare:
+            return AttachmentLoadOp::DontCare;
+        case RGLoadOp::Load:
+        default:
+            return AttachmentLoadOp::Load;
+        }
+    };
+    const auto toStoreOp = [](RGStoreOp op)
+    {
+        return op == RGStoreOp::DontCare
+            ? AttachmentStoreOp::DontCare
+            : AttachmentStoreOp::Store;
+    };
 
     for (const auto& attachment : pass.colorAttachments)
     {
+        ColorAttachmentBeginInfo& color =
+            beginInfo.colorAttachments[attachment.slot];
+        color.loadOp = toLoadOp(attachment.loadOp);
+        color.storeOp = toStoreOp(attachment.storeOp);
+        color.clearValue = attachment.clearColor;
+
+        // Keep the legacy GL clear path populated during the RHI migration.
         ColorClear& clear = beginInfo.colorClears[attachment.slot];
         clear.enabled = (attachment.loadOp == RGLoadOp::Clear);
         clear.value = attachment.clearColor;
@@ -291,8 +400,15 @@ void RenderGraph::ExecutePass(RGPass& pass, RHICommandBuffer& commandBuffer, Ren
 
     if (hasDepth)
     {
-        beginInfo.clearDepth = (pass.depthAttachment->loadOp == RGLoadOp::Clear);
-        beginInfo.depthClearValue = pass.depthAttachment->clearDepth;
+        const RGDepthAttachment& attachment = *pass.depthAttachment;
+        beginInfo.hasDepth = true;
+        beginInfo.depth.loadOp = toLoadOp(attachment.loadOp);
+        beginInfo.depth.storeOp = toStoreOp(attachment.storeOp);
+        beginInfo.depth.clearDepth = attachment.clearDepth;
+        beginInfo.depth.readOnly = attachment.readOnly;
+
+        beginInfo.clearDepth = (attachment.loadOp == RGLoadOp::Clear);
+        beginInfo.depthClearValue = attachment.clearDepth;
     }
 
     commandBuffer.BeginRenderPass(framebuffer, beginInfo);
@@ -305,6 +421,13 @@ void RenderGraph::ExecutePass(RGPass& pass, RHICommandBuffer& commandBuffer, Ren
     viewport.height = static_cast<float>(
         pass.viewportHeight != 0 ? pass.viewportHeight : framebuffer->GetHeight());
     commandBuffer.SetViewport(viewport);
+
+    Scissor scissor;
+    scissor.x = 0;
+    scissor.y = 0;
+    scissor.width = framebuffer->GetWidth();
+    scissor.height = framebuffer->GetHeight();
+    commandBuffer.SetScissor(scissor);
 
     pass.execute(commandBuffer, resources);
 
@@ -451,6 +574,8 @@ void RenderGraph::AllocateTransientResources()
             desc.borderColor[1] = resource.textureDesc.borderColor[1];
             desc.borderColor[2] = resource.textureDesc.borderColor[2];
             desc.borderColor[3] = resource.textureDesc.borderColor[3];
+            desc.sampleCount = resource.textureDesc.sampleCount;
+            desc.usage = resource.textureDesc.usage;
 
             resource.physicalTexture = RHITexture2D::Create(desc);
             if (!resource.physicalTexture)
@@ -475,7 +600,7 @@ void RenderGraph::AllocateTransientResources()
 
 RHITexture2D* RenderGraph::GetTexture(RGTextureHandle handle)
 {
-    if (handle.id >= resources_.size())
+    if (handle.id == InvalidResourceId || handle.id >= resources_.size())
     {
         Error_Core("RenderGraph: invalid texture handle");
         return nullptr;
@@ -504,7 +629,7 @@ RHITexture2D* RenderGraph::GetTexture(RGTextureHandle handle)
 
 RHIBuffer* RenderGraph::GetBuffer(RGBufferHandle handle)
 {
-    if (handle.id >= resources_.size())
+    if (handle.id == InvalidResourceId || handle.id >= resources_.size())
     {
         Error_Core("RenderGraph: invalid buffer handle");
         return nullptr;
@@ -533,7 +658,7 @@ RHIBuffer* RenderGraph::GetBuffer(RGBufferHandle handle)
 
 RHITexture2D* RenderGraph::GetExportedTexture(RGTextureHandle handle)
 {
-    if (handle.id >= resources_.size())
+    if (handle.id == InvalidResourceId || handle.id >= resources_.size())
     {
         Error_Core("RenderGraph: invalid exported texture handle");
         return nullptr;
@@ -550,7 +675,7 @@ RHITexture2D* RenderGraph::GetExportedTexture(RGTextureHandle handle)
 
 RHIBuffer* RenderGraph::GetExportedBuffer(RGBufferHandle handle)
 {
-    if (handle.id >= resources_.size())
+    if (handle.id == InvalidResourceId || handle.id >= resources_.size())
     {
         Error_Core("RenderGraph: invalid exported buffer handle");
         return nullptr;
@@ -664,8 +789,70 @@ void RenderGraph::Reset()
     passes_.clear();
     resources_.clear();
 
+    // 清空名称映射和 Pass 实例
+    namedTextures_.clear();
+    namedBuffers_.clear();
+    passInstances_.clear();
+
     // Invalidate handles issued before this point.
     ++generation_;
+}
+
+// ============================================================================
+// 新接口实现：RenderGraphPass 支持
+// ============================================================================
+
+void RenderGraph::AddPass(Ref<RenderGraphPass> passInstance)
+{
+    if (!passInstance)
+    {
+        Error_Core("RenderGraph::AddPass: null pass instance");
+        return;
+    }
+
+    // 占位：先创建空的 RGPass，稍后在 Compile() 时调用 Setup() 填充
+    RGPass pass;
+    pass.name = passInstance->GetName();
+
+    passes_.push_back(std::move(pass));
+    passInstances_.push_back(passInstance);
+}
+
+RGTextureHandle RenderGraph::GetTextureByName(const std::string& name)
+{
+    auto it = namedTextures_.find(name);
+    if (it != namedTextures_.end())
+        return it->second;
+
+    // 不存在，返回 invalid handle
+    return { InvalidResourceId, generation_ };
+}
+
+RGBufferHandle RenderGraph::GetBufferByName(const std::string& name)
+{
+    auto it = namedBuffers_.find(name);
+    if (it != namedBuffers_.end())
+        return it->second;
+
+    return { InvalidResourceId, generation_ };
+}
+
+RHITexture2D* RenderGraph::GetExportedTextureByName(const std::string& name)
+{
+    RGTextureHandle handle = GetTextureByName(name);
+    if (handle.id == InvalidResourceId)
+        return nullptr;
+
+    return GetExportedTexture(handle);
+}
+
+RHIBuffer* RenderGraph::GetExportedBufferByName(const std::string& name)
+{
+    RGBufferHandle handle = GetBufferByName(name);
+    if (handle.id == InvalidResourceId)
+        return nullptr;
+
+    return GetExportedBuffer(handle);
 }
 
 
@@ -702,7 +889,8 @@ void RenderGraphPassBuilder::SetColorAttachment(
     uint32_t slot,
     RGTextureHandle texture,
     RGLoadOp loadOp,
-    const std::array<float, 4>& clearColor)
+    const std::array<float, 4>& clearColor,
+    RGStoreOp storeOp)
 {
     for (const auto& existing : pass_.colorAttachments)
     {
@@ -717,6 +905,7 @@ void RenderGraphPassBuilder::SetColorAttachment(
     attachment.texture = texture;
     attachment.slot = slot;
     attachment.loadOp = loadOp;
+    attachment.storeOp = storeOp;
     attachment.clearColor = clearColor;
 
     pass_.colorAttachments.push_back(attachment);
@@ -730,17 +919,24 @@ void RenderGraphPassBuilder::SetDepthAttachment(
     RGTextureHandle texture,
     RGLoadOp loadOp,
     float clearDepth,
-    bool readOnly)
+    bool readOnly,
+    RGStoreOp storeOp)
 {
     if (pass_.depthAttachment.has_value())
     {
         Error_Core("RenderGraph: pass {} binds a depth attachment twice", pass_.name);
         return;
     }
+    if (readOnly && loadOp == RGLoadOp::Clear)
+    {
+        Error_Core("RenderGraph: pass {} cannot clear a read-only depth attachment", pass_.name);
+        return;
+    }
 
     RGDepthAttachment attachment;
     attachment.texture = texture;
     attachment.loadOp = loadOp;
+    attachment.storeOp = storeOp;
     attachment.clearDepth = clearDepth;
     attachment.readOnly = readOnly;
 
