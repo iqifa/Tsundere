@@ -13,3 +13,8 @@
 **.vcxproj
 **.sln
 **.ini
+.claude/
+doc/
+readme/
+res/texture/
+/imgui.ini

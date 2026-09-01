@@ -54,18 +54,19 @@ layout(std430, binding = 7) buffer MatBuffer { Material materials[]; } u_Materia
 // ============================================================
 // Skybox
 // ============================================================
-uniform samplerCube u_SkyBox;
+layout(binding = 8) uniform samplerCube u_SkyBox;
 
-// ============================================================
-
-// ============================================================
-uniform int   u_TotalProbes;
-uniform int   u_ProbesPerRow;
-uniform int   u_RaysPerProbe;
-uniform int   u_ProbesPerUpdate;  // probes updated this frame
-uniform int   u_ProbeOffset;      // first probe index updated this frame
-uniform float u_Hysteresis;       // temporal blending factor [0,1]
-uniform float u_FrameSeed;
+layout(std140, binding = 0) uniform PerPass_DDGI
+{
+    int   u_TotalProbes;       // offset   0
+    int   u_ProbesPerRow;      // offset   4
+    int   u_RaysPerProbe;      // offset   8
+    int   u_ProbesPerUpdate;   // offset  12
+    int   u_ProbeOffset;       // offset  16
+    float u_Hysteresis;        // offset  20
+    float u_FrameSeed;         // offset  24
+    // pad 8B  → 32 total
+};
 
 // ============================================================
 // Constants
@@ -314,6 +315,13 @@ void main()
 		blendedIrradiance = mix(hitRadiance, prevIrradiance.rgb, effectiveHysteresis);
 		blendedDepth      = mix(hitDistance, prevDepth,        effectiveHysteresis);
 
+	// 在 imageStore 之前添加这个：
+if (globalProbeIdx == 0) {
+    // 如果是第 0 号探针，直接把深度设为 0.5 (灰色)
+    // 如果这样操作后，深度图中有一个点变成了灰色，说明写入逻辑是通的
+    imageStore(u_DepthOut, depthCoord, vec4(0.5, 0.0, 0.0, 0.0));
+    return; // 临时跳过后面的逻辑
+}
 	imageStore(u_IrradianceOut, irradianceCoord, vec4(blendedIrradiance, 1.0));
 	imageStore(u_DepthOut,      depthCoord,      vec4(blendedDepth, 0.0, 0.0, 0.0));
 }
