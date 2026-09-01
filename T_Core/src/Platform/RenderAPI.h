@@ -46,11 +46,17 @@
 
 // Include Vulkan backend implementations
 #ifdef RenderAPI_Vulkan
-
-
-
-
-#endif 
+    #include "Platform/Vulkan/VulkanBuffer.h"
+    #include "Platform/Vulkan/VulkanCommandBuffer.h"
+    #include "Platform/Vulkan/VulkanContext.h"
+    #include "Platform/Vulkan/VulkanTexture2D.h"
+    #include "Platform/Vulkan/VulkanTextureCube.h"
+    #include "Platform/Vulkan/VulkanStorageImage.h"
+    #include "Platform/Vulkan/VulkanDescriptorSet.h"
+    #include "Platform/Vulkan/VulkanFramebuffer.h"
+    #include "Platform/Vulkan/VulkanPipeline.h"
+    #include "Platform/Vulkan/VulkanMesh.h"
+#endif
 
 
 #pragma warning(pop)

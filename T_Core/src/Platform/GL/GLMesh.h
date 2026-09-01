@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Platform/RHI/RHIMesh.h"
+#include "Platform/RenderAPIConfig.h"
 #include "Core/Core.h"
 
 // GL implementation of RHIMesh.
@@ -30,7 +31,9 @@ private:
 };
 
 // Factory — backend selected at compile time
+#ifdef RenderAPI_OpenGL
 inline Ref<RHIMesh> RHIMesh::Create(const MeshDesc& desc)
 {
     return CreateRef<GLMesh>(desc);
 }
+#endif

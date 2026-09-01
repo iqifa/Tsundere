@@ -24,7 +24,7 @@ public:
     void Bind() override;
     void Unbind() override;
 
-    Ref<RHIShader> GetShader() const { return m_Shader; }
+    Ref<RHIShader> GetShader() const { return m_Desc.shader; }
 
     // Vertex layout this pipeline was created with. Needed by GLCommandBuffer
     // to re-specify attribute pointers when a vertex buffer is bound per draw.
@@ -40,7 +40,6 @@ public:
     void SetupIndexBuffer(Ref<RHIBuffer> ib) override;
 
 private:
-    Ref<RHIShader> m_Shader;
     PipelineDesc m_Desc;
     unsigned int m_VAO = 0;
 };
@@ -57,10 +56,4 @@ namespace GLPipelineUtil
     // Sets up all vertex attributes for a layout (VAO + VBO must already be bound).
     // Integer attributes (Int/Int2/Int3/Int4) use glVertexAttribIPointer.
     void SetupVertexAttributes(const VertexLayout& layout);
-}
-
-// Factory — compile-time binding
-inline Ref<RHIPipeline> RHIPipeline::Create(const PipelineDesc& desc)
-{
-    return CreateRef<GLPipeline>(desc);
 }

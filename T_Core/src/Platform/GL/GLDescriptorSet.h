@@ -14,6 +14,7 @@ public:
     ~GLDescriptorSet() override = default;
 
     void BindTexture(uint32_t binding, Ref<RHITexture2D> texture, uint32_t unit) override;
+    void BindTexture(uint32_t binding, RHITexture2D* texture, uint32_t unit) override;
     void BindCubeMap(uint32_t binding, Ref<RHITextureCube> cubemap, uint32_t unit) override;
     void BindStorageImage(uint32_t binding, Ref<RHIStorageImage> image, ImageAccess access, uint32_t unit) override;
     void BindUniformBuffer(uint32_t binding, Ref<RHIBuffer> buffer) override;
@@ -22,9 +23,12 @@ public:
     void Apply(uint32_t slot = 0) override;
     void Reset() override;
 
+    uintptr_t GetLayoutNativeID() const override { return 0; }
+
 private:
     struct TextureBinding {
-        Ref<RHITexture2D> texture;
+        Ref<RHITexture2D> ownedTexture;
+        RHITexture2D* texture = nullptr;
         uint32_t unit;
     };
     struct CubeMapBinding {
@@ -49,7 +53,9 @@ private:
 };
 
 // Factory — compile-time binding
+#ifdef RenderAPI_OpenGL
 inline Ref<RHIDescriptorSet> RHIDescriptorSet::Create()
 {
     return CreateRef<GLDescriptorSet>();
 }
+#endif

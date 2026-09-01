@@ -23,6 +23,11 @@ struct Texture2DDesc
     // Only uploaded when wrapS/wrapT is ClampToBorder.
     // Default white = "outside the map is fully lit" for shadow maps.
     float borderColor[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+
+    // Attachment metadata used by explicit APIs. Kept at the end so existing
+    // aggregate initializers retain their field ordering.
+    uint32_t sampleCount = 1;
+    TextureUsage usage = TextureUsage::Sampled;
 };
 
 class T_API RHITexture2D
@@ -42,6 +47,8 @@ public:
     virtual void Resize(uint32_t w, uint32_t h) {}   // default: no-op (static textures)
     virtual uint32_t GetWidth() const = 0;
     virtual uint32_t GetHeight() const = 0;
+    virtual Format GetFormat() const { return Format::Unknown; }
+    virtual uint32_t GetSampleCount() const { return 1; }
 
     // Returns a backend-specific native handle (GLuint / VkImageView)
     // Used by ImGui::Image() and interop with legacy code

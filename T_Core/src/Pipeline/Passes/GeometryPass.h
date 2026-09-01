@@ -302,7 +302,7 @@ public:
 				// Skybox first, matching the legacy forward chain, which drew it
 				// into the bound FBO before the geometry pass ran. It masks depth
 				// writes internally and restores them, leaving the state above intact.
-				currentcamera->RenderSkyBox();
+				currentcamera->RenderSkyBox(cmd);
 
 				// PerFrame_Geometry UBO. Uniform paths no longer drive these
 				// fields — they live in PerFrame_Geometry now — so the only

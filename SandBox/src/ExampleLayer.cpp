@@ -3,6 +3,7 @@
 #include<Trans/SceneCamera.h>
 #include<Core/Application.h>
 #include<Scene/BVHBuilder.h>
+#include<Pipeline/Passes/GeometryPassV2.h>
 
 
 entt::entity m_SelectedContext = null;
@@ -22,32 +23,30 @@ ExampleLayer::ExampleLayer(Ref<Scene>scene, std::string name) : BasePanel(name)
 
 
 
-	m_BaseFboSpec = { 1080, 960, 1 };
-	framebuffer = CreateRef<FrameBuffer>(m_BaseFboSpec);
 
 	RHI_fb = RHIFramebuffer::Create({ 1080,960,{{Format::RGBA8_UNORM},{Format::RG16F}} });
 	RHI_msaafb = RHIFramebuffer::Create({ 1080,960,{{Format::RGBA8_UNORM},{Format::RG16F}},true,16 });
 
 	geometrypass = CreateRef<GeometryPass>();
-	geometrypass->Init(framebuffer,RHI_fb);
+	geometrypass->Init(RHI_fb);
 
 	gbufferPass = CreateRef<GBufferPass>();
-	gbufferPass->Init(framebuffer);
+	gbufferPass->Init(RHI_fb);
 
 	deferredLightingPass = CreateRef<DeferredLightingPass>();
-	deferredLightingPass->Init(framebuffer);
+	deferredLightingPass->Init(RHI_fb);
 
 	taaPass = CreateRef<TAAPass>();
-	taaPass->Init(framebuffer);
+	taaPass->Init(RHI_fb);
 	             
 	shadowPass = CreateRef<ShadowPass>();
-	shadowPass->Init(framebuffer);
+	shadowPass->Init(RHI_fb);
 
 	shadowApplyPass = CreateRef<ShadowApplyPass>();
-	shadowApplyPass->Init(framebuffer);
+	shadowApplyPass->Init(RHI_fb);
 
 	shadowMapPass = CreateRef<ShadowMapPass>();
-	shadowMapPass->Init(framebuffer);
+	shadowMapPass->Init(RHI_fb);
 
 	std::vector<std::string> texpaths{
 		"D:\\Code\\C++\\Tsundere\\res/texture/CubeMap/Ori/right.jpg",
@@ -91,12 +90,12 @@ ExampleLayer::ExampleLayer(Ref<Scene>scene, std::string name) : BasePanel(name)
 	shadowPass->BuildBVH(m_Context);
 
 	pathTracePass = CreateRef<PathTracePass>();
-	pathTracePass->Init(framebuffer);
+	pathTracePass->Init(RHI_fb);
 	pathTracePass->SetBVHBuilder(shadowPass->GetBVHBuilder());
 
 		// DDGI probe-based global illumination
 		m_DDGIPass = CreateRef<DDGIPass>();
-		m_DDGIPass->Init(framebuffer);
+		m_DDGIPass->Init(RHI_fb);
 		m_DDGIPass->SetBVHBuilder(shadowPass->GetBVHBuilder());
 		deferredLightingPass->SetDDGIPass(m_DDGIPass.get());
 
@@ -126,6 +125,15 @@ void ExampleLayer::OnUpdate()
 		return;
 	}
 
+	// ========================================
+	// 新接口测试：RenderGraphPass V2
+	// ========================================
+	if (m_UseRenderGraphV2)
+	{
+		ExecuteRenderGraphV2();
+		return;
+	}
+
 	// RenderGraph forward path. The legacy chain below is untouched and stays
 	// reachable by turning this off, so the two can be compared side by side.
 	if (m_UseRenderGraph)
@@ -135,13 +143,13 @@ void ExampleLayer::OnUpdate()
 	}
 
 
-	Renderer renderer;
 
 	if (pathTracePass->Enabled)
 	{
 		// Path tracing mode — replace entire rasterization chain
 		RHI_fb->Bind();
-		renderer.Clear();
+		glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 		if (m_ViewportFocused)
 			currentcamera->GLPrecessInput(m_WindowHandle, 0.1f);
@@ -208,9 +216,12 @@ void ExampleLayer::OnUpdate()
 				RHI_fb->Bind();
 			}
 
-			renderer.Clear();
+			glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 			{
-				currentcamera->RenderSkyBox();
+				auto commandBuffer = RHIRenderer::GetCmd();
+					if (commandBuffer)
+						currentcamera->RenderSkyBox(*commandBuffer);
 
 				geometrypass->Execute(m_Context, renderResources);
 			}
@@ -222,7 +233,7 @@ void ExampleLayer::OnUpdate()
 			else
 				RHI_fb->Unbind();
 
-			renderResources.SourceFBO = RHI_fb->GetFramebufferID();
+			renderResources.SourceFBO = RHI_fb;
 
 			// Shadow Pass (ray-traced)
 			if (shadowPass->Enabled)
@@ -262,6 +273,14 @@ void ExampleLayer::OnImGuiRender()
 	if (m_UseRenderGraph)
 		ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f),
 			"RDG: ShadowMap -> Geometry -> TAA");
+
+	// 新增：V2 接口开关
+	if (ImGui::Checkbox("Use RenderGraph V2 (NEW)?", &m_UseRenderGraphV2))
+		m_GraphDirty = true;
+	if (m_UseRenderGraphV2)
+		ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.5f, 1.0f),
+			"RDG V2: Unified Pass Interface (Geometry only)");
+
 	ImGui::Checkbox("Deferred Rendering?", &useDeferred);
 	ImGui::Checkbox("OpenMsaa?", &open_Msaa);
 	if (useDeferred && open_Msaa)
@@ -404,9 +423,6 @@ void ExampleLayer::OnImGuiRender()
 	{
 		m_ViewPortSize = { viewportPanelSize.x,viewportPanelSize.y };
 		glViewport(0, 0, m_ViewPortSize.x, m_ViewPortSize.y);
-		m_BaseFboSpec.Width = m_ViewPortSize.x;
-		m_BaseFboSpec.Height = m_ViewPortSize.y;
-		framebuffer->Rsetsize(m_ViewPortSize);
 		RHI_fb->Resize(m_ViewPortSize.x, m_ViewPortSize.y);
 		RHI_msaafb->Resize(m_ViewPortSize.x, m_ViewPortSize.y);
 		if (geometrypass) geometrypass->OnFboResize(m_ViewPortSize.x, m_ViewPortSize.y);
@@ -902,6 +918,88 @@ void ExampleLayer::RunRenderGraphSmokeTest()
 
 	m_RenderGraphTestOutput = outputTexture
 		? static_cast<unsigned int>(outputTexture->GetNativeID())
+		: 0;
+}
+
+// ============================================================================
+// 新接口实现：RenderGraphPass V2
+// ============================================================================
+
+void ExampleLayer::BuildRenderGraphV2(uint32_t width, uint32_t height)
+{
+	m_RenderGraph.Reset();
+
+	if (!m_GraphFrameData)
+		m_GraphFrameData = CreateRef<RGFrameData>();
+
+	// ========================================
+	// 1. 注册所有 Pass（顺序无关紧要！）
+	// ========================================
+
+	// Geometry Pass（新接口）
+	auto geometryPassV2 = CreateRef<GeometryPassV2>(m_Context, m_GraphFrameData);
+	geometryPassV2->EnableJitter = geometrypass->EnableJitter;  // 复制设置
+	geometryPassV2->SetViewportSize(width, height);
+	m_RenderGraph.AddPass(geometryPassV2);
+
+	// TODO: 添加更多 Pass（ShadowMap, TAA 等）
+	// auto shadowMapPass = CreateRef<ShadowMapPassV2>(...);
+	// m_RenderGraph.AddPass(shadowMapPass);
+
+	// ========================================
+	// 2. Compile：自动排序 + 分配资源
+	// ========================================
+	m_RenderGraph.Compile();
+
+	// ========================================
+	// 3. 获取导出的资源（用于 ImGui 显示）
+	// ========================================
+	m_GraphFinalColor = m_RenderGraph.GetTextureByName("Geometry.SceneColor");
+	m_GraphVelocity = m_RenderGraph.GetTextureByName("Geometry.Velocity");
+
+	m_GraphBuiltWidth = width;
+	m_GraphBuiltHeight = height;
+	m_GraphDirty = false;
+
+	Info_Core("[RenderGraph V2]: Built graph with {} passes", 1);
+}
+
+void ExampleLayer::ExecuteRenderGraphV2()
+{
+	const uint32_t width = static_cast<uint32_t>(m_ViewPortSize.x);
+	const uint32_t height = static_cast<uint32_t>(m_ViewPortSize.y);
+
+	if (width == 0 || height == 0)
+		return;
+
+	// Rebuild when viewport size changes
+	if (m_GraphDirty || width != m_GraphBuiltWidth || height != m_GraphBuiltHeight)
+	{
+		BuildRenderGraphV2(width, height);
+	}
+
+	if (m_ViewportFocused)
+		currentcamera->GLPrecessInput(m_WindowHandle, 0.5f);
+
+	Ref<RHIContext> context = RHIRenderer::GetContext();
+	if (!context)
+	{
+		Error_Core("[RenderGraph V2]: RHI context is null");
+		return;
+	}
+
+	// 一行搞定！
+	m_RenderGraph.Execute(*context);
+
+	// 读取已显式导出的结果。不要从 ExampleLayer 访问 RenderGraph 的私有资源解析接口。
+	RHITexture2D* finalColor = m_RenderGraph.GetExportedTexture(m_GraphFinalColor);
+	renderResources.SceneColorTexture = finalColor
+		? static_cast<unsigned int>(finalColor->GetNativeID())
+		: 0;
+
+	RHITexture2D* velocity = m_RenderGraph.GetExportedTexture(m_GraphVelocity);
+	renderResources.VelocityTexture = velocity
+		? static_cast<unsigned int>(velocity->GetNativeID())
 		: 0;
 }
 #endif // Drop

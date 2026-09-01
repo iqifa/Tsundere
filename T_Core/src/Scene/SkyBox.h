@@ -2,89 +2,121 @@
 #ifndef SKYBOX
 #define SKYBOX
 
-#include"GLHead.h"
-#include"HeadLine.h"
+#include "Platform/RHI/RHIBuffer.h"
+#include "Platform/RHI/RHICommandBuffer.h"
+#include "Platform/RHI/RHIDescriptorSet.h"
+#include "Platform/RHI/RHIPipeline.h"
+#include "Platform/RHI/RHIShader.h"
+#include "Platform/RHI/RHITexture.h"
+#include "Pipeline/RenderGraphPass.h"
+#include "HeadLine.h"
 
-	struct SkyBox
-	{
-		std::vector<std::string> texpaths;
+#include <glm/glm.hpp>
+#include <string>
+#include <vector>
 
-		Ref<RHITextureCube>m_Cmp;
-		Ref<RHIShader>m_Shader;
-		Ref<RHIPipeline>m_Pipeline;
-		Ref<RHIBuffer>m_VertexBuffer;
+class RenderGraphBuilder;
 
+struct SkyBox
+{
+    struct SkyBoxUBO
+    {
+        glm::mat4 proj;
+        glm::mat4 view;
+        glm::mat4 prevViewProj;
+    };
 
-		SkyBox() = default;
-		SkyBox(std::vector<std::string> vec) :texpaths(vec)
-		{
-			float skyboxVertices[] = {
-				// positions          
-				-1.0f,  1.0f, -1.0f,
-				-1.0f, -1.0f, -1.0f,
-				 1.0f, -1.0f, -1.0f,
-				 1.0f, -1.0f, -1.0f,
-				 1.0f,  1.0f, -1.0f,
-				-1.0f,  1.0f, -1.0f,
+    std::vector<std::string> texpaths;
+    Ref<RHITextureCube> m_Cmp;
+    Ref<RHIShader> m_Shader;
+    Ref<RHIPipeline> m_Pipeline;
+    Ref<RHIBuffer> m_VertexBuffer;
+    Ref<RHIBuffer> m_MatrixUBO;
+    Ref<RHIDescriptorSet> m_DescriptorSet;
 
-				-1.0f, -1.0f,  1.0f,
-				-1.0f, -1.0f, -1.0f,
-				-1.0f,  1.0f, -1.0f,
-				-1.0f,  1.0f, -1.0f,
-				-1.0f,  1.0f,  1.0f,
-				-1.0f, -1.0f,  1.0f,
+    SkyBox() = default;
+    explicit SkyBox(std::vector<std::string> vec)
+        : texpaths(std::move(vec))
+    {
+        static const float skyboxVertices[] = {
+            -1.0f,  1.0f, -1.0f, -1.0f, -1.0f, -1.0f,  1.0f, -1.0f, -1.0f,
+             1.0f, -1.0f, -1.0f,  1.0f,  1.0f, -1.0f, -1.0f,  1.0f, -1.0f,
+            -1.0f, -1.0f,  1.0f, -1.0f, -1.0f, -1.0f, -1.0f,  1.0f, -1.0f,
+            -1.0f,  1.0f, -1.0f, -1.0f,  1.0f,  1.0f, -1.0f, -1.0f,  1.0f,
+             1.0f, -1.0f, -1.0f,  1.0f, -1.0f,  1.0f,  1.0f,  1.0f,  1.0f,
+             1.0f,  1.0f,  1.0f,  1.0f,  1.0f, -1.0f,  1.0f, -1.0f, -1.0f,
+            -1.0f, -1.0f,  1.0f, -1.0f,  1.0f,  1.0f,  1.0f,  1.0f,  1.0f,
+             1.0f,  1.0f,  1.0f,  1.0f, -1.0f,  1.0f, -1.0f, -1.0f,  1.0f,
+            -1.0f,  1.0f, -1.0f,  1.0f,  1.0f, -1.0f,  1.0f,  1.0f,  1.0f,
+             1.0f,  1.0f,  1.0f, -1.0f,  1.0f,  1.0f, -1.0f,  1.0f, -1.0f,
+            -1.0f, -1.0f, -1.0f, -1.0f, -1.0f,  1.0f,  1.0f, -1.0f, -1.0f,
+             1.0f, -1.0f, -1.0f, -1.0f, -1.0f,  1.0f,  1.0f, -1.0f,  1.0f
+        };
 
-				 1.0f, -1.0f, -1.0f,
-				 1.0f, -1.0f,  1.0f,
-				 1.0f,  1.0f,  1.0f,
-				 1.0f,  1.0f,  1.0f,
-				 1.0f,  1.0f, -1.0f,
-				 1.0f, -1.0f, -1.0f,
+        m_Cmp = RHITextureCube::Create({ 0, Format::RGBA8_UNORM, texpaths,
+                                         FilterMode::Linear, FilterMode::Linear });
+        m_Shader = RHIShader::Create("D:/Code/C++/Tsundere/res/shaders/SkyBox.shader");
+        m_VertexBuffer = RHIBuffer::Create({
+            static_cast<uint32_t>(sizeof(skyboxVertices)), BufferUsage::Vertex,
+            false, skyboxVertices });
+        m_MatrixUBO = RHIBuffer::Create({ sizeof(SkyBoxUBO), BufferUsage::Uniform, true, nullptr });
+        m_DescriptorSet = RHIDescriptorSet::Create();
 
-				-1.0f, -1.0f,  1.0f,
-				-1.0f,  1.0f,  1.0f,
-				 1.0f,  1.0f,  1.0f,
-				 1.0f,  1.0f,  1.0f,
-				 1.0f, -1.0f,  1.0f,
-				-1.0f, -1.0f,  1.0f,
+        // Declare every structural binding before Vulkan freezes the layout.
+        m_DescriptorSet->BindUniformBuffer(0, m_MatrixUBO);
+        m_DescriptorSet->BindCubeMap(10, m_Cmp, 10);
+    }
 
-				-1.0f,  1.0f, -1.0f,
-				 1.0f,  1.0f, -1.0f,
-				 1.0f,  1.0f,  1.0f,
-				 1.0f,  1.0f,  1.0f,
-				-1.0f,  1.0f,  1.0f,
-				-1.0f,  1.0f, -1.0f,
+    bool InitializePipeline(RenderGraphBuilder& builder)
+    {
+        if (!m_Shader || !m_VertexBuffer || !m_DescriptorSet)
+            return false;
 
-				-1.0f, -1.0f, -1.0f,
-				-1.0f, -1.0f,  1.0f,
-				 1.0f, -1.0f, -1.0f,
-				 1.0f, -1.0f, -1.0f,
-				-1.0f, -1.0f,  1.0f,
-				 1.0f, -1.0f,  1.0f
-			};
-			m_Cmp = RHITextureCube::Create(TextureCubeDesc{ 0, Format::RGBA8_UNORM, texpaths, FilterMode::Linear, FilterMode::Linear });
-			m_Cmp->Bind(0);
+        VertexLayout layout;
+        layout.stride = 3 * sizeof(float);
+        layout.attributes = { { 0, VertexFormat::Float3, 0, 0 } };
 
-			m_Shader = RHIShader::Create("D:\\Code\\C++\\Tsundere\\res/shaders/SkyBox.shader");
-			m_Shader->Bind();
+        PipelineDesc desc;
+        desc.shader = m_Shader;
+        desc.vertexLayout = layout;
+        desc.cullMode = CullMode::None;
+        desc.depthTest = true;
+        desc.depthWrite = false;
+        desc.depthOp = CompareOp::LessEqual;
+        desc.descriptorSets = { m_DescriptorSet };
 
-			m_VertexBuffer = RHIBuffer::Create(BufferDesc{ (uint32_t)sizeof(skyboxVertices), BufferUsage::Vertex, false, skyboxVertices });
+        m_Pipeline = builder.CreatePipeline(m_Shader, layout, &desc);
+        if (m_Pipeline)
+            m_Pipeline->SetupVertexFormat(m_VertexBuffer);
+        return m_Pipeline != nullptr;
+    }
 
-			VertexLayout layout;
-			layout.stride = 3 * sizeof(float);
-			layout.attributes = { { 0, VertexFormat::Float3, 0 } };
-			PipelineDesc desc;
-			desc.shader = m_Shader;
-			desc.vertexLayout = layout;
-			desc.cullMode = CullMode::None;
-			desc.depthWrite = false;
-			m_Pipeline = RHIPipeline::Create(desc);
-			m_Pipeline->SetupVertexFormat(m_VertexBuffer);
-		}
-		void Bind()
-		{
-			m_Cmp->Bind(0);
-		}
-	};
+    bool Draw(RHICommandBuffer& cmd,
+              const glm::mat4& proj,
+              const glm::mat4& view,
+              const glm::mat4& prevViewProj)
+    {
+        if (!m_Pipeline || !m_VertexBuffer || !m_MatrixUBO ||
+            !m_DescriptorSet || !m_Cmp)
+            return false;
 
-#endif // !SKYBOX
+        SkyBoxUBO matrices{ proj, view, prevViewProj };
+        m_MatrixUBO->Upload(&matrices, sizeof(matrices));
+
+        m_DescriptorSet->Reset();
+        m_DescriptorSet->BindUniformBuffer(0, m_MatrixUBO);
+        m_DescriptorSet->BindCubeMap(10, m_Cmp, 10);
+        m_DescriptorSet->Apply(0);
+
+        cmd.BindPipeline(m_Pipeline);
+        cmd.BindVertexBuffer(m_VertexBuffer, 0);
+        cmd.BindDescriptorSet(m_DescriptorSet, 0);
+        cmd.Draw(36, 0);
+        return true;
+    }
+
+    // Kept for old callers; rendering is now performed by Draw().
+    void Bind() {}
+};
+
+#endif // SKYBOX

@@ -55,34 +55,21 @@ private:
 	int GetUniformLocation(const std::string& name)const;
 };
 
-// --- RHI Factory methods (inline) ---
-// Shader IS the GL implementation of RHIShader, so factories delegate to Shader::Create*.
 
-inline Ref<RHIShader> RHIShader::Create(const std::string& filepath)
-{
-	return GLShader::Create(filepath);
-}
-inline Ref<RHIShader> RHIShader::Create(const std::string& filepath, const std::string& name)
-{
-	return GLShader::Create(filepath, name);
-}
-inline Ref<RHIShader> RHIShader::CreateCompute(const std::string& filepath)
-{
-	return GLShader::CreateCompute(filepath);
-}
 
-// ShaderLibiray — now stores RHIShader references
-class T_API ShaderLibiray {
-public:
 
-	static void Add(const Ref<RHIShader>& shader);
-	static Ref<RHIShader> Load(const std::string& FilePath);
-	static Ref<RHIShader> Load(const std::string& name,const std::string& FilePath);
 
-	static Ref<RHIShader> Get(const std::string& path);
-
-	static std::shared_mutex s_Mutex;
-private:
-	static std::unordered_map<std::string, Ref<RHIShader>>m_Shaders;
-
-};
+//// ShaderLibiray — now stores RHIShader references
+//class T_API ShaderLibiray {
+//public:
+//
+//	static void Add(const Ref<RHIShader>& shader);
+//	static Ref<RHIShader> Load(const std::string& FilePath);
+//	static Ref<RHIShader> Load(const std::string& name,const std::string& FilePath);
+//
+//	static Ref<RHIShader> Get(const std::string& path);
+//
+//	static std::shared_mutex s_Mutex;
+//private:
+//	static std::unordered_map<std::string, Ref<RHIShader>>m_Shaders;
+//};

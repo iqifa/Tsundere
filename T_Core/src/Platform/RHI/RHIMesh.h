@@ -11,6 +11,8 @@
 #include "HeadLine.h"
 #include <cstdint>
 
+class RHICommandBuffer;
+
 // Describes a mesh upload. Vertex/index data is copied into GPU buffers at
 // Create() time, so the CPU-side pointers need only stay valid for the call.
 struct MeshDesc
@@ -32,8 +34,14 @@ public:
     virtual void Bind() const = 0;
     virtual void Unbind() const = 0;
 
-    // Draws the mesh. Caller must bind the shader/material first.
+    // Draws the mesh through the active command buffer. The legacy Draw() entry
+    // remains for compatibility with the OpenGL-era passes.
     virtual void Draw() const = 0;
+    virtual void Draw(RHICommandBuffer& commandBuffer) const
+    {
+        (void)commandBuffer;
+        Draw();
+    }
 
     virtual uint32_t GetIndexCount() const = 0;
     virtual uint32_t GetVertexCount() const = 0;

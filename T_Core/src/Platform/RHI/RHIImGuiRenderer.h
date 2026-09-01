@@ -4,6 +4,8 @@
 #include "Core/Application.h"
 #include<Platform/RenderAPI.h>
 #include<Debug/Debug.h>
+class RHITexture2D;
+
 class T_API RHIImGUIRenderer
 {
 public:
@@ -11,20 +13,24 @@ public:
 	using BeginFunc = void(*)(Engine::Application&, float&);
 	using EndFunc = void(*)();
 	using ShutdownFunc = void(*)();
+	using GetTextureIDFunc = ImTextureID(*)(RHITexture2D*);
+	using ReleaseTextureFunc = void(*)(RHITexture2D*);
 
 	struct APIFunctions {
-		InitFunc     Init;
-		BeginFunc    Begin;
-		EndFunc      End;
-		ShutdownFunc Shutdown;
+		InitFunc           Init;
+		BeginFunc          Begin;
+		EndFunc            End;
+		ShutdownFunc       Shutdown;
+		GetTextureIDFunc   GetTextureID;
+		ReleaseTextureFunc ReleaseTexture;
 	};
 
-	// ºËÐÄÐÞ¸Ä 1£ºÊ¹ÓÃ C++17 inline static£¬Ö±½ÓÔÚÍ·ÎÄ¼þÍê³É¶¨ÒåÇÒ±£Ö¤¿ç DLL µ¥Àý
-	inline static APIFunctions s_API = { nullptr, nullptr, nullptr, nullptr };
+	// ï¿½ï¿½ï¿½ï¿½ï¿½Þ¸ï¿½ 1ï¿½ï¿½Ê¹ï¿½ï¿½ C++17 inline staticï¿½ï¿½Ö±ï¿½ï¿½ï¿½ï¿½Í·ï¿½Ä¼ï¿½ï¿½ï¿½É¶ï¿½ï¿½ï¿½ï¿½Ò±ï¿½Ö¤ï¿½ï¿½ DLL ï¿½ï¿½ï¿½ï¿½
+	inline static APIFunctions s_API = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
 
 	static void Register(const APIFunctions& funcs) { s_API = funcs; }
 
-	// ºËÐÄÐÞ¸Ä 2£ºÖ±½ÓÊ¹ÓÃ s_API£¬²»ÔÙµ÷ÓÃ GetAPI()
+	// ï¿½ï¿½ï¿½ï¿½ï¿½Þ¸ï¿½ 2ï¿½ï¿½Ö±ï¿½ï¿½Ê¹ï¿½ï¿½ s_APIï¿½ï¿½ï¿½ï¿½ï¿½Ùµï¿½ï¿½ï¿½ GetAPI()
 	static void Init(Engine::Application& app) {
 		if (s_API.Init) {
 			s_API.Init(app);
@@ -35,5 +41,14 @@ public:
 	}
 	static void Begin(Engine::Application& app, float& m_Time) { if (s_API.Begin) s_API.Begin(app, m_Time); }
 	static void End() { if (s_API.End) s_API.End(); }
+	static ImTextureID GetTextureID(RHITexture2D* texture)
+	{
+		return s_API.GetTextureID ? s_API.GetTextureID(texture) : ImTextureID_Invalid;
+	}
+	static void ReleaseTexture(RHITexture2D* texture)
+	{
+		if (s_API.ReleaseTexture)
+			s_API.ReleaseTexture(texture);
+	}
 	static void Shutdown() { if (s_API.Shutdown) s_API.Shutdown(); }
 };

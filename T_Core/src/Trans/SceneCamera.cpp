@@ -133,34 +133,23 @@ void SceneCamera::GLScrollInput(float xoffset, float yoffset)
 	if (fov >= 45.0f)
 		fov = 45.0f;
 }
-void SceneCamera::RenderSkyBox()
+void SceneCamera::RenderSkyBox(RHICommandBuffer& commandBuffer)
 {
-	skybox->m_Shader->Bind();
+	if (!skybox)
+		return;
 
-	mat4 model(1.0f);
-	mat4 view = GetViewFront();
-	view = mat4(mat3(view));
+	mat4 view = mat4(mat3(GetViewFront()));
 	mat4 proj = GetProj();
-	mat4 mvp = proj * view * model;
-	skybox->m_Shader->SetUniformMat4f("proj", proj);
-	skybox->m_Shader->SetUniformMat4f("view", view);
+	const mat4 currentViewProj = proj * view;
+	const mat4 previousViewProj = m_PrevSkyValid
+		? m_PrevSkyViewProj
+		: currentViewProj;
 
-	// The sky is infinitely distant, so only rotation moves it on screen.
-	// Last frame's rotation-only viewProj lets the fragment stage emit a real
-	// motion vector. Without one the sky keeps the cleared velocity (0,0), TAA
-	// reads history at the same UV, and the sky smears whenever the camera turns.
-	skybox->m_Shader->SetUniformMat4f("prevViewProj", m_PrevSkyViewProj);
-
-	skybox->Bind();
-	skybox->m_Pipeline->Bind();
-	glDrawArrays(GL_TRIANGLES, 0, 36);
-
-	skybox->m_Shader->UnBind();
-
-	// Cache for next frame's motion vectors. Matches how GeometryPass advances
-	// m_PrevViewProjMatrix: stored after the draw that consumed the old value.
-	m_PrevSkyViewProj = proj * view;
-	glDepthMask(GL_TRUE);
+	if (skybox->Draw(commandBuffer, proj, view, previousViewProj))
+	{
+		m_PrevSkyViewProj = currentViewProj;
+		m_PrevSkyValid = true;
+	}
 }
 void SceneCamera::Setx(float x)
 {

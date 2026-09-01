@@ -19,18 +19,12 @@ private:
 	void OnEvent(Eventing::Event<>& event) override;
 	void DrawEntityNode(Entity entity);
 
-	Ptr<VertexArray>va;
-	Ptr<VertexBuffer>vb;
-	Ptr<IndexBuffer>ibo;
 	Ref<RHIShader>shader;
-
-	Ref<FrameBuffer> framebuffer;           // legacy — used by non-migrated passes & path tracing
 
 	Ref<RHIFramebuffer>RHI_fb;             // RHI non-MSAA FBO (resolve target / forward rendering)
 	Ref<RHIFramebuffer>RHI_msaafb;         // RHI MSAA FBO (16 samples, multi-attachment)
 
 	vec2 m_ViewPortSize;
-	FrameBufferSpecification m_BaseFboSpec;
 
 	bool open_Msaa = false;
 
@@ -49,7 +43,7 @@ private:
 	Ref<GBufferPass> gbufferPass;
 	Ref<DeferredLightingPass> deferredLightingPass;
 	Ref<DDGIPass> m_DDGIPass;
-	bool useDeferred = false;
+	bool useDeferred = true;
 
 	bool m_ViewportFocused = false;
 
@@ -96,6 +90,13 @@ private:
 
 	void BuildRenderGraph(uint32_t width, uint32_t height);
 	void ExecuteRenderGraph();
+
+	// ========================================
+	// 新接口测试：RenderGraphPass V2
+	// ========================================
+	bool m_UseRenderGraphV2 = false;  // 开关：使用新接口
+	void BuildRenderGraphV2(uint32_t width, uint32_t height);
+	void ExecuteRenderGraphV2();
 
 	// Direction of the first directional light, or a default when the scene has
 	// none. ShadowPass needs it set before its lambda runs, and both the forward

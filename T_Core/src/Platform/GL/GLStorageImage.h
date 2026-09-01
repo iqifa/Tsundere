@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Platform/RHI/RHITexture.h"
-
+#include"Platform/RenderAPIConfig.h"
 // GL implementation of RHIStorageImage.
 // Wraps a GL_TEXTURE_2D suitable for glBindImageTexture (compute shader).
 class T_API GLStorageImage : public RHIStorageImage
@@ -30,9 +30,3 @@ private:
     unsigned int m_GLFormat = 0;
     unsigned int m_GLType = 0;
 };
-
-// Factory
-inline Ref<RHIStorageImage> RHIStorageImage::Create(const StorageImageDesc& desc)
-{
-    return CreateRef<GLStorageImage>(desc);
-}

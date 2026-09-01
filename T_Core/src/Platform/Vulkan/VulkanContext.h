@@ -32,11 +32,14 @@ public:
     {
         return m_FrameActive ? m_CommandBuffer : VK_NULL_HANDLE;
     }
+    void BeginPresentPass() override;
+    void EndPresentPass() override;
     VkRenderPass GetImGuiRenderPass() const override { return m_RenderPass; }
     VkDescriptorPool GetImGuiDescriptorPool() const override { return m_DescriptorPool; }
     uint32_t GetMinImageCount() const override { return m_MinImageCount; }
     uint32_t GetImageCount() const override { return static_cast<uint32_t>(m_SwapchainImages.size()); }
     uint64_t GetSwapchainGeneration() const override { return m_SwapchainGeneration; }
+    bool SupportsDynamicRendering() const override { return m_DynamicRenderingSupported; }
 
 private:
     GLFWwindow* m_Window = nullptr;
@@ -45,10 +48,14 @@ private:
     RHIFrameContext m_FrameContext;
     bool m_Initialized = false;
     bool m_FrameActive = false;
+    bool m_PresentPassActive = false;
+    bool m_PresentPassRecorded = false;
     bool m_FramebufferResized = false;
+    bool m_DynamicRenderingSupported = false;
     uint64_t m_SwapchainGeneration = 0;
 
     VkInstance m_Instance = VK_NULL_HANDLE;
+    VkDebugUtilsMessengerEXT m_DebugMessenger = VK_NULL_HANDLE;
     VkSurfaceKHR m_Surface = VK_NULL_HANDLE;
     VkPhysicalDevice m_PhysicalDevice = VK_NULL_HANDLE;
     VkDevice m_Device = VK_NULL_HANDLE;
@@ -67,7 +74,8 @@ private:
     VkCommandPool m_CommandPool = VK_NULL_HANDLE;
     VkCommandBuffer m_CommandBuffer = VK_NULL_HANDLE;
     VkSemaphore m_ImageAvailableSemaphore = VK_NULL_HANDLE;
-    VkSemaphore m_RenderFinishedSemaphore = VK_NULL_HANDLE;
+    std::vector<VkSemaphore> m_RenderFinishedSemaphores;
+    VkSemaphore m_CurrentRenderFinishedSemaphore = VK_NULL_HANDLE;
     VkFence m_InFlightFence = VK_NULL_HANDLE;
     uint32_t m_QueueFamily = 0;
 

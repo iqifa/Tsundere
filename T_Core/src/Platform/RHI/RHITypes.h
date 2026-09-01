@@ -58,7 +58,8 @@ enum class CullMode : uint8_t
 {
     None,
     Front,
-    Back
+    Back,
+    Double
 };
 
 enum class CompareOp : uint8_t

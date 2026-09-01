@@ -2,7 +2,7 @@
 #ifndef CAMERA
 #define CAMERA
 
-#include"ExternalFiles.h"
+#include "Platform/RHI/RHICommandBuffer.h"
 #include"HeadLine.h"
 #include"Scene/SkyBox.h"
 
@@ -38,7 +38,7 @@ public:
 	void GLMouseInput(float xoffset, float yoffset, GLboolean constrainPitch);
 	void GLScrollInput(float xoffset, float yoffset);
 	float m_AspectRatio = 1.125f;
-	void RenderSkyBox();
+	void RenderSkyBox(RHICommandBuffer& commandBuffer);
 private:
 	vec3 cameraPos;
 	vec3 cameraTarget;

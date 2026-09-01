@@ -26,6 +26,10 @@ public:
 
     virtual uint32_t GetSize() const = 0;
 
+    // Backend-native buffer handle. GL returns GLuint; Vulkan returns VkBuffer.
+    // The default keeps older/mock implementations source-compatible.
+    virtual uintptr_t GetNativeID() const { return 0; }
+
     // Bind this buffer to a shader storage / uniform binding slot.
     // GL: glBindBufferBase(GL_SHADER_STORAGE_BUFFER, slot, id).
     // VK: maps to a descriptor-set write for a storage buffer at that binding.

@@ -1,5 +1,13 @@
 #include "GLBuffer.h"
 #include "GLDebug.h"
+#include "Platform/RenderAPIConfig.h"
+
+#ifdef RenderAPI_OpenGL
+Ref<RHIBuffer> RHIBuffer::Create(const BufferDesc& desc)
+{
+    return CreateRef<GLBuffer>(desc);
+}
+#endif
 
 GLBuffer::GLBuffer(const BufferDesc& desc)
     : m_Size(desc.size)

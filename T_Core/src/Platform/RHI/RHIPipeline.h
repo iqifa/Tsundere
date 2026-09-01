@@ -7,6 +7,7 @@
 #include <vector>
 
 class RHIBuffer;
+class RHIDescriptorSet;
 
 // Describes one vertex attribute within a vertex buffer layout.
 struct VertexAttribute
@@ -25,6 +26,36 @@ struct VertexLayout
     uint32_t stride = 0;
 };
 
+// Describes the render-target interface baked into a graphics pipeline.
+//
+// OpenGL ignores this when creating a pipeline. Vulkan consumes it either via
+// VkPipelineRenderingCreateInfo (dynamic rendering) or as a classic render-pass
+// compatibility key. Load/store operations deliberately do not live here: they
+// belong to an individual pass execution, not to pipeline compatibility.
+struct RenderingSignature
+{
+    std::vector<Format> colorFormats;
+    Format depthFormat = Format::Unknown;
+    uint32_t sampleCount = 1;
+    uint32_t viewMask = 0;
+
+    bool HasAttachments() const
+    {
+        return !colorFormats.empty() || depthFormat != Format::Unknown;
+    }
+
+    bool operator==(const RenderingSignature& other) const
+    {
+        return colorFormats == other.colorFormats &&
+               depthFormat == other.depthFormat &&
+               sampleCount == other.sampleCount &&
+               viewMask == other.viewMask;
+    }
+};
+
+// Kept as an alias while existing backend code migrates to RenderingSignature.
+using RenderPassAttachmentConfig = RenderingSignature;
+
 // Pipeline state object descriptor.
 // Bundles shader + vertex layout + raster/blend/depth state.
 // GL backend: creates a VAO from vertexLayout, applies state at Bind().
@@ -41,6 +72,14 @@ struct PipelineDesc
     BlendFactor srcBlend = BlendFactor::One;
     BlendFactor dstBlend = BlendFactor::Zero;
     bool isCompute = false;
+
+    // Descriptor sets whose layouts are part of the pipeline interface.
+    // OpenGL ignores this; Vulkan uses their native layouts in VkPipelineLayout.
+    std::vector<Ref<RHIDescriptorSet>> descriptorSets;
+
+    // Render-target interface. RDG derives this from the current pass and all
+    // graphics backends may use it for validation or pipeline caching.
+    RenderingSignature renderingSignature;
 };
 
 // Pipeline state object interface.

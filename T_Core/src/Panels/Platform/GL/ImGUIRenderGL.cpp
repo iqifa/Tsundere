@@ -17,7 +17,7 @@ namespace OpenGL_ImGui
 		io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 		io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
 		io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-		io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;//ÔÚIMGUIµÄ´°¿ÚÒÆµ½Main WindowºóÐÂ½¨²Ù×÷ÏµÍ³´°¿Ú£¬Ê¹µÃGUI_WindowÄÜ¹»ÍêÈ«ÏÔÊ¾¡£
+		io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;//ï¿½ï¿½IMGUIï¿½Ä´ï¿½ï¿½ï¿½ï¿½Æµï¿½Main Windowï¿½ï¿½ï¿½Â½ï¿½ï¿½ï¿½ï¿½ï¿½ÏµÍ³ï¿½ï¿½ï¿½Ú£ï¿½Ê¹ï¿½ï¿½GUI_Windowï¿½Ü¹ï¿½ï¿½ï¿½È«ï¿½ï¿½Ê¾ï¿½ï¿½
 
 
 		GLFWwindow* window = static_cast<GLFWwindow*>(app.GetWindow().GetWindow());
@@ -61,6 +61,18 @@ namespace OpenGL_ImGui
 		ImGui_ImplGlfw_Shutdown();
 		ImGui::DestroyContext();
 	}
+
+	ImTextureID GetTextureID(RHITexture2D* texture)
+	{
+		return texture
+			? static_cast<ImTextureID>(texture->GetNativeID())
+			: ImTextureID_Invalid;
+	}
+
+	void ReleaseTexture(RHITexture2D* texture)
+	{
+		(void)texture;
+	}
 }
 
 
@@ -71,7 +83,9 @@ struct OpenGLImGuiRegisterer {
 			OpenGL_ImGui::Init,
 			OpenGL_ImGui::Begin,
 			OpenGL_ImGui::End,
-			OpenGL_ImGui::Shutdown
+			OpenGL_ImGui::Shutdown,
+				OpenGL_ImGui::GetTextureID,
+				OpenGL_ImGui::ReleaseTexture
 		};
 		RHIImGUIRenderer::Register(funcs);
 	}

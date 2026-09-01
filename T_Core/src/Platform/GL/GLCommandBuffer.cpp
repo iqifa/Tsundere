@@ -56,31 +56,68 @@ void GLCommandBuffer::BeginRenderPass(Ref<RHIFramebuffer> fb, const RenderPassBe
     // Per-attachment color clear. glClearBufferfv targets one draw buffer at a
     // time, so each MRT slot can get its own clear value — glClearColor+glClear
     // would force every attachment to the same value.
-    for (size_t slot = 0; slot < info.colorClears.size(); ++slot)
+    const size_t colorCount = !info.colorAttachments.empty()
+        ? info.colorAttachments.size()
+        : info.colorClears.size();
+    for (size_t slot = 0; slot < colorCount; ++slot)
     {
-        const ColorClear& clear = info.colorClears[slot];
-        if (!clear.enabled)
-            continue;   // load op = Load: keep previous contents
+        bool shouldClear = false;
+        const std::array<float, 4>* clearValue = nullptr;
+        if (!info.colorAttachments.empty())
+        {
+            const ColorAttachmentBeginInfo& attachment = info.colorAttachments[slot];
+            shouldClear = attachment.loadOp == AttachmentLoadOp::Clear;
+            clearValue = &attachment.clearValue;
+        }
+        else
+        {
+            const ColorClear& clear = info.colorClears[slot];
+            shouldClear = clear.enabled;
+            clearValue = &clear.value;
+        }
 
-        GLCall(glClearBufferfv(GL_COLOR, static_cast<GLint>(slot), clear.value.data()));
+        if (!shouldClear)
+            continue;
+
+        GLCall(glClearBufferfv(
+            GL_COLOR,
+            static_cast<GLint>(slot),
+            clearValue->data()));
     }
 
-    if (info.clearDepth && info.clearStencil)
+    const bool clearDepth = info.hasDepth
+        ? info.depth.loadOp == AttachmentLoadOp::Clear
+        : info.clearDepth;
+    const float depthClearValue = info.hasDepth
+        ? info.depth.clearDepth
+        : info.depthClearValue;
+    const bool clearStencil = info.hasDepth
+        ? info.depth.stencilLoadOp == AttachmentLoadOp::Clear
+        : info.clearStencil;
+    const uint32_t stencilClearValue = info.hasDepth
+        ? info.depth.clearStencil
+        : info.stencilClearValue;
+
+    if (clearDepth && clearStencil)
     {
+        GLCall(glDepthMask(GL_TRUE));
         GLCall(glClearBufferfi(GL_DEPTH_STENCIL, 0,
-            info.depthClearValue, static_cast<GLint>(info.stencilClearValue)));
+            depthClearValue, static_cast<GLint>(stencilClearValue)));
     }
-    else if (info.clearDepth)
+    else if (clearDepth)
     {
         // Depth writes must be enabled for a depth clear to take effect.
         GLCall(glDepthMask(GL_TRUE));
-        GLCall(glClearBufferfv(GL_DEPTH, 0, &info.depthClearValue));
+        GLCall(glClearBufferfv(GL_DEPTH, 0, &depthClearValue));
     }
-    else if (info.clearStencil)
+    else if (clearStencil)
     {
-        const GLint stencil = static_cast<GLint>(info.stencilClearValue);
+        const GLint stencil = static_cast<GLint>(stencilClearValue);
         GLCall(glClearBufferiv(GL_STENCIL, 0, &stencil));
     }
+
+    if (info.hasDepth)
+        GLCall(glDepthMask(info.depth.readOnly ? GL_FALSE : GL_TRUE));
 }
 
 void GLCommandBuffer::EndRenderPass()

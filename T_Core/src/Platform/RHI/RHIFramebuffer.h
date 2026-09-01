@@ -81,6 +81,16 @@ public:
     // Number of color attachments
     virtual uint32_t GetColorAttachmentCount() const = 0;
 
+    // Explicit-rendering metadata. Native backends may override these; the
+    // defaults keep legacy framebuffer implementations source-compatible.
+    virtual Format GetColorAttachmentFormat(uint32_t index = 0) const
+    {
+        (void)index;
+        return Format::Unknown;
+    }
+    virtual Format GetDepthAttachmentFormat() const { return Format::Unknown; }
+    virtual uint32_t GetSampleCount() const { return 1; }
+
     static Ref<RHIFramebuffer> Create(const FramebufferDesc& desc);
 
     // Creates a non-owning framebuffer over externally-owned textures.

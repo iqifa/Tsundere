@@ -23,6 +23,10 @@ public:
     // glBindTexture time. For Vulkan, the unit is ignored.
     virtual void BindTexture(uint32_t binding, Ref<RHITexture2D> texture, uint32_t unit) = 0;
 
+    // Bind a non-owning texture reference. Render-graph resources are owned by
+    // the graph and are only exposed as raw pointers during pass execution.
+    virtual void BindTexture(uint32_t binding, RHITexture2D* texture, uint32_t unit) = 0;
+
     // Bind a cube map to a sampler slot.
     virtual void BindCubeMap(uint32_t binding, Ref<RHITextureCube> cubemap, uint32_t unit) = 0;
 
@@ -42,6 +46,10 @@ public:
 
     // Reset all bindings (called each frame before rebuilding the set)
     virtual void Reset() = 0;
+
+    // Backend-native descriptor-set layout used when constructing a pipeline.
+    // GL returns zero; Vulkan returns VkDescriptorSetLayout cast to uintptr_t.
+    virtual uintptr_t GetLayoutNativeID() const { return 0; }
 
     // Factory
     static Ref<RHIDescriptorSet> Create();

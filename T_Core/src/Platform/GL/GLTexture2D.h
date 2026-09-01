@@ -22,6 +22,7 @@ public:
     void Resize(uint32_t w, uint32_t h) override;
     uint32_t GetWidth() const override   { return m_Width; }
     uint32_t GetHeight() const override  { return m_Height; }
+    Format GetFormat() const override { return m_Format; }
     uintptr_t GetNativeID() const override { return static_cast<uintptr_t>(m_RendererID); }
     const std::string& GetPath() const override { return m_FilePath; }
 
@@ -41,9 +42,3 @@ private:
     float m_BorderColor[4] = { 1.0f, 1.0f, 1.0f, 1.0f };  // used when wrap == ClampToBorder
     bool m_OwnsTexture = true;       // false = wrapped (borrowed) texture
 };
-
-// Factory
-inline Ref<RHITexture2D> RHITexture2D::Create(const Texture2DDesc& desc)
-{
-    return CreateRef<GLTexture2D>(desc);
-}

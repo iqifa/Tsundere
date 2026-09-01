@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Platform/RHI/RHIFramebuffer.h"
+#include "Platform/RHI/RHITexture.h"
 
 // GL implementation of RHIFramebuffer.
 // Wraps an OpenGL FBO with color + depth attachments.
@@ -22,6 +23,15 @@ public:
     uintptr_t GetDepthAttachmentID() const override;
     uintptr_t GetFramebufferID() const override;
     uint32_t GetColorAttachmentCount() const override { return m_ColorAttachmentCount; }
+    Format GetColorAttachmentFormat(uint32_t index = 0) const override
+    {
+        return index < m_ColorFormats.size() ? m_ColorFormats[index] : Format::Unknown;
+    }
+    Format GetDepthAttachmentFormat() const override
+    {
+        return m_HasDepthStencil ? Format::D24_UNORM_S8_UINT : Format::Unknown;
+    }
+    uint32_t GetSampleCount() const override { return m_Samples; }
 
     RHITexture2D* GetColorAttachment(uint32_t index = 0) const override;
     RHITexture2D* GetDepthAttachment() const override;
@@ -82,6 +92,18 @@ public:
         return static_cast<uint32_t>(m_ColorAttachments.size());
     }
 
+    Format GetColorAttachmentFormat(uint32_t index = 0) const override
+    {
+        return index < m_ColorAttachmentRefs.size()
+            ? m_ColorAttachmentRefs[index]->GetFormat()
+            : Format::Unknown;
+    }
+    Format GetDepthAttachmentFormat() const override
+    {
+        return m_DepthAttachmentRef ? m_DepthAttachmentRef->GetFormat() : Format::Unknown;
+    }
+    uint32_t GetSampleCount() const override { return 1; }
+
     RHITexture2D* GetColorAttachment(uint32_t index = 0) const override;
     RHITexture2D* GetDepthAttachment() const override;
 
@@ -98,14 +120,3 @@ private:
 
     uint32_t m_Width = 0, m_Height = 0;
 };
-
-// Factory
-inline Ref<RHIFramebuffer> RHIFramebuffer::Create(const FramebufferDesc& desc)
-{
-    return CreateRef<GLFramebuffer>(desc);
-}
-
-inline Ref<RHIFramebuffer> RHIFramebuffer::CreateView(const FramebufferViewDesc& desc)
-{
-    return CreateRef<GLFramebufferView>(desc);
-}

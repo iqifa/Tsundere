@@ -4,12 +4,89 @@
 #include "Debug/Debug.h"
 
 #include <algorithm>
+#include <cstring>
 #include <iterator>
 #include <limits>
 #include <stdexcept>
 
 namespace
 {
+#ifdef _DEBUG
+    constexpr bool kEnableValidation = true;
+#else
+    constexpr bool kEnableValidation = false;
+#endif
+
+    constexpr const char* kValidationLayer =
+        "VK_LAYER_KHRONOS_validation";
+
+    VKAPI_ATTR VkBool32 VKAPI_CALL VulkanDebugCallback(
+        VkDebugUtilsMessageSeverityFlagBitsEXT severity,
+        VkDebugUtilsMessageTypeFlagsEXT type,
+        const VkDebugUtilsMessengerCallbackDataEXT* callbackData,
+        void*)
+    {
+        const char* message = callbackData && callbackData->pMessage
+            ? callbackData->pMessage
+            : "Unknown Vulkan validation message";
+
+        if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
+        {
+            Error_Core("[Vulkan Validation] {}", message);
+        }
+        else if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
+        {
+            Warn_Core("[Vulkan Validation] {}", message);
+        }
+        else
+        {
+            Info_Core("[Vulkan Validation] {}", message);
+        }
+
+        (void)type;
+        return VK_FALSE;
+    }
+
+    void PopulateDebugMessengerCreateInfo(
+        VkDebugUtilsMessengerCreateInfoEXT& createInfo)
+    {
+        createInfo = {};
+        createInfo.sType =
+            VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+        createInfo.messageSeverity =
+            VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
+            VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+            VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+        createInfo.messageType =
+            VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+            VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+            VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+        createInfo.pfnUserCallback = VulkanDebugCallback;
+    }
+
+    bool HasValidationLayer()
+    {
+        uint32_t count = 0;
+        if (vkEnumerateInstanceLayerProperties(&count, nullptr) != VK_SUCCESS)
+            return false;
+
+        std::vector<VkLayerProperties> layers(count);
+        if (count > 0 &&
+            vkEnumerateInstanceLayerProperties(&count, layers.data()) !=
+                VK_SUCCESS)
+        {
+            return false;
+        }
+
+        return std::any_of(
+            layers.begin(),
+            layers.end(),
+            [](const VkLayerProperties& layer)
+            {
+                return std::strcmp(layer.layerName, kValidationLayer) == 0;
+            });
+    }
+
     void CheckVk(VkResult result, const char* operation)
     {
         if (result != VK_SUCCESS)
@@ -60,6 +137,7 @@ void VulkanContext::Init(GLFWwindow* window)
     createFramebuffers();
     createDescriptorPool();
     createCommandAndSyncObjects();
+    m_RHICommandBuffer = RHICommandBuffer::Create();
 
     m_Initialized = true;
     Info_Core("VulkanContext initialized");
@@ -72,6 +150,8 @@ void VulkanContext::Shutdown()
 
     WaitIdle();
     m_FrameActive = false;
+    m_PresentPassActive = false;
+    m_PresentPassRecorded = false;
     m_RHICommandBuffer.reset();
     m_SwapChain.reset();
 
@@ -79,8 +159,12 @@ void VulkanContext::Shutdown()
     {
         if (m_InFlightFence != VK_NULL_HANDLE)
             vkDestroyFence(m_Device, m_InFlightFence, nullptr);
-        if (m_RenderFinishedSemaphore != VK_NULL_HANDLE)
-            vkDestroySemaphore(m_Device, m_RenderFinishedSemaphore, nullptr);
+        for (VkSemaphore semaphore : m_RenderFinishedSemaphores)
+        {
+            if (semaphore != VK_NULL_HANDLE)
+                vkDestroySemaphore(m_Device, semaphore, nullptr);
+        }
+        m_RenderFinishedSemaphores.clear();
         if (m_ImageAvailableSemaphore != VK_NULL_HANDLE)
             vkDestroySemaphore(m_Device, m_ImageAvailableSemaphore, nullptr);
         if (m_CommandPool != VK_NULL_HANDLE)
@@ -94,11 +178,27 @@ void VulkanContext::Shutdown()
 
     if (m_Surface != VK_NULL_HANDLE && m_Instance != VK_NULL_HANDLE)
         vkDestroySurfaceKHR(m_Instance, m_Surface, nullptr);
+    if (m_DebugMessenger != VK_NULL_HANDLE && m_Instance != VK_NULL_HANDLE)
+    {
+        auto destroyDebugMessenger =
+            reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(
+                vkGetInstanceProcAddr(
+                    m_Instance,
+                    "vkDestroyDebugUtilsMessengerEXT"));
+        if (destroyDebugMessenger)
+        {
+            destroyDebugMessenger(
+                m_Instance,
+                m_DebugMessenger,
+                nullptr);
+        }
+    }
     if (m_Instance != VK_NULL_HANDLE)
         vkDestroyInstance(m_Instance, nullptr);
 
     m_InFlightFence = VK_NULL_HANDLE;
-    m_RenderFinishedSemaphore = VK_NULL_HANDLE;
+    m_CurrentRenderFinishedSemaphore = VK_NULL_HANDLE;
+    m_RenderFinishedSemaphores.clear();
     m_ImageAvailableSemaphore = VK_NULL_HANDLE;
     m_CommandBuffer = VK_NULL_HANDLE;
     m_CommandPool = VK_NULL_HANDLE;
@@ -109,6 +209,7 @@ void VulkanContext::Shutdown()
     m_Device = VK_NULL_HANDLE;
     m_PhysicalDevice = VK_NULL_HANDLE;
     m_Surface = VK_NULL_HANDLE;
+    m_DebugMessenger = VK_NULL_HANDLE;
     m_Instance = VK_NULL_HANDLE;
     m_Initialized = false;
 
@@ -155,10 +256,35 @@ void VulkanContext::BeginFrame()
     CheckVk(vkBeginCommandBuffer(m_CommandBuffer, &beginInfo),
             "Failed to begin Vulkan command buffer");
 
+    // The swapchain render pass remains the presentation scope used by ImGui.
+    // RDG offscreen passes use dynamic rendering and are recorded separately.
+    ++m_FrameContext.FrameIndex;
+    m_FrameContext.ImageIndex = imageIndex;
+    m_CurrentRenderFinishedSemaphore =
+        imageIndex < m_RenderFinishedSemaphores.size()
+            ? m_RenderFinishedSemaphores[imageIndex]
+            : VK_NULL_HANDLE;
+    m_PresentPassActive = false;
+    m_PresentPassRecorded = false;
+    m_FrameActive = true;
+
+    if (acquireResult == VK_SUBOPTIMAL_KHR)
+        m_FramebufferResized = true;
+}
+
+void VulkanContext::BeginPresentPass()
+{
+    if (!m_Initialized || !m_FrameActive || m_PresentPassActive ||
+        m_PresentPassRecorded ||
+        m_FrameContext.ImageIndex >= m_Framebuffers.size())
+    {
+        return;
+    }
+
     VkRenderPassBeginInfo renderPassInfo{};
     renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     renderPassInfo.renderPass = m_RenderPass;
-    renderPassInfo.framebuffer = m_Framebuffers[imageIndex];
+    renderPassInfo.framebuffer = m_Framebuffers[m_FrameContext.ImageIndex];
     renderPassInfo.renderArea.offset = { 0, 0 };
     renderPassInfo.renderArea.extent = m_Extent;
 
@@ -166,15 +292,21 @@ void VulkanContext::BeginFrame()
     renderPassInfo.clearValueCount = 1;
     renderPassInfo.pClearValues = &clearColor;
 
-    vkCmdBeginRenderPass(m_CommandBuffer, &renderPassInfo,
-                         VK_SUBPASS_CONTENTS_INLINE);
+    vkCmdBeginRenderPass(
+        m_CommandBuffer,
+        &renderPassInfo,
+        VK_SUBPASS_CONTENTS_INLINE);
+    m_PresentPassActive = true;
+}
 
-    ++m_FrameContext.FrameIndex;
-    m_FrameContext.ImageIndex = imageIndex;
-    m_FrameActive = true;
+void VulkanContext::EndPresentPass()
+{
+    if (!m_PresentPassActive)
+        return;
 
-    if (acquireResult == VK_SUBOPTIMAL_KHR)
-        m_FramebufferResized = true;
+    vkCmdEndRenderPass(m_CommandBuffer);
+    m_PresentPassActive = false;
+    m_PresentPassRecorded = true;
 }
 
 void VulkanContext::EndFrame()
@@ -182,7 +314,17 @@ void VulkanContext::EndFrame()
     if (!m_Initialized || !m_FrameActive)
         return;
 
-    vkCmdEndRenderPass(m_CommandBuffer);
+    if (m_PresentPassActive)
+        EndPresentPass();
+
+    // Even when the UI path skipped drawing, execute the presentation pass once
+    // so its final layout transition moves the acquired image to PRESENT_SRC_KHR.
+    if (!m_PresentPassRecorded)
+    {
+        BeginPresentPass();
+        EndPresentPass();
+    }
+
     CheckVk(vkEndCommandBuffer(m_CommandBuffer),
             "Failed to end Vulkan command buffer");
 
@@ -190,7 +332,13 @@ void VulkanContext::EndFrame()
     VkPipelineStageFlags waitStages[] = {
         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
     };
-    VkSemaphore signalSemaphores[] = { m_RenderFinishedSemaphore };
+    if (m_CurrentRenderFinishedSemaphore == VK_NULL_HANDLE)
+    {
+        Error_Core("VulkanContext: acquired image has no render-finished semaphore");
+        return;
+    }
+
+    VkSemaphore signalSemaphores[] = { m_CurrentRenderFinishedSemaphore };
 
     VkSubmitInfo submitInfo{};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -216,6 +364,8 @@ void VulkanContext::EndFrame()
 
     VkResult presentResult = vkQueuePresentKHR(m_Queue, &presentInfo);
     m_FrameActive = false;
+    m_PresentPassActive = false;
+    m_PresentPassRecorded = false;
 
     if (presentResult == VK_ERROR_OUT_OF_DATE_KHR ||
         presentResult == VK_SUBOPTIMAL_KHR || m_FramebufferResized)
@@ -253,9 +403,8 @@ Ref<RHISwapChain> VulkanContext::GetSwapChain()
 
 Ref<RHICommandBuffer> VulkanContext::GetCommandBuffer()
 {
-    // The native command buffer is available through RHIVulkanContext. A Vulkan
-    // RHICommandBuffer wrapper has not been implemented yet, so do not expose a
-    // misleading non-null object here.
+    // VulkanContext owns native begin/end/submit; the RHI wrapper records commands
+    // into the context's currently active VkCommandBuffer.
     return m_RHICommandBuffer;
 }
 
@@ -272,21 +421,70 @@ void VulkanContext::createInstance()
     appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
     appInfo.pEngineName = "Tsundere";
     appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-    appInfo.apiVersion = VK_API_VERSION_1_0;
+    appInfo.apiVersion = VK_API_VERSION_1_3;
 
-    uint32_t extensionCount = 0;
-    const char** extensions = glfwGetRequiredInstanceExtensions(&extensionCount);
-    if (!extensions || extensionCount == 0)
+    uint32_t glfwExtensionCount = 0;
+    const char** glfwExtensions =
+        glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
+    if (!glfwExtensions || glfwExtensionCount == 0)
         throw std::runtime_error("GLFW did not provide Vulkan instance extensions");
+
+    std::vector<const char*> extensions(
+        glfwExtensions,
+        glfwExtensions + glfwExtensionCount);
+
+    const bool enableValidation =
+        kEnableValidation && HasValidationLayer();
+    if (kEnableValidation && !enableValidation)
+    {
+        Warn_Core(
+            "Vulkan validation requested, but {} is unavailable",
+            kValidationLayer);
+    }
+
+    VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo{};
+    if (enableValidation)
+    {
+        extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+        PopulateDebugMessengerCreateInfo(debugCreateInfo);
+    }
 
     VkInstanceCreateInfo createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     createInfo.pApplicationInfo = &appInfo;
-    createInfo.enabledExtensionCount = extensionCount;
-    createInfo.ppEnabledExtensionNames = extensions;
+    createInfo.enabledExtensionCount =
+        static_cast<uint32_t>(extensions.size());
+    createInfo.ppEnabledExtensionNames = extensions.data();
+    createInfo.enabledLayerCount = enableValidation ? 1u : 0u;
+    createInfo.ppEnabledLayerNames =
+        enableValidation ? &kValidationLayer : nullptr;
+    createInfo.pNext = enableValidation ? &debugCreateInfo : nullptr;
 
     CheckVk(vkCreateInstance(&createInfo, nullptr, &m_Instance),
             "Failed to create Vulkan instance");
+
+    if (!enableValidation)
+        return;
+
+    auto createDebugMessenger =
+        reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(
+            vkGetInstanceProcAddr(
+                m_Instance,
+                "vkCreateDebugUtilsMessengerEXT"));
+    if (!createDebugMessenger)
+    {
+        Warn_Core("Vulkan debug utils extension entry point is unavailable");
+        return;
+    }
+
+    CheckVk(
+        createDebugMessenger(
+            m_Instance,
+            &debugCreateInfo,
+            nullptr,
+            &m_DebugMessenger),
+        "Failed to create Vulkan debug messenger");
+    Info_Core("Vulkan validation enabled");
 }
 
 void VulkanContext::createSurface()
@@ -347,8 +545,22 @@ void VulkanContext::createLogicalDevice()
 
     const char* deviceExtensions[] = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
 
+    VkPhysicalDeviceVulkan13Features supportedFeatures13{};
+    supportedFeatures13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
+    VkPhysicalDeviceFeatures2 supportedFeatures{};
+    supportedFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+    supportedFeatures.pNext = &supportedFeatures13;
+    vkGetPhysicalDeviceFeatures2(m_PhysicalDevice, &supportedFeatures);
+    if (!supportedFeatures13.dynamicRendering)
+        throw std::runtime_error("Selected Vulkan device does not support dynamic rendering");
+
+    VkPhysicalDeviceVulkan13Features features13{};
+    features13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
+    features13.dynamicRendering = VK_TRUE;
+
     VkDeviceCreateInfo createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+    createInfo.pNext = &features13;
     createInfo.queueCreateInfoCount = 1;
     createInfo.pQueueCreateInfos = &queueCreateInfo;
     createInfo.enabledExtensionCount = 1;
@@ -356,6 +568,7 @@ void VulkanContext::createLogicalDevice()
 
     CheckVk(vkCreateDevice(m_PhysicalDevice, &createInfo, nullptr, &m_Device),
             "Failed to create Vulkan logical device");
+    m_DynamicRenderingSupported = true;
     vkGetDeviceQueue(m_Device, m_QueueFamily, 0, &m_Queue);
 }
 
@@ -600,9 +813,15 @@ void VulkanContext::createCommandAndSyncObjects()
     CheckVk(vkCreateSemaphore(
                 m_Device, &semaphoreInfo, nullptr, &m_ImageAvailableSemaphore),
             "Failed to create Vulkan image-available semaphore");
-    CheckVk(vkCreateSemaphore(
-                m_Device, &semaphoreInfo, nullptr, &m_RenderFinishedSemaphore),
-            "Failed to create Vulkan render-finished semaphore");
+
+    m_RenderFinishedSemaphores.resize(m_SwapchainImages.size(), VK_NULL_HANDLE);
+    for (VkSemaphore& semaphore : m_RenderFinishedSemaphores)
+    {
+        CheckVk(vkCreateSemaphore(
+                    m_Device, &semaphoreInfo, nullptr, &semaphore),
+                "Failed to create Vulkan render-finished semaphore");
+    }
+
     CheckVk(vkCreateFence(m_Device, &fenceInfo, nullptr, &m_InFlightFence),
             "Failed to create Vulkan frame fence");
 }
@@ -647,6 +866,25 @@ void VulkanContext::recreateSwapchain()
     WaitIdle();
     cleanupSwapchain();
     createSwapchain();
+
+    for (VkSemaphore semaphore : m_RenderFinishedSemaphores)
+    {
+        if (semaphore != VK_NULL_HANDLE)
+            vkDestroySemaphore(m_Device, semaphore, nullptr);
+    }
+    m_RenderFinishedSemaphores.clear();
+    m_RenderFinishedSemaphores.resize(m_SwapchainImages.size(), VK_NULL_HANDLE);
+
+    VkSemaphoreCreateInfo semaphoreInfo{};
+    semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+    for (VkSemaphore& semaphore : m_RenderFinishedSemaphores)
+    {
+        CheckVk(vkCreateSemaphore(
+                    m_Device, &semaphoreInfo, nullptr, &semaphore),
+                "Failed to recreate Vulkan render-finished semaphore");
+    }
+    m_CurrentRenderFinishedSemaphore = VK_NULL_HANDLE;
+
     createRenderPass();
     createFramebuffers();
     ++m_SwapchainGeneration;

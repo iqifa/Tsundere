@@ -1,8 +1,9 @@
 #pragma once
 
 #include "HeadLine.h"
-#include "Platform/GL/Texture.h"
-#include "Platform/GL/Shader.h"
+#include "Debug/Debug.h"
+#include "Platform/RHI/RHITextureLibrary.h"
+//#include "Platform/GL/GLShader.h"
 #include "Scene/Modle.h"
 #include "Scene/BVHBuilder.h"
 #include "Panels/MeshFilePath.h"
@@ -431,8 +432,14 @@ inline void ResourceLoader::CompleteTextureLoad(AsyncLoadRequest& req)
 
 	if (!req.cpuTexture.IsValid()) return;
 
-	// Phase-2: 主线程 GL 上传（CreateFromAsset 不会释放 pixels，生命周期由 cpuTexture 管理）
-	auto tex = Texture::CreateFromAsset(req.cpuTexture);
+	// Phase-2: 主线程 GL 上传（RHITexture2D 上传后 pixels 生命周期仍由 cpuTexture 管理）
+	Texture2DDesc desc;
+	desc.width = (uint32_t)req.cpuTexture.width;
+	desc.height = (uint32_t)req.cpuTexture.height;
+	desc.pixelData = req.cpuTexture.pixels.data();
+	desc.dataChannels = (uint32_t)req.cpuTexture.channels;
+	desc.filePath = req.cpuTexture.path;
+	auto tex = RHITexture2D::Create(desc);
 
 	// GPU 上传完成后，释放 CPU 像素内存（除非设置了 keepCPUCopy）
 	if (!req.cpuTexture.keepCPUCopy) {

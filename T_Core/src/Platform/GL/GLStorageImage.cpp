@@ -85,3 +85,9 @@ void GLStorageImage::Resize(uint32_t w, uint32_t h)
     m_Width = w; m_Height = h;
     CreateTexture();
 }
+#ifdef RenderAPI_OpenGL
+Ref<RHIStorageImage> RHIStorageImage::Create(const StorageImageDesc& desc)
+{
+    return CreateRef<GLStorageImage>(desc);
+}
+#endif // RenderAPI_OpenGL

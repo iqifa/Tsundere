@@ -26,7 +26,9 @@ private:
 };
 
 // Factory
+#ifdef RenderAPI_OpenGL
 inline Ref<RHITextureCube> RHITextureCube::Create(const TextureCubeDesc& desc)
 {
     return CreateRef<GLTextureCube>(desc);
 }
+#endif

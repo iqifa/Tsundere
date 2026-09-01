@@ -29,9 +29,3 @@ private:
     BufferUsage m_Usage;
     bool m_CpuAccess = false;
 };
-
-// Factory — registered in GLBuffer.cpp
-inline Ref<RHIBuffer> RHIBuffer::Create(const BufferDesc& desc)
-{
-    return CreateRef<GLBuffer>(desc);
-}

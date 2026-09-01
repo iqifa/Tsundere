@@ -6,6 +6,7 @@
 #include <glm/glm.hpp>
 #include <string>
 #include <vector>
+#include <shared_mutex>
 
 // Uniform metadata — parsed from shader source, drives the Material editor
 // and the per-pass UBO builder.
@@ -63,3 +64,66 @@ public:
     static Ref<RHIShader> Create(const std::string& filepath, const std::string& name);
     static Ref<RHIShader> CreateCompute(const std::string& filepath);
 };
+class T_API ShaderLibiray {
+public:
+
+    static void Add(const Ref<RHIShader>& shader);
+    static Ref<RHIShader> Load(const std::string& FilePath);
+    static Ref<RHIShader> Load(const std::string& name, const std::string& FilePath);
+
+    static Ref<RHIShader> Get(const std::string& path);
+
+    static std::shared_mutex s_Mutex;
+private:
+    static std::unordered_map<std::string, Ref<RHIShader>>m_Shaders;
+};
+
+inline void ShaderLibiray::Add(const Ref<RHIShader>& shader)
+{
+    std::unique_lock lock(s_Mutex);
+    auto& path = shader->GetPath();
+    m_Shaders[path] = shader;
+}
+
+inline Ref<RHIShader> ShaderLibiray::Load(const std::string& FilePath)
+{
+    {
+        std::shared_lock lock(s_Mutex);
+        auto it = m_Shaders.find(FilePath);
+        if (it != m_Shaders.end())
+            return it->second;
+    }
+    auto shader = RHIShader::Create(FilePath);  // Ref<Shader> → Ref<RHIShader> implicit upcast
+    {
+        std::unique_lock lock(s_Mutex);
+        m_Shaders[FilePath] = shader;
+    }
+    return shader;
+}
+
+inline Ref<RHIShader> ShaderLibiray::Load(const std::string& name, const std::string& FilePath)
+{
+    {
+        std::shared_lock lock(s_Mutex);
+        auto it = m_Shaders.find(FilePath);
+        if (it != m_Shaders.end())
+            return it->second;
+    }
+    auto shader = RHIShader::Create(FilePath, name);  // Ref<Shader> → Ref<RHIShader>
+    {
+        std::unique_lock lock(s_Mutex);
+        m_Shaders[FilePath] = shader;
+    }
+    return shader;
+}
+
+inline Ref<RHIShader> ShaderLibiray::Get(const std::string& path)
+{
+    {
+        std::shared_lock lock(s_Mutex);
+        auto it = m_Shaders.find(path);
+        if (it != m_Shaders.end())
+            return it->second;
+    }
+    return Load(path);
+}

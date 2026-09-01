@@ -4,6 +4,10 @@
 #include<shared_mutex>
 using namespace std;
 
+
+
+
+
 GLShader::GLShader(const string& filepath, const string& name) :m_FilePath(filepath), m_RendererID(0), m_Name(name)
 {
 	ParsedShader parsed = ParseShaderFile(filepath);
@@ -196,57 +200,30 @@ int GLShader::GetUniformLocation(const string& name)  const
 	return locatation;
 }
 
+// --- RHI Factory methods (inline) ---
+// Shader IS the GL implementation of RHIShader, so factories delegate to Shader::Create*.
+#ifdef RenderAPI_OpenGL
+
 // --- ShaderLibiray ---
 
 shared_mutex ShaderLibiray::s_Mutex;
 unordered_map<string, Ref<RHIShader>> ShaderLibiray::m_Shaders;
 
-void ShaderLibiray::Add(const Ref<RHIShader>& shader)
+Ref<RHIShader> RHIShader::Create(const std::string& filepath)
 {
-	std::unique_lock lock(s_Mutex);
-	auto& path = shader->GetPath();
-	m_Shaders[path] = shader;
+	return GLShader::Create(filepath);
 }
 
-Ref<RHIShader> ShaderLibiray::Load(const string& FilePath)
+Ref<RHIShader> RHIShader::Create(
+	const std::string& filepath,
+	const std::string& name)
 {
-	{
-		std::shared_lock lock(s_Mutex);
-		auto it = m_Shaders.find(FilePath);
-		if (it != m_Shaders.end())
-			return it->second;
-	}
-	auto shader = GLShader::Create(FilePath);  // Ref<Shader> → Ref<RHIShader> implicit upcast
-	{
-		std::unique_lock lock(s_Mutex);
-		m_Shaders[FilePath] = shader;
-	}
-	return shader;
+	return GLShader::Create(filepath, name);
 }
 
-Ref<RHIShader> ShaderLibiray::Load(const string& name, const string& FilePath)
+Ref<RHIShader> RHIShader::CreateCompute(const std::string& filepath)
 {
-	{
-		std::shared_lock lock(s_Mutex);
-		auto it = m_Shaders.find(FilePath);
-		if (it != m_Shaders.end())
-			return it->second;
-	}
-	auto shader = GLShader::Create(FilePath, name);  // Ref<Shader> → Ref<RHIShader>
-	{
-		std::unique_lock lock(s_Mutex);
-		m_Shaders[FilePath] = shader;
-	}
-	return shader;
+	return GLShader::CreateCompute(filepath);
 }
 
-Ref<RHIShader> ShaderLibiray::Get(const string& path)
-{
-	{
-		std::shared_lock lock(s_Mutex);
-		auto it = m_Shaders.find(path);
-		if (it != m_Shaders.end())
-			return it->second;
-	}
-	return Load(path);
-}
+#endif // RenderAPI_OpenGL

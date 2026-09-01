@@ -4,8 +4,10 @@
 
 #include "Platform/RHI/RHIRenderer.h"
 #include "Platform/RHI/RHIVulkanContext.h"
+#include "Platform/Vulkan/VulkanTexture2D.h"
 
 #include <stdexcept>
+#include <unordered_map>
 
 namespace Vulkan_ImGui
 {
@@ -24,6 +26,33 @@ namespace Vulkan_ImGui
         {
             if (result != VK_SUCCESS)
                 Error_Core("ImGui Vulkan backend error: {}", static_cast<int>(result));
+        }
+
+        struct TextureRegistration
+        {
+            VkImageView imageView = VK_NULL_HANDLE;
+            VkSampler sampler = VK_NULL_HANDLE;
+            VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
+        };
+
+        std::unordered_map<RHITexture2D*, TextureRegistration> s_TextureRegistrations;
+
+        void RemoveRegistration(
+            std::unordered_map<RHITexture2D*, TextureRegistration>::iterator registration)
+        {
+            if (registration->second.descriptorSet != VK_NULL_HANDLE)
+                ImGui_ImplVulkan_RemoveTexture(registration->second.descriptorSet);
+            s_TextureRegistrations.erase(registration);
+        }
+
+        void ClearTextureRegistrations()
+        {
+            for (const auto& registration : s_TextureRegistrations)
+            {
+                if (registration.second.descriptorSet != VK_NULL_HANDLE)
+                    ImGui_ImplVulkan_RemoveTexture(registration.second.descriptorSet);
+            }
+            s_TextureRegistrations.clear();
         }
     }
 
@@ -50,7 +79,7 @@ namespace Vulkan_ImGui
         RHIVulkanContext* context = GetContext();
 
         ImGui_ImplVulkan_InitInfo initInfo{};
-        initInfo.ApiVersion = VK_API_VERSION_1_0;
+        initInfo.ApiVersion = VK_API_VERSION_1_3;
         initInfo.Instance = context->GetInstance();
         initInfo.PhysicalDevice = context->GetPhysicalDevice();
         initInfo.Device = context->GetDevice();
@@ -92,14 +121,79 @@ namespace Vulkan_ImGui
     {
         ImGui::Render();
 
-        VkCommandBuffer commandBuffer = GetContext()->GetCurrentVkCommandBuffer();
+        RHIVulkanContext* context = GetContext();
+        VkCommandBuffer commandBuffer = context->GetCurrentVkCommandBuffer();
         if (commandBuffer == VK_NULL_HANDLE)
         {
             Error_Core("ImGui Vulkan render skipped: no active command buffer");
             return;
         }
 
+        context->BeginPresentPass();
         ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffer);
+        context->EndPresentPass();
+    }
+
+    ImTextureID GetTextureID(RHITexture2D* texture)
+    {
+        auto* vulkanTexture = dynamic_cast<VulkanTexture2D*>(texture);
+        if (!vulkanTexture)
+        {
+            Error_Core("ImGui Vulkan texture registration failed: texture is not Vulkan");
+            return ImTextureID_Invalid;
+        }
+
+        const VkImageView imageView = vulkanTexture->GetImageView();
+        const VkSampler sampler = vulkanTexture->GetSampler();
+        if (imageView == VK_NULL_HANDLE || sampler == VK_NULL_HANDLE)
+        {
+            Error_Core("ImGui Vulkan texture registration failed: invalid image view or sampler");
+            return ImTextureID_Invalid;
+        }
+
+        auto registration = s_TextureRegistrations.find(texture);
+        if (registration != s_TextureRegistrations.end())
+        {
+            if (registration->second.imageView == imageView &&
+                registration->second.sampler == sampler)
+            {
+                return reinterpret_cast<ImTextureID>(
+                    registration->second.descriptorSet);
+            }
+
+            auto context = RHIRenderer::GetContext();
+            if (context)
+                context->WaitIdle();
+            RemoveRegistration(registration);
+        }
+
+        const VkDescriptorSet descriptorSet = ImGui_ImplVulkan_AddTexture(
+            sampler,
+            imageView,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        if (descriptorSet == VK_NULL_HANDLE)
+        {
+            Error_Core("ImGui Vulkan texture registration failed: descriptor allocation returned null");
+            return ImTextureID_Invalid;
+        }
+
+        s_TextureRegistrations.emplace(texture, TextureRegistration{
+            imageView,
+            sampler,
+            descriptorSet });
+        return reinterpret_cast<ImTextureID>(descriptorSet);
+    }
+
+    void ReleaseTexture(RHITexture2D* texture)
+    {
+        auto registration = s_TextureRegistrations.find(texture);
+        if (registration == s_TextureRegistrations.end())
+            return;
+
+        auto context = RHIRenderer::GetContext();
+        if (context)
+            context->WaitIdle();
+        RemoveRegistration(registration);
     }
 
     void Shutdown()
@@ -108,6 +202,7 @@ namespace Vulkan_ImGui
         if (context)
             context->WaitIdle();
 
+        ClearTextureRegistrations();
         ImGui_ImplVulkan_Shutdown();
         ImGui_ImplGlfw_Shutdown();
         ImGui::DestroyContext();
@@ -122,7 +217,9 @@ struct VulkanImGuiRegisterer
             Vulkan_ImGui::Init,
             Vulkan_ImGui::Begin,
             Vulkan_ImGui::End,
-            Vulkan_ImGui::Shutdown
+            Vulkan_ImGui::Shutdown,
+            Vulkan_ImGui::GetTextureID,
+            Vulkan_ImGui::ReleaseTexture
         });
     }
 };

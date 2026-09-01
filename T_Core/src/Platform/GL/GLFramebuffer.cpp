@@ -3,6 +3,19 @@
 #include "Debug/Debug.h"
 #include "Platform/RHI/RHITexture.h"   // GLFramebufferView needs RHITexture2D::GetNativeID()
 #include "GLTexture2D.h"               // borrowed wrappers for GetColorAttachment()
+#include "Platform/RenderAPIConfig.h"
+
+#ifdef RenderAPI_OpenGL
+Ref<RHIFramebuffer> RHIFramebuffer::Create(const FramebufferDesc& desc)
+{
+    return CreateRef<GLFramebuffer>(desc);
+}
+
+Ref<RHIFramebuffer> RHIFramebuffer::CreateView(const FramebufferViewDesc& desc)
+{
+    return CreateRef<GLFramebufferView>(desc);
+}
+#endif
 
 // A combined depth-stencil format must bind to GL_DEPTH_STENCIL_ATTACHMENT;
 // binding it to GL_DEPTH_ATTACHMENT leaves the FBO incomplete.

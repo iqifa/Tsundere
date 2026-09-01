@@ -7,7 +7,14 @@ void GLDescriptorSet::BindTexture(uint32_t binding, Ref<RHITexture2D> texture, u
 {
     (void)binding; // GL uses implicit unit mapping
     if (texture)
-        m_Textures.push_back({ texture, unit });
+        m_Textures.push_back({ texture, texture.get(), unit });
+}
+
+void GLDescriptorSet::BindTexture(uint32_t binding, RHITexture2D* texture, uint32_t unit)
+{
+    (void)binding;
+    if (texture)
+        m_Textures.push_back({ nullptr, texture, unit });
 }
 
 void GLDescriptorSet::BindCubeMap(uint32_t binding, Ref<RHITextureCube> cubemap, uint32_t unit)

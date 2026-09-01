@@ -2,6 +2,14 @@
 #include "GLDebug.h"
 #include "Debug/Debug.h"
 #include "stb_image/stb_image.h"
+#include "Platform/RenderAPIConfig.h"
+
+#ifdef RenderAPI_OpenGL
+Ref<RHITexture2D> RHITexture2D::Create(const Texture2DDesc& desc)
+{
+    return CreateRef<GLTexture2D>(desc);
+}
+#endif
 
 // Helpers: RHI Format → GL enums
 static unsigned int ToGLInternalFormat(Format fmt)

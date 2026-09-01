@@ -1,7 +1,15 @@
 #include "GLPipeline.h"
 #include "GLBuffer.h"
 #include "GLDebug.h"
+#include "Platform/RenderAPIConfig.h"
 #include <GL/glew.h>
+
+#ifdef RenderAPI_OpenGL
+Ref<RHIPipeline> RHIPipeline::Create(const PipelineDesc& desc)
+{
+    return CreateRef<GLPipeline>(desc);
+}
+#endif
 
 // --- GL enum conversion helpers ---
 
@@ -110,7 +118,7 @@ void GLPipelineUtil::SetupVertexAttributes(const VertexLayout& layout)
 // --- GLPipeline ---
 
 GLPipeline::GLPipeline(const PipelineDesc& desc)
-    : m_Shader(desc.shader), m_Desc(desc)
+    : m_Desc(desc)
 {
     // Create a VAO for this pipeline.
     // Compute pipelines don't need vertex attributes, but a VAO is still
@@ -133,8 +141,8 @@ void GLPipeline::Bind()
     GLCall(glBindVertexArray(m_VAO));
 
     // Shader
-    if (m_Shader)
-        m_Shader->Bind();
+    if (m_Desc.shader)
+        m_Desc.shader->Bind();
 
     // Depth state
     if (m_Desc.depthTest)
@@ -178,8 +186,8 @@ void GLPipeline::Unbind()
 {
     GLCall(glBindVertexArray(0));
     glDisable(GL_CULL_FACE);
-    if (m_Shader)
-        m_Shader->UnBind();
+    if (m_Desc.shader)
+        m_Desc.shader->UnBind();
 }
 
 void GLPipeline::BindVertexArray()
