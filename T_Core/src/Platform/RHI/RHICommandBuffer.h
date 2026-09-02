@@ -80,7 +80,9 @@ public:
     virtual void BindPipeline(Ref<RHIPipeline> pipeline) = 0;
     virtual void BindVertexBuffer(Ref<RHIBuffer> vb, uint32_t binding = 0) = 0;
     virtual void BindIndexBuffer(Ref<RHIBuffer> ib) = 0;
-    virtual void BindDescriptorSet(Ref<RHIDescriptorSet> set, uint32_t slot = 0) = 0;
+    virtual void BindDescriptorSet(Ref<RHIDescriptorSet> set, uint32_t slot = 0,
+                                   const uint32_t* dynamicOffsets = nullptr,
+                                   uint32_t dynamicOffsetCount = 0) = 0;
     virtual void Draw(uint32_t vertexCount, uint32_t firstVertex = 0) = 0;
     virtual void DrawIndexed(uint32_t indexCount, uint32_t firstIndex = 0) = 0;
     virtual void DrawFullscreenQuad() = 0;

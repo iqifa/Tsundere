@@ -36,13 +36,23 @@ public:
     // Bind a uniform buffer or storage buffer to a binding point.
     // For uniform buffers the descriptor carries the full buffer object —
     // the set "knows" which UBO binding it represents.
-    virtual void BindUniformBuffer(uint32_t binding, Ref<RHIBuffer> buffer) = 0;
+    // dynamicRange: For dynamic buffers, specifies the size of a single element
+    //               (used in Vulkan to set descriptor range). If 0, uses full buffer size.
+    virtual void BindUniformBuffer(uint32_t binding, Ref<RHIBuffer> buffer, uint32_t dynamicRange = 0) = 0;
     virtual void BindStorageBuffer(uint32_t binding, Ref<RHIBuffer> buffer) = 0;
+
+    // Mark a buffer binding as dynamic (allows dynamic offsets in BindDescriptorSet).
+    // Must be called BEFORE Apply() to take effect in Vulkan descriptor set layout.
+    // For OpenGL, this is handled automatically in Apply() via glBindBufferRange.
+    virtual void MarkBindingAsDynamic(uint32_t binding) = 0;
 
     // Apply all bindings now.
     // GL: immediate glActiveTexture + glBindTexture + glBindBufferBase calls.
     // VK: records VkDescriptorSet binding for later vkCmdBindDescriptorSets.
-    virtual void Apply(uint32_t slot = 0) = 0;
+    // dynamicOffsets: array of offsets for dynamic uniform buffers (in binding order)
+    // dynamicOffsetCount: number of dynamic offsets provided
+    virtual void Apply(uint32_t slot = 0, const uint32_t* dynamicOffsets = nullptr,
+                      uint32_t dynamicOffsetCount = 0) = 0;
 
     // Reset all bindings (called each frame before rebuilding the set)
     virtual void Reset() = 0;

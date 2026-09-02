@@ -14,8 +14,10 @@ public:
 		// 初始化 Shader 和资源
 		m_LitShader = RHIShader::Create("D:/Code/C++/Tsundere/res/shaders/Lit.shader");
 
-		// 创建 UBO
-		m_DrawUBO = RHIBuffer::Create(BufferDesc{ sizeof(GeometryDrawUBO), BufferUsage::Uniform, true, nullptr });
+		// 创建 UBO - 扩大DrawUBO以支持多个对象的动态offset
+		// 至少需要 2 * sizeof(GeometryDrawUBO) 来存储cube和floor的数据
+		constexpr uint32_t maxDrawObjects = 16;  // 支持最多16个对象
+		m_DrawUBO = RHIBuffer::Create(BufferDesc{ sizeof(GeometryDrawUBO) * maxDrawObjects, BufferUsage::Uniform, true, nullptr });
 		m_FrameUBO = RHIBuffer::Create(BufferDesc{ sizeof(GeometryFrameUBO), BufferUsage::Uniform, true, nullptr });
 
 		// 创建 Fallback Cube
@@ -29,12 +31,17 @@ public:
 		m_GeometryDescriptorSet = RHIDescriptorSet::Create();
 		if (m_GeometryDescriptorSet)
 		{
-			m_GeometryDescriptorSet->BindUniformBuffer(0, m_DrawUBO);
+			// Bind DrawUBO with dynamicRange = sizeof(single object)
+			// This tells Vulkan that each dynamic offset reads one GeometryDrawUBO
+			m_GeometryDescriptorSet->BindUniformBuffer(0, m_DrawUBO, sizeof(GeometryDrawUBO));
 			m_GeometryDescriptorSet->BindUniformBuffer(1, m_FrameUBO);
 			m_GeometryDescriptorSet->BindTexture(10, m_DefaultTex, 10);
 			m_GeometryDescriptorSet->BindTexture(11, m_DefaultTex, 11);
 			m_GeometryDescriptorSet->BindTexture(12, m_DefaultTex, 12);
 			m_GeometryDescriptorSet->BindTexture(13, m_DefaultTex, 13);
+
+			// Mark binding 0 (DrawUBO) as dynamic to support dynamic offsets
+			m_GeometryDescriptorSet->MarkBindingAsDynamic(0);
 		}
 	}
 
@@ -355,7 +362,7 @@ private:
 		dubo.prevModel = model;
 		dubo.viewProj = currentViewProj;
 		dubo.prevViewProj = m_PrevViewProjMatrix;
-		m_DrawUBO->Upload(&dubo, sizeof(dubo));
+		m_DrawUBO->Upload(&dubo, sizeof(dubo), 0);  // Upload to offset 0
 
 		BindGeometryDescriptors(shadowTex);
 		m_GeometryDescriptorSet->Apply(0);
@@ -363,9 +370,11 @@ private:
 		cmd.BindPipeline(m_CubePipeline);
 		cmd.BindVertexBuffer(m_CubeVB, 0);
 		cmd.BindIndexBuffer(m_CubeIB);
-		cmd.BindDescriptorSet(m_GeometryDescriptorSet, 0);
-		cmd.DrawIndexed(36);
 
+		// Dynamic UBO requires offset even when reading from position 0
+		uint32_t dynamicOffset = 0;
+		cmd.BindDescriptorSet(m_GeometryDescriptorSet, 0, &dynamicOffset, 1);
+		cmd.DrawIndexed(36);
 		// Floor
 		mat4 floorModel = translate(mat4(1.0f), vec3(0.0f, -2.0f, 0.0f));
 		floorModel = scale(floorModel, vec3(10.0f, 0.05f, 10.0f));
@@ -373,11 +382,14 @@ private:
 		dubo.MVP_matrix = floorMVP;
 		dubo.model = floorModel;
 		dubo.prevModel = floorModel;
-		m_DrawUBO->Upload(&dubo, sizeof(dubo));
+		m_DrawUBO->Upload(&dubo, sizeof(dubo), sizeof(dubo));
 
 		BindGeometryDescriptors(shadowTex);
 		m_GeometryDescriptorSet->Apply(0);
-		cmd.BindDescriptorSet(m_GeometryDescriptorSet, 0);
+
+		// Use dynamic offset to read from offset position in UBO
+		dynamicOffset = sizeof(dubo);
+		cmd.BindDescriptorSet(m_GeometryDescriptorSet, 0, &dynamicOffset, 1);
 		cmd.DrawIndexed(36);
 		m_CubePipeline->Unbind();
 	}

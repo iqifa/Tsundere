@@ -21,7 +21,9 @@ public:
     void BindPipeline(Ref<RHIPipeline> pipeline) override;
     void BindVertexBuffer(Ref<RHIBuffer> vb, uint32_t binding = 0) override;
     void BindIndexBuffer(Ref<RHIBuffer> ib) override;
-    void BindDescriptorSet(Ref<RHIDescriptorSet> set, uint32_t slot = 0) override;
+    void BindDescriptorSet(Ref<RHIDescriptorSet> set, uint32_t slot = 0,
+                           const uint32_t* dynamicOffsets = nullptr,
+                           uint32_t dynamicOffsetCount = 0) override;
 
     void Draw(uint32_t vertexCount, uint32_t firstVertex = 0) override;
     void DrawIndexed(uint32_t indexCount, uint32_t firstIndex = 0) override;

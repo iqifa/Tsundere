@@ -306,7 +306,7 @@ VulkanPipeline::VulkanPipeline(const PipelineDesc& desc) : m_Desc(desc)
 	rasterizer.cullMode = 
 		VulkanPipelineUtil::ToVKCullMode(desc.cullMode);
 	rasterizer.frontFace =
-		VK_FRONT_FACE_COUNTER_CLOCKWISE;
+		VK_FRONT_FACE_CLOCKWISE;
 
 	rasterizer.depthBiasEnable = VK_FALSE;
 	rasterizer.depthBiasConstantFactor = 0.0f;

@@ -17,10 +17,13 @@ public:
     void BindTexture(uint32_t binding, RHITexture2D* texture, uint32_t unit) override;
     void BindCubeMap(uint32_t binding, Ref<RHITextureCube> cubemap, uint32_t unit) override;
     void BindStorageImage(uint32_t binding, Ref<RHIStorageImage> image, ImageAccess access, uint32_t unit) override;
-    void BindUniformBuffer(uint32_t binding, Ref<RHIBuffer> buffer) override;
+    void BindUniformBuffer(uint32_t binding, Ref<RHIBuffer> buffer, uint32_t dynamicRange = 0) override;
     void BindStorageBuffer(uint32_t binding, Ref<RHIBuffer> buffer) override;
 
-    void Apply(uint32_t slot = 0) override;
+    void MarkBindingAsDynamic(uint32_t binding) override;
+
+    void Apply(uint32_t slot = 0, const uint32_t* dynamicOffsets = nullptr,
+              uint32_t dynamicOffsetCount = 0) override;
     void Reset() override;
 
     VkDescriptorSetLayout GetLayout();
@@ -49,12 +52,14 @@ private:
         Ref<RHIStorageImage> storageImage;
         Ref<RHIBuffer> buffer;
         ImageAccess imageAccess = ImageAccess::ReadWrite;
+        bool isDynamic = false;  // Whether this is a dynamic UBO/SSBO
+        uint32_t dynamicRange = 0;  // For dynamic buffers: size of single element
     };
 
     bool AcceptBinding(uint32_t binding, ResourceType type);
     void EnsureLayout();
     void EnsureDescriptorSet();
-    VkDescriptorType ToDescriptorType(ResourceType type) const;
+    VkDescriptorType ToDescriptorType(ResourceType type, bool isDynamic) const;
 
     VkDevice m_Device = VK_NULL_HANDLE;
     VkDescriptorPool m_Pool = VK_NULL_HANDLE;
@@ -64,4 +69,5 @@ private:
     uint64_t m_DescriptorSetFrame = std::numeric_limits<uint64_t>::max();
     std::map<uint32_t, Binding> m_Bindings;
     std::map<uint32_t, ResourceType> m_LayoutBindings;
+    std::map<uint32_t, bool> m_DynamicBindings;  // Track which bindings are dynamic
 };

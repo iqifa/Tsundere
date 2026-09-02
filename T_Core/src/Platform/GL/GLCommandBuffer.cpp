@@ -172,10 +172,12 @@ void GLCommandBuffer::BindIndexBuffer(Ref<RHIBuffer> ib)
     GLCall(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, glBuf->GetGLID()));
 }
 
-void GLCommandBuffer::BindDescriptorSet(Ref<RHIDescriptorSet> set, uint32_t slot)
+void GLCommandBuffer::BindDescriptorSet(Ref<RHIDescriptorSet> set, uint32_t slot,
+                                        const uint32_t* dynamicOffsets,
+                                        uint32_t dynamicOffsetCount)
 {
     if (set)
-        set->Apply(slot);
+        set->Apply(slot, dynamicOffsets, dynamicOffsetCount);
 }
 
 void GLCommandBuffer::Draw(uint32_t vertexCount, uint32_t firstVertex)

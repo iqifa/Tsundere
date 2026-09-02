@@ -141,13 +141,15 @@ void VulkanDescriptorSet::BindStorageImage(
 
 void VulkanDescriptorSet::BindUniformBuffer(
     uint32_t binding,
-    Ref<RHIBuffer> buffer)
+    Ref<RHIBuffer> buffer,
+    uint32_t dynamicRange)
 {
     if (!AcceptBinding(binding, ResourceType::UniformBuffer))
         return;
     Binding value;
     value.type = ResourceType::UniformBuffer;
     value.buffer = std::move(buffer);
+    value.dynamicRange = dynamicRange;
     m_Bindings[binding] = std::move(value);
 }
 
@@ -163,7 +165,24 @@ void VulkanDescriptorSet::BindStorageBuffer(
     m_Bindings[binding] = std::move(value);
 }
 
-VkDescriptorType VulkanDescriptorSet::ToDescriptorType(ResourceType type) const
+void VulkanDescriptorSet::MarkBindingAsDynamic(uint32_t binding)
+{
+    if (m_Layout != VK_NULL_HANDLE)
+    {
+        Error_Core("VulkanDescriptorSet: MarkBindingAsDynamic must be called before Apply()");
+        return;
+    }
+    m_DynamicBindings[binding] = true;
+
+    // Mark the binding as dynamic if it already exists
+    auto it = m_Bindings.find(binding);
+    if (it != m_Bindings.end())
+    {
+        it->second.isDynamic = true;
+    }
+}
+
+VkDescriptorType VulkanDescriptorSet::ToDescriptorType(ResourceType type, bool isDynamic) const
 {
     switch (type)
     {
@@ -173,9 +192,11 @@ VkDescriptorType VulkanDescriptorSet::ToDescriptorType(ResourceType type) const
     case ResourceType::StorageImage:
         return VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
     case ResourceType::UniformBuffer:
-        return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        return isDynamic ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC
+                         : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     case ResourceType::StorageBuffer:
-        return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        return isDynamic ? VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC
+                         : VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     }
     return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 }
@@ -188,13 +209,23 @@ void VulkanDescriptorSet::EnsureLayout()
     if (m_Bindings.empty())
         return;
 
+    // Apply dynamic flags to bindings
+    for (auto& [binding, value] : m_Bindings)
+    {
+        auto it = m_DynamicBindings.find(binding);
+        if (it != m_DynamicBindings.end() && it->second)
+        {
+            value.isDynamic = true;
+        }
+    }
+
     std::vector<VkDescriptorSetLayoutBinding> bindings;
     bindings.reserve(m_Bindings.size());
     for (const auto& [binding, value] : m_Bindings)
     {
         VkDescriptorSetLayoutBinding layoutBinding{};
         layoutBinding.binding = binding;
-        layoutBinding.descriptorType = ToDescriptorType(value.type);
+        layoutBinding.descriptorType = ToDescriptorType(value.type, value.isDynamic);
         layoutBinding.descriptorCount = 1;
         // Storage images may be consumed by compute or graphics shaders.
         layoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT |
@@ -209,7 +240,7 @@ void VulkanDescriptorSet::EnsureLayout()
 
     if (vkCreateDescriptorSetLayout(m_Device, &layoutInfo, nullptr, &m_Layout) != VK_SUCCESS)
         throw std::runtime_error("Failed to create Vulkan descriptor set layout");
-
+ 
     for (const auto& [binding, value] : m_Bindings)
         m_LayoutBindings[binding] = value.type;
 }
@@ -264,9 +295,21 @@ void VulkanDescriptorSet::EnsureDescriptorSet()
     m_DescriptorSetFrame = frameIndex;
 }
 
-void VulkanDescriptorSet::Apply(uint32_t slot)
+void VulkanDescriptorSet::Apply(uint32_t slot, const uint32_t* dynamicOffsets, uint32_t dynamicOffsetCount)
 {
     (void)slot;
+    (void)dynamicOffsets;     // Vulkan handles dynamic offsets in vkCmdBindDescriptorSets
+    (void)dynamicOffsetCount; // not in the descriptor set update itself
+
+    // Apply dynamic flags to bindings before creating descriptor set
+    for (auto& [binding, value] : m_Bindings)
+    {
+        auto it = m_DynamicBindings.find(binding);
+        if (it != m_DynamicBindings.end() && it->second)
+        {
+            value.isDynamic = true;
+        }
+    }
 
     // Descriptor contents are immutable once this set may be referenced by the
     // current command buffer. Allocate a new native set for every application;
@@ -290,7 +333,7 @@ void VulkanDescriptorSet::Apply(uint32_t slot)
         write.dstSet = m_DescriptorSet;
         write.dstBinding = binding;
         write.descriptorCount = 1;
-        write.descriptorType = ToDescriptorType(value.type);
+        write.descriptorType = ToDescriptorType(value.type, value.isDynamic);
 
         if (value.type == ResourceType::UniformBuffer ||
             value.type == ResourceType::StorageBuffer)
@@ -301,7 +344,14 @@ void VulkanDescriptorSet::Apply(uint32_t slot)
             if (!buffer || buffer->GetBuffer() == VK_NULL_HANDLE)
                 continue;
 
-            bufferInfos.push_back({ buffer->GetBuffer(), 0, VK_WHOLE_SIZE });
+            // For dynamic buffers, use the specified dynamicRange (single element size)
+            // If dynamicRange is 0, fall back to buffer size (for non-dynamic or legacy code)
+            VkDeviceSize range = VK_WHOLE_SIZE;
+            if (value.isDynamic)
+            {
+                range = value.dynamicRange > 0 ? value.dynamicRange : buffer->GetSize();
+            }
+            bufferInfos.push_back({ buffer->GetBuffer(), 0, range });
             write.pBufferInfo = &bufferInfos.back();
         }
         else if (value.type == ResourceType::Texture2D)

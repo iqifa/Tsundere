@@ -315,7 +315,9 @@ void VulkanCommandBuffer::BindIndexBuffer(Ref<RHIBuffer> ib)
 
 void VulkanCommandBuffer::BindDescriptorSet(
     Ref<RHIDescriptorSet> set,
-    uint32_t slot)
+    uint32_t slot,
+    const uint32_t* dynamicOffsets,
+    uint32_t dynamicOffsetCount)
 {
     auto* descriptorSet = set
         ? dynamic_cast<VulkanDescriptorSet*>(set.get())
@@ -339,8 +341,8 @@ void VulkanCommandBuffer::BindDescriptorSet(
         slot,
         1,
         &nativeSet,
-        0,
-        nullptr);
+        dynamicOffsetCount,
+        dynamicOffsets);
 }
 void VulkanCommandBuffer::Draw(uint32_t count, uint32_t first) { if (Cmd()) vkCmdDraw(Cmd(), count, 1, first, 0); }
 void VulkanCommandBuffer::DrawIndexed(uint32_t count, uint32_t first) { if (Cmd() && m_CurrentIndexBuffer) vkCmdDrawIndexed(Cmd(), count, 1, first, 0, 0); }

@@ -31,8 +31,9 @@ void GLDescriptorSet::BindStorageImage(uint32_t binding, Ref<RHIStorageImage> im
         m_StorageImages.push_back({ image, unit, access });
 }
 
-void GLDescriptorSet::BindUniformBuffer(uint32_t binding, Ref<RHIBuffer> buffer)
+void GLDescriptorSet::BindUniformBuffer(uint32_t binding, Ref<RHIBuffer> buffer, uint32_t dynamicRange)
 {
+    (void)dynamicRange;  // OpenGL doesn't need this - handled automatically in Apply
     if (buffer)
         m_Buffers.push_back({ buffer, binding, false });
 }
@@ -43,7 +44,14 @@ void GLDescriptorSet::BindStorageBuffer(uint32_t binding, Ref<RHIBuffer> buffer)
         m_Buffers.push_back({ buffer, binding, true });
 }
 
-void GLDescriptorSet::Apply(uint32_t slot)
+void GLDescriptorSet::MarkBindingAsDynamic(uint32_t binding)
+{
+    (void)binding;
+    // OpenGL doesn't need explicit dynamic marking - glBindBufferRange
+    // is used automatically in Apply() when dynamic offsets are provided
+}
+
+void GLDescriptorSet::Apply(uint32_t slot, const uint32_t* dynamicOffsets, uint32_t dynamicOffsetCount)
 {
     (void)slot;
 
@@ -69,18 +77,38 @@ void GLDescriptorSet::Apply(uint32_t slot)
     }
 
     // Bind buffers (uniform / storage)
+    uint32_t dynamicOffsetIndex = 0;
     for (auto& bb : m_Buffers)
     {
         if (bb.buffer)
         {
             auto* glBuf = static_cast<GLBuffer*>(bb.buffer.get());
-            if (bb.isStorage)
+
+            // If dynamic offsets are provided, use glBindBufferRange; otherwise use glBindBufferBase
+            if (dynamicOffsets && dynamicOffsetIndex < dynamicOffsetCount)
             {
-                GLCall(glBindBufferBase(GL_SHADER_STORAGE_BUFFER, bb.slot, glBuf->GetGLID()));
+                uint32_t offset = dynamicOffsets[dynamicOffsetIndex++];
+                GLsizeiptr size = glBuf->GetSize() - offset; // Bind from offset to end of buffer
+
+                if (bb.isStorage)
+                {
+                    GLCall(glBindBufferRange(GL_SHADER_STORAGE_BUFFER, bb.slot, glBuf->GetGLID(), offset, size));
+                }
+                else
+                {
+                    GLCall(glBindBufferRange(GL_UNIFORM_BUFFER, bb.slot, glBuf->GetGLID(), offset, size));
+                }
             }
             else
             {
-                GLCall(glBindBufferBase(GL_UNIFORM_BUFFER, bb.slot, glBuf->GetGLID()));
+                if (bb.isStorage)
+                {
+                    GLCall(glBindBufferBase(GL_SHADER_STORAGE_BUFFER, bb.slot, glBuf->GetGLID()));
+                }
+                else
+                {
+                    GLCall(glBindBufferBase(GL_UNIFORM_BUFFER, bb.slot, glBuf->GetGLID()));
+                }
             }
         }
     }
