@@ -3,6 +3,8 @@
 #include<Scene/Scene.h>
 #include<Pipeline/RenderPass.h>
 #include<Pipeline/RenderGraph.h>
+#include<Pipeline/RenderPassManager.h>
+
 class VulkanExampleLayer :public BasePanel {
 public:
 	VulkanExampleLayer(Ref<Scene>scene, std::string name = "Example");
@@ -32,14 +34,15 @@ private:
 	RGTextureHandle m_GraphFinalColor;
 	RGTextureHandle m_GraphVelocity;
 
-	RenderResources renderResources;
 	RHITexture2D* m_FinalColorTexture = nullptr;
 	ImTextureID m_FinalColorImGuiID = ImTextureID_Invalid;
 
 
 	RenderGraph m_RenderGraph;
+	RenderPassManager m_PassManager;  // Pass 管理器
 
 
 	bool m_ViewportFocused = false;
+	bool m_ShowPassManager = true;  // 是否显示 Pass 管理面板
 
 };

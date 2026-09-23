@@ -188,10 +188,6 @@ float sampleShadowMap(vec3 worldPos, vec3 normal)
 
 void main()
 {
-    // TEMP DEBUG: visualize normal in fragment
-    FragColor = vec4(0.5 + 0.5 * normalize(v_Normal), 1.0);
-    MotionVector = vec2(0.0);
-    return;
     vec3 normal;
     if (hasNormalMap == 1)
     {

@@ -602,7 +602,7 @@ RHITexture2D* RenderGraph::GetTexture(RGTextureHandle handle)
 {
     if (handle.id == InvalidResourceId || handle.id >= resources_.size())
     {
-        Error_Core("RenderGraph: invalid texture handle");
+        Error_Core("RenderGraph: invalid texture handle {0}", handle.id);
         return nullptr;
     }
 
@@ -660,7 +660,7 @@ RHITexture2D* RenderGraph::GetExportedTexture(RGTextureHandle handle)
 {
     if (handle.id == InvalidResourceId || handle.id >= resources_.size())
     {
-        Error_Core("RenderGraph: invalid exported texture handle");
+        Error_Core("RenderGraph: invalid exported texture handle {0}", handle.id);
         return nullptr;
     }
 

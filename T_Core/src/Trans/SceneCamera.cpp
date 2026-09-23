@@ -69,7 +69,7 @@ mat4 SceneCamera::GetViewFront()
 mat4 SceneCamera::GetProj()
 {
 	mat4 proj_fru=glm::frustum(-3.0f, 3.0f, 3.0f, 3.0f, 0.1f, 100.0f);
-	mat4 proj_psp = glm::perspective(radians(fov), 1080.0f / 960.0f, 0.1f, 100.0f);
+	mat4 proj_psp=glm::perspective(radians(fov), m_AspectRatio, 0.1f, 100.0f);
 	return proj_psp;
 }
 

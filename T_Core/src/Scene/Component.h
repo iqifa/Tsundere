@@ -128,6 +128,48 @@ namespace Component
 		float Radius = 5.0f;
 		float Falloff = 1.0f;
 	};
+
+	struct Light {
+		enum class LightType : uint8_t {
+			Directional = 0,
+			Point = 1,
+			Spot = 2,
+			Area = 3
+		};
+
+		LightType type = LightType::Directional;
+		uint8_t pad[3] = { 0, 0, 0 }; // Padding to align the struct to 16 bytes
+
+		vec3 Color = { 1.0f, 1.0f, 1.0f };
+		float Intensity = 1.0f;
+
+		vec3 Direction = { -0.5f, -1.0f, -0.5f };
+		float Ambient = 0.1f;
+
+
+		union {
+			struct {
+				float Radius = 5.0f;
+				float Falloff = 1.0f;
+				float _unpad[2] = { 0.0f, 0.0f }; // Padding to align the struct to 16 bytes
+			} Attenuation;;
+
+			struct {
+				float Radius = 5.0f;
+				float Falloff = 1.0f;
+				float InnerAngle = 15.0f;
+				float OuterAngle = 30.0f;
+			}Spot;
+			struct {
+				float Width = 1.0f;
+				float Height = 1.0f;
+				uint32_t Shape = 0; // 0: Rectangle, 1: Disk
+				float _unpad;
+			}Area;
+
+			float Data[4];
+		}Params;
+	};
 }
 
 #endif // !COMPONENT

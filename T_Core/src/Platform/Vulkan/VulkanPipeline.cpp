@@ -607,4 +607,3 @@ void VulkanPipeline::Bind()
 void VulkanPipeline::Unbind()
 {
 }
-

@@ -24,7 +24,7 @@ struct SkyBox
         glm::mat4 proj;
         glm::mat4 view;
         glm::mat4 prevViewProj;
-    };
+    };  
 
     std::vector<std::string> texpaths;
     Ref<RHITextureCube> m_Cmp;

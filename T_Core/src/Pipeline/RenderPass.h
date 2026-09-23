@@ -13,4 +13,4 @@
 #include "Pipeline/Passes/ShadowApplyPass.h"
 #include "Pipeline/Passes/PathTracePass.h"
 #include "Pipeline/Passes/DDGIPass.h"
-#include "Pipeline/Passes/DeferredLightingPass.h"
+//#include "Pipeline/Passes/DeferredLightingPass.h"

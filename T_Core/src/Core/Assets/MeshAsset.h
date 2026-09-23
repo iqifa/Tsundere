@@ -9,7 +9,7 @@
 // 可在任意线程安全创建、移动、销毁。
 //
 // 来源：ResourceLoader::ExecuteModelLoad（worker 线程）
-// 消费：GPUMesh::CreateFromAsset（主线程创建 VAO/VBO/IBO）
+// 消费：Mesh::setupMesh() → RHIMesh::Create（主线程创建 VAO/VBO/IBO）
 // ---------------------------------------------------------------------------
 struct MeshAsset {
     std::vector<Vertex>        vertices;

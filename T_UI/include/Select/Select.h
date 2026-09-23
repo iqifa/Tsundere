@@ -10,7 +10,7 @@ namespace Widget {
 		int LastSelect = -1;
 		int Selected;
 		ImVec2 size = ImVec2(50, 50);
-		Ref<Texture> image;
+		Ref<RHITexture2D> image;
 		virtual void _Draw() override {
 
 			ImGui::PushID(Lable.c_str());
@@ -19,7 +19,7 @@ namespace Widget {
 			const ImRect bb(window->DC.CursorPos, window->DC.CursorPos + size);
 			ImGui::Selectable((Lable + "_Select").c_str(), &Selected, ImGuiSelectableFlags_None, size);
 			ImGui::LabelText((Lable + "_Lable").c_str(), Lable.c_str());
-			window->DrawList->AddImage((void*)image->GetTextureID(), bb.Min, bb.Max);
+			window->DrawList->AddImage((void*)(image ? (unsigned int)image->GetNativeID() : 0), bb.Min, bb.Max);
 
 			ImGui::PopID();
 		}
@@ -36,7 +36,7 @@ namespace Widget {
 		std::string Lable;
 		bool Selected = false;
 		ImVec2 size;
-		Ref<Texture> image;
+		Ref<RHITexture2D> image;
 		virtual void _Draw()override {
 			ImGui::PushID(Lable.c_str());
 
@@ -46,12 +46,12 @@ namespace Widget {
 
 			ImGui::Selectable((Lable + "_Select").c_str(), &Selected, ImGuiSelectableFlags_None, size);
 			ImGui::LabelText((Lable + "_Lable").c_str(), Lable.c_str());
-			window->DrawList->AddImage((void*)image->GetTextureID(), bb.Min, bb.Max, ImVec2{ 0,1 }, ImVec2{ 1,0 });
+			window->DrawList->AddImage((void*)(image ? (unsigned int)image->GetNativeID() : 0), bb.Min, bb.Max, ImVec2{ 0,1 }, ImVec2{ 1,0 });
 
 			ImGui::PopID();
 		}
 	public:
-		Image_Select(std::string lable,ImVec2 size, Ref<Texture> image) {
+		Image_Select(std::string lable,ImVec2 size, Ref<RHITexture2D> image) {
 			Lable = lable;
 			this->size = size;
 			this->image = image;

@@ -7,6 +7,8 @@
 //#include"Panels/ModelImportPanel.h"
 //#include"Panels/TextureImportPanel.h"
 #include"HeadLine.h"
+entt::entity m_SelectedContext = null;
+
 class SandBox :public Engine::Application
 {
 public:

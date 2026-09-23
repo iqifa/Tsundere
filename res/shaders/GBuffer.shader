@@ -1,5 +1,5 @@
 #shader vertex
-#version 330 core
+#version 420 core
 
 layout(location = 0) in vec3 aPos;
 layout(location = 1) in vec3 aNormal;
@@ -8,20 +8,23 @@ layout(location = 3) in vec3 aTangent;
 layout(location = 4) in vec3 aBitangent;
 
 [System]
-uniform mat4 MVP_matrix;
-uniform mat4 model;
-uniform mat4 prevModel;
-uniform mat4 viewProj;
-uniform mat4 prevViewProj;
+layout(std140, binding = 0) uniform PerDraw_Geometry
+{
+    mat4 MVP_matrix;
+    mat4 model;
+    mat4 prevModel;
+    mat4 viewProj;
+    mat4 prevViewProj;
+};
 [System]
 
-out vec3 v_FragPos;
-out vec2 v_TexCoords;
-out vec3 v_Normal;
-out vec3 v_Tangent;
-out vec3 v_Bitangent;
-out vec4 v_CurrentClipPos;
-out vec4 v_PreviousClipPos;
+layout(location = 0) out vec3 v_FragPos;
+layout(location = 1) out vec2 v_TexCoords;
+layout(location = 2) out vec3 v_Normal;
+layout(location = 3) out vec3 v_Tangent;
+layout(location = 4) out vec3 v_Bitangent;
+layout(location = 5) out vec4 v_CurrentClipPos;
+layout(location = 6) out vec4 v_PreviousClipPos;
 
 void main()
 {
@@ -38,27 +41,32 @@ void main()
 }
 
 #shader fragment
-#version 330 core
+#version 420 core
 
-layout(location = 0) out vec3 o_Position;
-layout(location = 1) out vec3 o_Normal;
+layout(location = 0) out vec4 o_Position;
+layout(location = 1) out vec4 o_Normal;
 layout(location = 2) out vec4 o_Albedo;
 layout(location = 3) out vec4 o_Specular;
 layout(location = 4) out vec2 o_Velocity;
 
-in vec3 v_FragPos;
-in vec2 v_TexCoords;
-in vec3 v_Normal;
-in vec3 v_Tangent;
-in vec3 v_Bitangent;
-in vec4 v_CurrentClipPos;
-in vec4 v_PreviousClipPos;
+layout(location = 0) in vec3 v_FragPos;
+layout(location = 1) in vec2 v_TexCoords;
+layout(location = 2) in vec3 v_Normal;
+layout(location = 3) in vec3 v_Tangent;
+layout(location = 4) in vec3 v_Bitangent;
+layout(location = 5) in vec4 v_CurrentClipPos;
+layout(location = 6) in vec4 v_PreviousClipPos;
 
-uniform int hasNormalMap;
+layout(std140, binding = 1) uniform PerFrame_Gbuffer
+{
+   int hasNormalMap;
+   int _pad0[3];
+};
 
-uniform sampler2D texture_diffuse1;
-uniform sampler2D texture_specular1;
-uniform sampler2D texture_normal1;
+layout(binding = 10) uniform sampler2D texture_diffuse1;
+layout(binding = 11) uniform sampler2D texture_specular1;
+layout(binding = 12) uniform sampler2D texture_normal1;
+layout(binding = 13) uniform sampler2D u_ShadowMap;
 
 const float shininess = 32.0;
 
@@ -80,8 +88,9 @@ void main()
         normal = normalize(v_Normal);
     }
 
-    o_Position = v_FragPos;
-    o_Normal = normal;
+    // Store position in [0,1] range for visualization: remap from world space
+    o_Position = vec4(v_FragPos * 0.1 + 0.5, 1.0);
+    o_Normal = vec4(normal * 0.5 + 0.5, 1.0);  // Remap normal from [-1,1] to [0,1]
     o_Albedo = vec4(texture(texture_diffuse1, v_TexCoords).rgb, 1.0);
     o_Specular = vec4(texture(texture_specular1, v_TexCoords).rgb, shininess);
 

@@ -138,7 +138,7 @@ inline void ResourceLoader::Init()
 	if (s_Running.load()) return;
 	s_Running.store(true);
 	s_WorkerThread = std::thread(WorkerLoop);
-	Info_Core("ResourceLoader: Worker thread started");
+	Info_Core("[Loader Thread] ResourceLoader: Worker thread started");
 }
 
 inline void ResourceLoader::Shutdown()
@@ -148,7 +148,7 @@ inline void ResourceLoader::Shutdown()
 	s_WorkerCondition.notify_all();
 	if (s_WorkerThread.joinable())
 		s_WorkerThread.join();
-	Info_Core("ResourceLoader: Worker thread stopped");
+	Info_Core("[Loader Thread] ResourceLoader: Worker thread stopped");
 }
 
 // ---- Request methods (main thread, non-blocking) ----
@@ -452,7 +452,7 @@ inline void ResourceLoader::CompleteTextureLoad(AsyncLoadRequest& req)
 		TextureLibiary::m_TextureMap[req.path] = tex;
 	}
 
-	Info_Core("Texture loaded: " + req.path);
+	Info_Core("[Loader Thread] Texture loaded: " + req.path);
 }
 
 inline void ResourceLoader::CompleteShaderLoad(AsyncLoadRequest& req)
@@ -465,7 +465,7 @@ inline void ResourceLoader::CompleteShaderLoad(AsyncLoadRequest& req)
 	else
 		ShaderLibiray::Load(req.shaderName, req.path);
 
-	Info_Core("Shader loaded: " + req.path);
+	Info_Core("[Loader Thread] Shader loaded: " + req.path);
 }
 
 inline void ResourceLoader::CompleteModelLoad(AsyncLoadRequest& req)
@@ -494,7 +494,7 @@ inline void ResourceLoader::CompleteModelLoad(AsyncLoadRequest& req)
 	pending.nextMeshIdx = 0;
 	s_PendingGPUModels.push_back(std::move(pending));
 
-	Info_Core("Model data loaded (GPU upload pending): " + req.path
+	Info_Core("[Loader Thread] Model data loaded (GPU upload pending): " + req.path
 		+ " (" + std::to_string(model->meshes.size()) + " meshes)");
 }
 
@@ -521,7 +521,7 @@ inline void ResourceLoader::ProcessIncrementalGPUUploads()
 
 		if (pending.nextMeshIdx >= meshes.size())
 		{
-			Info_Core("Model GPU upload complete: " + pending.path
+			Info_Core("[Loader Thread] Model GPU upload complete: " + pending.path
 				+ " (" + std::to_string(meshes.size()) + " meshes)");
 			s_PendingGPUModels.pop_front();
 		}

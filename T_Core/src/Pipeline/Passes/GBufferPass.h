@@ -1,26 +1,153 @@
 #pragma once
-#include "Pipeline/Passes/PassCommon.h"
+#include<Pipeline/Passes/PassCommon.h>
+#include "Pipeline/RenderPassRegistry.h"
 
-class  GBufferPass : public RenderPass
+class GbufferPass :public RenderGraphPass
 {
-	Ref<RHIFramebuffer> m_GBuffer;
-	Ref<RHIShader> m_GBufferShader;
-
-	int m_FrameCount = 0;
-	Ref<RHITexture2D> m_DefaultTex;
-	mat4 m_PrevViewProjMatrix = mat4(1.0f);
-
-	Ref<RHIBuffer> vb;
-	Ref<RHIBuffer> ibo;
-	Ref<RHIPipeline> m_FallbackPipeline;
-	unsigned int m_FallbackIndexCount = 0;
-
-	unsigned int m_Width = 1080, m_Height = 960;
-
 public:
-	bool EnableJitter = true;
+	GbufferPass(Ref<Scene> scene, Ref<RGFrameData> frameData)
+		: m_Scene(scene), m_FrameData(frameData) {
 
-	void Execute(Ref<Scene> scene, RenderResources& resources) override {
+
+
+		constexpr uint32_t maxDrawObjects = 16;
+		m_DrawUBO = RHIBuffer::Create(BufferDesc{ sizeof(GbufferDrawUBO) * maxDrawObjects, BufferUsage::Uniform, true, nullptr });
+		m_FrameUBO = RHIBuffer::Create(BufferDesc{ sizeof(GbufferFrameUBO), BufferUsage::Uniform, true, nullptr });
+
+
+		m_GbufferShader=RHIShader::Create("D:/Code/C++/Tsundere/res/shaders/GBuffer.shader");
+
+
+		InitFallbackGeometry();
+
+		unsigned char white[4] = { 255, 255, 255, 255 };
+		m_DefaultTex = RHITexture2D::Create({ 1, 1, Format::RGBA8_UNORM, FilterMode::Linear, FilterMode::Linear,
+											 WrapMode::ClampToEdge, WrapMode::ClampToEdge, false, white });
+
+
+		m_GbufferDescriptSet = RHIDescriptorSet::Create();
+		if (m_GbufferDescriptSet)
+		{
+			m_GbufferDescriptSet->BindUniformBuffer(0, m_DrawUBO, sizeof(GbufferDrawUBO));
+			m_GbufferDescriptSet->BindUniformBuffer(1, m_FrameUBO);
+			m_GbufferDescriptSet->BindTexture(10, m_DefaultTex, 10);
+			m_GbufferDescriptSet->BindTexture(11, m_DefaultTex, 11);
+			m_GbufferDescriptSet->BindTexture(12, m_DefaultTex, 12);
+			m_GbufferDescriptSet->BindTexture(13, m_DefaultTex, 13);
+
+			m_GbufferDescriptSet->MarkBindingAsDynamic(0);
+		}
+		else {
+			Error_Core("[GBuffer Pass]:m_GbufferDescriptSet is Null")
+		}
+	}
+
+	const char* GetName() const override { return "Gbuffer"; }
+
+
+	void Setup(RenderGraphBuilder& builder) override
+	{
+		m_ShadowMap = builder.ReadTexture("ShadowMap.Depth", RGAccess::ReadSRV);
+
+
+		RDGTextureDesc colorDesc;
+		colorDesc.width = m_Width;
+		colorDesc.height = m_Height;
+		colorDesc.format = Format::RGBA8_UNORM;
+		colorDesc.usage = TextureUsage::ColorAttachment | TextureUsage::Sampled;
+
+		RDGTextureDesc velocityDesc = colorDesc;
+		velocityDesc.format = Format::RG16F;
+
+		RDGTextureDesc depthDesc;
+		depthDesc.width = m_Width;
+		depthDesc.height = m_Height;
+		depthDesc.format = Format::D24_UNORM_S8_UINT;
+		depthDesc.usage = TextureUsage::DepthStencil | TextureUsage::Sampled;
+
+		// Position and Normal need RGB16F for better precision and 3 components
+		RDGTextureDesc posNormalDesc = colorDesc;
+		posNormalDesc.format = Format::RGBA16F;  // Use float format for position/normal
+		
+		
+		m_Position = builder.CreateTexture("Position", colorDesc);  // RGB16F
+
+		m_SceneColor = builder.CreateTexture("SceneColor", colorDesc);
+		m_Velocity = builder.CreateTexture("Velocity", velocityDesc);
+		m_Depth = builder.CreateTexture("Depth", depthDesc);
+		m_Normal = builder.CreateTexture("Normal", posNormalDesc);      // RGB16F (not RG16F!)
+		m_Specular = builder.CreateTexture("Specular", colorDesc);
+
+
+		builder.SetColorOutput(0, m_Position, RGLoadOp::Clear, { 0.0f,0.0f,0.0f,1.0f });
+		builder.SetColorOutput(1, m_Normal, RGLoadOp::Clear, { 0.0f,0.0f,0.0f,1.0f });
+		builder.SetColorOutput(2, m_SceneColor, RGLoadOp::Clear, { 1.0f,0.0f,0.0f,1.0f });
+		builder.SetColorOutput(3, m_Specular, RGLoadOp::Clear, { 0.0f,0.0f,0.0f,1.0f });
+		builder.SetColorOutput(4, m_Velocity, RGLoadOp::Clear, { 0.0f, 0.0f, 0.0f, 0.0f });
+		builder.SetDepthOutput(m_Depth, RGLoadOp::Clear, 1.0f);
+
+
+		builder.Export(m_SceneColor);
+		builder.Export(m_Position);
+		builder.Export(m_Normal);
+		builder.Export(m_Specular);
+		builder.Export(m_Velocity);
+
+
+		//if (currentcamera && currentcamera->skybox)
+		//	currentcamera->skybox->InitializePipeline(builder);
+
+		if (!m_CubePipeline)
+		{
+			m_CubePipelineDesc.descriptorSets = { m_GbufferDescriptSet };
+			m_CubePipeline = builder.CreatePipeline(
+				m_GbufferShader, m_CubeVertexLayout, &m_CubePipelineDesc
+			);
+
+			if (m_CubePipeline)
+			{
+				m_CubePipeline->SetupVertexFormat(m_CubeVB);
+				m_CubePipeline->SetupIndexBuffer(m_CubeIB);
+			}
+		}
+
+		// Create pipeline for scene meshes (7-attribute vertex format with BoneIDs/Weights)
+		if (!m_ScenePipeline)
+		{
+			VertexLayout sceneLayout;
+			sceneLayout.stride = 18 * sizeof(float) + 4 * sizeof(int);  // 14 floats + 4 ints
+			sceneLayout.attributes = {
+				{ 0, VertexFormat::Float3, 0, 0 },                                     // Position
+				{ 1, VertexFormat::Float3, 3 * sizeof(float), 0 },                    // Normal
+				{ 2, VertexFormat::Float2, 6 * sizeof(float), 0 },                    // TexCoords
+				{ 3, VertexFormat::Float3, 8 * sizeof(float), 0 },                    // Tangent
+				{ 4, VertexFormat::Float3, 11 * sizeof(float), 0 },                   // Bitangent
+				{ 5, VertexFormat::Int4,   14 * sizeof(float), 0 },                   // BoneIDs
+				{ 6, VertexFormat::Float4, 18 * sizeof(float) + 4 * sizeof(int), 0 }, // Weights
+			};
+
+			PipelineDesc scenePipeDesc = m_CubePipelineDesc;  // Reuse base settings
+			scenePipeDesc.descriptorSets = { m_GbufferDescriptSet };
+			scenePipeDesc.vertexLayout = sceneLayout;
+			m_ScenePipeline = builder.CreatePipeline(m_GbufferShader, sceneLayout, &scenePipeDesc);
+		}
+	}
+
+
+	void Execute(RenderGraphContext& context) override
+	{
+		auto& cmd = context.GetCmd();
+
+		// 1. ��ȡ������Դ
+		RHITexture2D* shadowTex = m_ShadowMap.id != InvalidResourceId
+			? context.GetTexture(m_ShadowMap)
+			: nullptr;
+
+		// 2. ������Ⱦ״̬
+		cmd.SetDepthTest(true);
+		cmd.SetDepthFunc(CompareOp::Less);
+
+		// 3. ��ȡ�������
 		mat4 view = currentcamera->GetViewFront();
 		mat4 proj = currentcamera->GetProj();
 		mat4 currentViewProj = proj * view;
@@ -28,31 +155,29 @@ public:
 		if (EnableJitter)
 			proj = Jittering(proj, (float)m_Width, (float)m_Height);
 
-		auto cmd = RHIRenderer::GetCmd();
+		//currentcamera->RenderSkyBox(cmd);
 
-		RenderPassBeginInfo beginInfo;
-		beginInfo.colorClears = {
-			{ true, { 0.0f, 0.0f, 0.0f, 0.0f } },
-			{ true, { 0.0f, 0.0f, 0.0f, 0.0f } },
-			{ true, { 0.0f, 0.0f, 0.0f, 0.0f } },
-			{ true, { 0.0f, 0.0f, 0.0f, 0.0f } },
-			{ true, { 0.0f, 0.0f, 0.0f, 0.0f } },
-		};
-		beginInfo.clearDepth      = true;
-		beginInfo.depthClearValue = 1.0f;
-		cmd->BeginRenderPass(m_GBuffer, beginInfo);
+		GbufferFrameUBO fubo;
+		fubo.hasNormalMap = 0;
+		m_FrameUBO->Upload(&fubo, sizeof(fubo));
 
-		cmd->SetBlendState(false);
-		cmd->SetDepthTest(true);
-		cmd->SetDepthFunc(CompareOp::Less);
-		cmd->SetCullMode(CullMode::Back);
+		m_GbufferShader->Bind();
 
-		cmd->BindTexture2D(0, m_DefaultTex->GetNativeID());
+		if (!m_GbufferDescriptSet)
+			return;
+		BindGeometryDescriptors(shadowTex);
+		m_GbufferDescriptSet->Apply(0);
 
-		m_GBufferShader->Bind();
 		bool drewSomething = false;
+		m_DefaultTex->Bind(0);
 
-		for (auto [entityID, transform, meshrender] : scene->m_Registry.view<Component::Transform, Component::MeshRender>().each())
+		//// Bind scene pipeline once before drawing all scene objects
+		if (m_ScenePipeline)
+		{
+			cmd.BindPipeline(m_ScenePipeline);
+		}
+
+		for (auto [entityID, transform, meshrender] : m_Scene->m_Registry.view<Component::Transform, Component::MeshRender>().each())
 		{
 			if (meshrender.ModelPath.empty() || meshrender.materials.empty())
 				continue;
@@ -73,339 +198,184 @@ public:
 					? meshrender.materials[i]
 					: meshrender.materials[0];
 
-				mat->Render(m_GBufferShader);
+					mat->Render(m_GbufferShader);
 
-				m_GBufferShader->SetUniformMat4f("MVP_matrix", proj * view * modelMat);
-				m_GBufferShader->SetUniformMat4f("model", modelMat);
-				m_GBufferShader->SetUniformMat4f("prevModel", modelMat);
-				m_GBufferShader->SetUniformMat4f("viewProj", currentViewProj);
-				m_GBufferShader->SetUniformMat4f("prevViewProj", m_PrevViewProjMatrix);
+					// Per-draw UBO
+					GbufferDrawUBO dubo;
+					dubo.MVP_matrix = proj * view * modelMat;
+					dubo.model = modelMat;
+					dubo.prevModel = modelMat;
+					dubo.viewProj = currentViewProj;
+					dubo.prevViewProj = m_PrevViewProjMatrix;
+					m_DrawUBO->Upload(&dubo, sizeof(dubo));
 
-				mesh.gpuMesh->Draw();  // shader already bound by mat->Render()
-				drewSomething = true;
+					BindGeometryDescriptors(shadowTex);
+					m_GbufferDescriptSet->Apply(0);
+					cmd.BindDescriptorSet(m_GbufferDescriptSet, 0);
+
+					mesh.gpuMesh->Draw(cmd);
+					drewSomething = true;
 			}
 		}
-
+	
 		if (!drewSomething)
 		{
-			m_GBufferShader->Bind();
-			m_GBufferShader->SetUniformMat4f("viewProj", currentViewProj);
-			m_GBufferShader->SetUniformMat4f("prevViewProj", m_PrevViewProjMatrix);
-
-			cmd->BindTexture2D(0, m_DefaultTex->GetNativeID());
-			cmd->BindTexture2D(1, m_DefaultTex->GetNativeID());
-
-			cmd->BindPipeline(m_FallbackPipeline);
-			cmd->BindVertexBuffer(vb);
-			cmd->BindIndexBuffer(ibo);
-
-			mat4 model = scale(mat4(1.0f), vec3(1.0f, 2.0f, 1.0f));
-			mat4 mvp = proj * view * model;
-			m_GBufferShader->SetUniformMat4f("MVP_matrix", mvp);
-			m_GBufferShader->SetUniformMat4f("model", model);
-			m_GBufferShader->SetUniformMat4f("prevModel", model);
-			m_GBufferShader->SetUniform1i("hasNormalMap", 0);
-			cmd->DrawIndexed(m_FallbackIndexCount);
-
-				// Draw floor plane (flattened cube) to receive shadows
-				mat4 floorModel = translate(mat4(1.0f), vec3(0.0f, -2.0f, 0.0f));
-				floorModel = scale(floorModel, vec3(10.0f, 0.05f, 10.0f));
-				m_GBufferShader->SetUniformMat4f("MVP_matrix", proj * view * floorModel);
-				m_GBufferShader->SetUniformMat4f("model", floorModel);
-				m_GBufferShader->SetUniformMat4f("prevModel", floorModel);
-				cmd->DrawIndexed(m_FallbackIndexCount);
+			DrawFallbackCube(cmd, proj, view, currentViewProj, shadowTex);
 		}
-
-		cmd->SetBlendState(true);
-		cmd->EndRenderPass();
 
 		m_PrevViewProjMatrix = currentViewProj;
 		m_FrameCount++;
-
-		resources.GBufferPosition = (unsigned int)m_GBuffer->GetColorAttachmentID(0);
-		resources.GBufferNormal   = (unsigned int)m_GBuffer->GetColorAttachmentID(1);
-		resources.GBufferAlbedo   = (unsigned int)m_GBuffer->GetColorAttachmentID(2);
-		resources.GBufferSpecular = (unsigned int)m_GBuffer->GetColorAttachmentID(3);
-		resources.VelocityTexture = (unsigned int)m_GBuffer->GetColorAttachmentID(4);
-		resources.DepthTexture    = (unsigned int)m_GBuffer->GetDepthAttachmentID();
-		resources.SourceFBO       = m_GBuffer;
 	}
-
-	void Init(Ref<RHIFramebuffer> fb)override {
-		m_Width  = fb->GetWidth();
-		m_Height = fb->GetHeight();
-		m_GBuffer = RHIFramebuffer::Create(FramebufferDesc{
-			m_Width, m_Height,
-			{
-				{ Format::RGBA16F, 1 },      // Position
-				{ Format::RGBA16F, 1 },      // Normal
-				{ Format::RGBA8_UNORM, 1 },  // Albedo
-				{ Format::RGBA16F, 1 },      // Specular + Shininess
-				{ Format::RG16F, 1 },        // Velocity
-			},
-			true, 1
-		});
-		m_GBufferShader = ShaderLibiray::Get("D:/Code/C++/Tsundere/res/shaders/GBuffer.shader");
-
-		float position[] =
-		{
-			// ====== 前面 Front Face (z = -0.5), 法线 (0, 0, -1) ======
-			-0.5f, -0.5f, -0.5f,   0.0f,  0.0f, -1.0f,   0.0f, 0.0f,   1.0f, 0.0f, 0.0f,   0.0f, 1.0f, 0.0f, // 顶点 0 (左下)
-			 0.5f, -0.5f, -0.5f,   0.0f,  0.0f, -1.0f,   1.0f, 0.0f,   1.0f, 0.0f, 0.0f,   0.0f, 1.0f, 0.0f, // 顶点 1 (右下)
-			 0.5f,  0.5f, -0.5f,   0.0f,  0.0f, -1.0f,   1.0f, 1.0f,   1.0f, 0.0f, 0.0f,   0.0f, 1.0f, 0.0f, // 顶点 2 (右上)
-			-0.5f,  0.5f, -0.5f,   0.0f,  0.0f, -1.0f,   0.0f, 1.0f,   1.0f, 0.0f, 0.0f,   0.0f, 1.0f, 0.0f, // 顶点 3 (左上)
-
-			// ====== 后面 Back Face (z = 0.5), 法线 (0, 0, 1) ======
-			-0.5f, -0.5f,  0.5f,   0.0f,  0.0f,  1.0f,   1.0f, 0.0f,  -1.0f, 0.0f, 0.0f,   0.0f, 1.0f, 0.0f, // 顶点 4 (右下 - 从外看)
-			 0.5f, -0.5f,  0.5f,   0.0f,  0.0f,  1.0f,   0.0f, 0.0f,  -1.0f, 0.0f, 0.0f,   0.0f, 1.0f, 0.0f, // 顶点 5 (左下 - 从外看)
-			 0.5f,  0.5f,  0.5f,   0.0f,  0.0f,  1.0f,   0.0f, 1.0f,  -1.0f, 0.0f, 0.0f,   0.0f, 1.0f, 0.0f, // 顶点 6 (左上 - 从外看)
-			-0.5f,  0.5f,  0.5f,   0.0f,  0.0f,  1.0f,   1.0f, 1.0f,  -1.0f, 0.0f, 0.0f,   0.0f, 1.0f, 0.0f, // 顶点 7 (右上 - 从外看)
-
-			// ====== 左面 Left Face (x = -0.5), 法线 (-1, 0, 0) ======
-			-0.5f, -0.5f, -0.5f,  -1.0f,  0.0f,  0.0f,   1.0f, 0.0f,   0.0f, 0.0f, 1.0f,   0.0f, 1.0f, 0.0f, // 顶点 8
-			-0.5f, -0.5f,  0.5f,  -1.0f,  0.0f,  0.0f,   0.0f, 0.0f,   0.0f, 0.0f, 1.0f,   0.0f, 1.0f, 0.0f, // 顶点 9
-			-0.5f,  0.5f,  0.5f,  -1.0f,  0.0f,  0.0f,   0.0f, 1.0f,   0.0f, 0.0f, 1.0f,   0.0f, 1.0f, 0.0f, // 顶点 10
-			-0.5f,  0.5f, -0.5f,  -1.0f,  0.0f,  0.0f,   1.0f, 1.0f,   0.0f, 0.0f, 1.0f,   0.0f, 1.0f, 0.0f, // 顶点 11
-
-			// ====== 右面 Right Face (x = 0.5), 法线 (1, 0, 0) ======
-			 0.5f, -0.5f,  0.5f,   1.0f,  0.0f,  0.0f,   1.0f, 0.0f,   0.0f, 0.0f,-1.0f,   0.0f, 1.0f, 0.0f, // 顶点 12
-			 0.5f, -0.5f, -0.5f,   1.0f,  0.0f,  0.0f,   0.0f, 0.0f,   0.0f, 0.0f,-1.0f,   0.0f, 1.0f, 0.0f, // 顶点 13
-			 0.5f,  0.5f, -0.5f,   1.0f,  0.0f,  0.0f,   0.0f, 1.0f,   0.0f, 0.0f,-1.0f,   0.0f, 1.0f, 0.0f, // 顶点 14
-			 0.5f,  0.5f,  0.5f,   1.0f,  0.0f,  0.0f,   1.0f, 1.0f,   0.0f, 0.0f,-1.0f,   0.0f, 1.0f, 0.0f, // 顶点 15
-
-			 // ====== 顶面 Top Face (y = 0.5), 法线 (0, 1, 0) ======
-			 -0.5f,  0.5f,  0.5f,   0.0f,  1.0f,  0.0f,   0.0f, 1.0f,   1.0f, 0.0f, 0.0f,   0.0f, 0.0f, -1.0f, // 顶点 16
-			  0.5f,  0.5f,  0.5f,   0.0f,  1.0f,  0.0f,   1.0f, 1.0f,   1.0f, 0.0f, 0.0f,   0.0f, 0.0f, -1.0f, // 顶点 17
-			  0.5f,  0.5f, -0.5f,   0.0f,  1.0f,  0.0f,   1.0f, 0.0f,   1.0f, 0.0f, 0.0f,   0.0f, 0.0f, -1.0f, // 顶点 18
-			 -0.5f,  0.5f, -0.5f,   0.0f,  1.0f,  0.0f,   0.0f, 0.0f,   1.0f, 0.0f, 0.0f,   0.0f, 0.0f, -1.0f, // 顶点 19
-
-			 // ====== 底面 Bottom Face (y = -0.5), 法线 (0, -1, 0) ======
-			 -0.5f, -0.5f, -0.5f,   0.0f, -1.0f,  0.0f,   0.0f, 1.0f,   1.0f, 0.0f, 0.0f,   0.0f, 0.0f,  1.0f, // 顶点 20
-			  0.5f, -0.5f, -0.5f,   0.0f, -1.0f,  0.0f,   1.0f, 1.0f,   1.0f, 0.0f, 0.0f,   0.0f, 0.0f,  1.0f, // 顶点 21
-			  0.5f, -0.5f,  0.5f,   0.0f, -1.0f,  0.0f,   1.0f, 0.0f,   1.0f, 0.0f, 0.0f,   0.0f, 0.0f,  1.0f, // 22
-			 -0.5f, -0.5f,  0.5f,   0.0f, -1.0f,  0.0f,   0.0f, 0.0f,   1.0f, 0.0f, 0.0f,   0.0f, 0.0f,  1.0f  // 23
-		};
-
-		unsigned int indices[] = {
-			0,  1,  2,      2,  3,  0,  // 前面
-			4,  5,  6,      6,  7,  4,  // 后面
-			8,  9,  10,     10, 11, 8,  // 左面
-			12, 13, 14,     14, 15, 12, // 右面
-			16, 17, 18,     18, 19, 16, // 顶面
-			20, 21, 22,     22, 23, 20  // 底面
-		};
-
-		vb = RHIBuffer::Create(BufferDesc{ (uint32_t)(24 * 14 * sizeof(float)), BufferUsage::Vertex, false, position });
-		ibo = RHIBuffer::Create(BufferDesc{ (uint32_t)(36 * sizeof(unsigned int)), BufferUsage::Index, false, indices });
-		m_FallbackIndexCount = 36;
-		VertexLayout layout;
-		layout.stride = 14 * sizeof(float);
-		layout.attributes = {
-			{ 0, VertexFormat::Float3, 0 },
-			{ 1, VertexFormat::Float3, 3 * sizeof(float) },
-			{ 2, VertexFormat::Float2, 6 * sizeof(float) },
-			{ 3, VertexFormat::Float3, 8 * sizeof(float) },
-			{ 4, VertexFormat::Float3, 11 * sizeof(float) },
-		};
-		m_FallbackPipeline = RHIPipeline::Create(PipelineDesc{ m_GBufferShader, layout });
-
-		unsigned char white[4] = { 255, 255, 255, 255 };
-		m_DefaultTex = RHITexture2D::Create(Texture2DDesc{
-			1, 1, Format::RGBA8_UNORM, FilterMode::Linear, FilterMode::Linear,
-			WrapMode::ClampToEdge, WrapMode::ClampToEdge, false, white });
-	}
-
-	void OnFboResize(unsigned int width, unsigned int height)
+	bool EnableJitter = false;
+	void SetViewportSize(uint32_t width, uint32_t height)
 	{
 		m_Width = width;
 		m_Height = height;
-		m_GBuffer->Resize(width, height);
 	}
 
-	// --- RenderGraph path ---------------------------------------------------
-	// Declares this pass into a graph. The graph owns all six render targets;
-	// the legacy m_GBuffer (its own FBO + textures) is untouched and keeps
-	// serving Execute(), so both paths coexist behind the UI toggle.
-	//
-	// Formats mirror GBuffer.cpp exactly, with one deliberate substitution:
-	// Position and Normal are GL_RGB16F there, but RHI's Format enum has no
-	// RGB16F. RGBA16F has identical per-channel precision and the shader writes
-	// vec3 / samples .rgb either way, so alpha is simply unused. Most drivers
-	// pad RGB16F to RGBA16F internally regardless.
-	struct GraphOutputs
+private:
+	Ref<Scene> m_Scene;
+	Ref<RGFrameData> m_FrameData;
+	Ref<RHIBuffer> m_DrawUBO;
+	Ref<RHIBuffer> m_FrameUBO;
+	Ref<RHITexture2D> m_DefaultTex;
+	Ref<RHIDescriptorSet> m_GbufferDescriptSet;
+
+	RGTextureHandle m_ShadowMap;
+	RGTextureHandle m_SceneColor;
+	RGTextureHandle m_Velocity;
+	RGTextureHandle m_Depth;
+	RGTextureHandle m_Position;
+	RGTextureHandle m_Normal;
+	RGTextureHandle m_Specular;
+
+
+
+	uint32_t m_Width = 1920;
+	uint32_t m_Height = 1080;
+	int m_FrameCount = 0;
+	mat4 m_PrevViewProjMatrix = mat4(1.0f);
+
+	Ref<RHIBuffer> m_CubeVB;
+	Ref<RHIBuffer> m_CubeIB;
+	Ref<RHIPipeline> m_CubePipeline;
+	Ref<RHIPipeline> m_ScenePipeline;  // Pipeline for scene meshes (7-attribute format)
+	VertexLayout m_CubeVertexLayout;
+	PipelineDesc m_CubePipelineDesc;
+	Ref<RHIShader> m_GbufferShader;
+
+
+
+
+	struct GbufferDrawUBO
 	{
-		RGTextureHandle Position;
-		RGTextureHandle Normal;
-		RGTextureHandle Albedo;
-		RGTextureHandle Specular;
-		RGTextureHandle Velocity;
-		RGTextureHandle Depth;
+		glm::mat4 MVP_matrix;
+		glm::mat4 model;
+		glm::mat4 prevModel;
+		glm::mat4 viewProj;
+		glm::mat4 prevViewProj;
 	};
 
-	GraphOutputs AddToGraph(
-		RenderGraph& graph,
-		Ref<Scene> scene,
-		uint32_t width,
-		uint32_t height)
+	struct GbufferFrameUBO
 	{
-		RDGTextureDesc base;
-		base.width  = width;
-		base.height = height;
-		base.usage  = TextureUsage::ColorAttachment | TextureUsage::Sampled;
+		int32_t hasNormalMap;
+		int32_t _pad[3];
+	};
 
-		RDGTextureDesc positionDesc = base;
-		positionDesc.format = Format::RGBA16F;
+	void InitFallbackGeometry() {
+		float position[] =
+		{
+			// Front face (z = -0.5), normal (0, 0, -1)
+			-0.5f, -0.5f, -0.5f,   0.0f,  0.0f, -1.0f,   0.0f, 0.0f,   1.0f, 0.0f, 0.0f,   0.0f, 1.0f, 0.0f,
+			 0.5f, -0.5f, -0.5f,   0.0f,  0.0f, -1.0f,   1.0f, 0.0f,   1.0f, 0.0f, 0.0f,   0.0f, 1.0f, 0.0f,
+			 0.5f,  0.5f, -0.5f,   0.0f,  0.0f, -1.0f,   1.0f, 1.0f,   1.0f, 0.0f, 0.0f,   0.0f, 1.0f, 0.0f,
+			-0.5f,  0.5f, -0.5f,   0.0f,  0.0f, -1.0f,   0.0f, 1.0f,   1.0f, 0.0f, 0.0f,   0.0f, 1.0f, 0.0f,
 
-		RDGTextureDesc normalDesc = base;
-		normalDesc.format = Format::RGBA16F;
+			// Back face (z = 0.5), normal (0, 0, 1)
+			-0.5f, -0.5f,  0.5f,   0.0f,  0.0f,  1.0f,   1.0f, 0.0f,  -1.0f, 0.0f, 0.0f,   0.0f, 1.0f, 0.0f,
+			 0.5f, -0.5f,  0.5f,   0.0f,  0.0f,  1.0f,   0.0f, 0.0f,  -1.0f, 0.0f, 0.0f,   0.0f, 1.0f, 0.0f,
+			 0.5f,  0.5f,  0.5f,   0.0f,  0.0f,  1.0f,   0.0f, 1.0f,  -1.0f, 0.0f, 0.0f,   0.0f, 1.0f, 0.0f,
+			-0.5f,  0.5f,  0.5f,   0.0f,  0.0f,  1.0f,   1.0f, 1.0f,  -1.0f, 0.0f, 0.0f,   0.0f, 1.0f, 0.0f,
 
-		RDGTextureDesc albedoDesc = base;
-		albedoDesc.format = Format::RGBA8_UNORM;
+			// Left face (x = -0.5), normal (-1, 0, 0)
+			-0.5f, -0.5f, -0.5f,  -1.0f,  0.0f,  0.0f,   1.0f, 0.0f,   0.0f, 0.0f, 1.0f,   0.0f, 1.0f, 0.0f,
+			-0.5f, -0.5f,  0.5f,  -1.0f,  0.0f,  0.0f,   0.0f, 0.0f,   0.0f, 0.0f, 1.0f,   0.0f, 1.0f, 0.0f,
+			-0.5f,  0.5f,  0.5f,  -1.0f,  0.0f,  0.0f,   0.0f, 1.0f,   0.0f, 0.0f, 1.0f,   0.0f, 1.0f, 0.0f,
+			-0.5f,  0.5f, -0.5f,  -1.0f,  0.0f,  0.0f,   1.0f, 1.0f,   0.0f, 0.0f, 1.0f,   0.0f, 1.0f, 0.0f,
 
-		RDGTextureDesc specularDesc = base;
-		specularDesc.format = Format::RGBA16F;
+			// Right face (x = 0.5), normal (1, 0, 0)
+			 0.5f, -0.5f,  0.5f,   1.0f,  0.0f,  0.0f,   1.0f, 0.0f,   0.0f, 0.0f,-1.0f,   0.0f, 1.0f, 0.0f,
+			 0.5f, -0.5f, -0.5f,   1.0f,  0.0f,  0.0f,   0.0f, 0.0f,   0.0f, 0.0f,-1.0f,   0.0f, 1.0f, 0.0f,
+			 0.5f,  0.5f, -0.5f,   1.0f,  0.0f,  0.0f,   0.0f, 1.0f,   0.0f, 0.0f,-1.0f,   0.0f, 1.0f, 0.0f,
+			 0.5f,  0.5f,  0.5f,   1.0f,  0.0f,  0.0f,   1.0f, 1.0f,   0.0f, 0.0f,-1.0f,   0.0f, 1.0f, 0.0f,
 
-		RDGTextureDesc velocityDesc = base;
-		velocityDesc.format = Format::RG16F;
+			 // Top face (y = 0.5), normal (0, 1, 0)
+			 -0.5f,  0.5f,  0.5f,   0.0f,  1.0f,  0.0f,   0.0f, 1.0f,   1.0f, 0.0f, 0.0f,   0.0f, 0.0f,-1.0f,
+			  0.5f,  0.5f,  0.5f,   0.0f,  1.0f,  0.0f,   1.0f, 1.0f,   1.0f, 0.0f, 0.0f,   0.0f, 0.0f,-1.0f,
+			  0.5f,  0.5f, -0.5f,   0.0f,  1.0f,  0.0f,   1.0f, 0.0f,   1.0f, 0.0f, 0.0f,   0.0f, 0.0f,-1.0f,
+			 -0.5f,  0.5f, -0.5f,   0.0f,  1.0f,  0.0f,   0.0f, 0.0f,   1.0f, 0.0f, 0.0f,   0.0f, 0.0f,-1.0f,
 
-		RDGTextureDesc depthDesc;
-		depthDesc.width  = width;
-		depthDesc.height = height;
-		depthDesc.format = Format::D24_UNORM_S8_UINT;
-		depthDesc.usage  = TextureUsage::DepthStencil | TextureUsage::Sampled;
+			 // Bottom face (y = -0.5), normal (0, -1, 0)
+			 -0.5f, -0.5f, -0.5f,   0.0f, -1.0f,  0.0f,   0.0f, 1.0f,   1.0f, 0.0f, 0.0f,   0.0f, 0.0f, 1.0f,
+			  0.5f, -0.5f, -0.5f,   0.0f, -1.0f,  0.0f,   1.0f, 1.0f,   1.0f, 0.0f, 0.0f,   0.0f, 0.0f, 1.0f,
+			  0.5f, -0.5f,  0.5f,   0.0f, -1.0f,  0.0f,   1.0f, 0.0f,   1.0f, 0.0f, 0.0f,   0.0f, 0.0f, 1.0f,
+			 -0.5f, -0.5f,  0.5f,   0.0f, -1.0f,  0.0f,   0.0f, 0.0f,   1.0f, 0.0f, 0.0f,   0.0f, 0.0f, 1.0f
+		};
 
-		GraphOutputs out;
-		out.Position = graph.CreateTexture(positionDesc, "GBuffer.Position");
-		out.Normal   = graph.CreateTexture(normalDesc,   "GBuffer.Normal");
-		out.Albedo   = graph.CreateTexture(albedoDesc,   "GBuffer.Albedo");
-		out.Specular = graph.CreateTexture(specularDesc, "GBuffer.Specular");
-		out.Velocity = graph.CreateTexture(velocityDesc, "GBuffer.Velocity");
-		out.Depth    = graph.CreateTexture(depthDesc,    "GBuffer.Depth");
+		unsigned int indices[] = {
+			0,  2,  1,      3,  2,  0,
+			4,  5,  6,      6,  7,  4,
+			8,  9, 10,     10, 11,  8,
+			12, 13, 14,    14, 15, 12,
+			16, 17, 18,    18, 19, 16,
+			20, 21, 22,    22, 23, 20
+		};
 
-		graph.AddPass(
-			"GBuffer",
-			[out](RenderGraphPassBuilder& builder)
-			{
-				// All five MRT slots clear to (0,0,0,0), matching the legacy
-				// glClearColor(0,0,0,0). DeferredLighting relies on a zero
-				// Position to tell sky from geometry, so this must not change.
-				const std::array<float, 4> zero = { 0.0f, 0.0f, 0.0f, 0.0f };
+		m_CubeVB = RHIBuffer::Create({ 24 * 14 * (uint32_t)sizeof(float), BufferUsage::Vertex, false, position });
+		m_CubeIB = RHIBuffer::Create({ 36 * (uint32_t)sizeof(unsigned int), BufferUsage::Index, false, indices });
 
-				builder.SetColorAttachment(0, out.Position, RGLoadOp::Clear, zero);
-				builder.SetColorAttachment(1, out.Normal,   RGLoadOp::Clear, zero);
-				builder.SetColorAttachment(2, out.Albedo,   RGLoadOp::Clear, zero);
-				builder.SetColorAttachment(3, out.Specular, RGLoadOp::Clear, zero);
-				builder.SetColorAttachment(4, out.Velocity, RGLoadOp::Clear, zero);
-				builder.SetDepthAttachment(out.Depth, RGLoadOp::Clear, 1.0f);
-			},
-			[this, scene, width, height](
-				RHICommandBuffer& cmd, RenderGraphResources& resources)
-			{
-				mat4 view = currentcamera->GetViewFront();
-				mat4 proj = currentcamera->GetProj();
-				mat4 currentViewProj = proj * view;
 
-				if (EnableJitter)
-					proj = Jittering(proj, (float)width, (float)height);
+		VertexLayout vtxLayout;
+		vtxLayout.stride = 14 * sizeof(float);
+		vtxLayout.attributes = {
+			{ 0, VertexFormat::Float3, 0, 0 },
+			{ 1, VertexFormat::Float3, 3 * sizeof(float), 0 },
+			{ 2, VertexFormat::Float2, 6 * sizeof(float), 0 },
+			{ 3, VertexFormat::Float3, 8 * sizeof(float), 0 },
+			{ 4, VertexFormat::Float3, 11 * sizeof(float), 0 },
+		};
 
-				// The graph has bound the FBO, set the viewport and cleared all
-				// six attachments. Only per-pass state remains.
-				cmd.SetBlendState(false);
-				cmd.SetDepthTest(true);
-				cmd.SetDepthFunc(CompareOp::Less);
-				cmd.SetCullMode(CullMode::Back);
 
-				cmd.BindTexture2D(0, m_DefaultTex->GetNativeID());
+		PipelineDesc pipeDesc;
+		pipeDesc.shader = m_GbufferShader;
+		pipeDesc.vertexLayout = vtxLayout;
+		pipeDesc.topology = PrimitiveTopology::Triangles;
+		pipeDesc.cullMode = CullMode::Back;
+		pipeDesc.depthTest = true;
+		pipeDesc.depthWrite = true;
+		pipeDesc.srcBlend = BlendFactor::One;
+		pipeDesc.dstBlend = BlendFactor::Zero;
 
-				m_GBufferShader->Bind();
-				bool drewSomething = false;
-
-				for (auto [entityID, transform, meshrender]
-					 : scene->m_Registry.view<Component::Transform, Component::MeshRender>().each())
-				{
-					if (meshrender.ModelPath.empty() || meshrender.materials.empty())
-						continue;
-
-					Ref<Model> model = My_map::GetModel(meshrender.ModelPath);
-					if (!model || model->meshes.empty())
-						continue;
-
-					mat4 modelMat = transform.GetTransform();
-
-					for (size_t i = 0; i < model->meshes.size(); i++)
-					{
-						auto& mesh = model->meshes[i];
-						if (!mesh.IsGPUReady())
-							continue;
-
-						Ref<Material> mat = i < meshrender.materials.size()
-							? meshrender.materials[i]
-							: meshrender.materials[0];
-
-						mat->Render(m_GBufferShader);
-
-						m_GBufferShader->SetUniformMat4f("MVP_matrix", proj * view * modelMat);
-						m_GBufferShader->SetUniformMat4f("model", modelMat);
-						m_GBufferShader->SetUniformMat4f("prevModel", modelMat);
-						m_GBufferShader->SetUniformMat4f("viewProj", currentViewProj);
-						m_GBufferShader->SetUniformMat4f("prevViewProj", m_PrevViewProjMatrix);
-
-						mesh.gpuMesh->Draw();  // shader already bound by mat->Render()
-						drewSomething = true;
-					}
-				}
-
-				if (!drewSomething)
-				{
-					m_GBufferShader->Bind();
-					m_GBufferShader->SetUniformMat4f("viewProj", currentViewProj);
-					m_GBufferShader->SetUniformMat4f("prevViewProj", m_PrevViewProjMatrix);
-
-					cmd.BindTexture2D(0, m_DefaultTex->GetNativeID());
-					cmd.BindTexture2D(1, m_DefaultTex->GetNativeID());
-
-					cmd.BindPipeline(m_FallbackPipeline);
-					cmd.BindVertexBuffer(vb);
-					cmd.BindIndexBuffer(ibo);
-
-					mat4 model = scale(mat4(1.0f), vec3(1.0f, 2.0f, 1.0f));
-					mat4 mvp = proj * view * model;
-					m_GBufferShader->SetUniformMat4f("MVP_matrix", mvp);
-					m_GBufferShader->SetUniformMat4f("model", model);
-					m_GBufferShader->SetUniformMat4f("prevModel", model);
-					m_GBufferShader->SetUniform1i("hasNormalMap", 0);
-					cmd.DrawIndexed(m_FallbackIndexCount);
-
-					// Floor plane (flattened cube) to receive shadows
-					mat4 floorModel = translate(mat4(1.0f), vec3(0.0f, -2.0f, 0.0f));
-					floorModel = scale(floorModel, vec3(10.0f, 0.05f, 10.0f));
-					m_GBufferShader->SetUniformMat4f("MVP_matrix", proj * view * floorModel);
-					m_GBufferShader->SetUniformMat4f("model", floorModel);
-					m_GBufferShader->SetUniformMat4f("prevModel", floorModel);
-					cmd.DrawIndexed(m_FallbackIndexCount);
-				}
-
-				cmd.SetBlendState(true);
-
-				m_PrevViewProjMatrix = currentViewProj;
-				m_FrameCount++;
-			});
-
-		return out;
+		m_CubeVertexLayout = vtxLayout;
+		m_CubePipelineDesc = pipeDesc;
 	}
 
 	mat4 Jittering(const mat4& originalProj, float width, float height)
 	{
 		int jitterIndex = m_FrameCount % 16;
 		vec2 currentJitter = GetHaltonJitter(jitterIndex);
+
 		float deltaX = currentJitter.x * 2.0f / width;
 		float deltaY = currentJitter.y * 2.0f / height;
+
 		mat4 jitteredProjMatrix = originalProj;
 		jitteredProjMatrix[2][0] += deltaX;
 		jitteredProjMatrix[2][1] += deltaY;
+
 		return jitteredProjMatrix;
 	}
-	vec2 GetHaltonJitter(int index) {
+	vec2 GetHaltonJitter(int index)
+	{
 		auto halton = [](int index, int base) -> float {
 			float f = 1.0f;
 			float r = 0.0f;
@@ -416,12 +386,78 @@ public:
 				current = current / base;
 			}
 			return r;
-		};
+			};
+
 		return vec2(halton(index + 1, 2) - 0.5f, halton(index + 1, 3) - 0.5f);
 	}
+
+	void BindGeometryDescriptors(RHITexture2D* shadowTex)
+	{
+		m_GbufferDescriptSet->Reset();
+		m_GbufferDescriptSet->BindUniformBuffer(0, m_DrawUBO, sizeof(GbufferDrawUBO));
+		m_GbufferDescriptSet->BindUniformBuffer(1, m_FrameUBO);
+		m_GbufferDescriptSet->BindTexture(10, m_DefaultTex, 10);
+		m_GbufferDescriptSet->BindTexture(11, m_DefaultTex, 11);
+		m_GbufferDescriptSet->BindTexture(12, m_DefaultTex, 12);
+
+		if (shadowTex)
+			m_GbufferDescriptSet->BindTexture(13, shadowTex, 13);
+		else
+			m_GbufferDescriptSet->BindTexture(13, m_DefaultTex, 13);
+	}
+	void DrawFallbackCube(
+		RHICommandBuffer& cmd,
+		const mat4& proj,
+		const mat4& view,
+		const mat4& currentViewProj,
+		RHITexture2D* shadowTex)
+	{
+		m_GbufferShader->Bind();
+		m_DefaultTex->Bind(10);
+		m_DefaultTex->Bind(11);
+		m_DefaultTex->Bind(12);
+
+		mat4 model = scale(mat4(1.0f), vec3(1.0f, 2.0f, 1.0f));
+		mat4 mvp = proj * view * model;
+
+		GbufferDrawUBO dubo;
+		dubo.MVP_matrix = mvp;
+		dubo.model = model;
+		dubo.prevModel = model;
+		dubo.viewProj = currentViewProj;
+		dubo.prevViewProj = m_PrevViewProjMatrix;
+		m_DrawUBO->Upload(&dubo, sizeof(dubo), 0);  // Upload to offset 0
+
+		BindGeometryDescriptors(shadowTex);
+		m_GbufferDescriptSet->Apply(0);
+
+		cmd.BindPipeline(m_CubePipeline);
+		cmd.BindVertexBuffer(m_CubeVB, 0);
+		cmd.BindIndexBuffer(m_CubeIB);
+
+		// Dynamic UBO requires offset even when reading from position 0
+		uint32_t dynamicOffset = 0;
+		cmd.BindDescriptorSet(m_GbufferDescriptSet, 0, &dynamicOffset, 1);
+		cmd.DrawIndexed(36);
+		// Floor
+		mat4 floorModel = translate(mat4(1.0f), vec3(0.0f, -2.0f, 0.0f));
+		floorModel = scale(floorModel, vec3(10.0f, 0.05f, 10.0f));
+		mat4 floorMVP = proj * view * floorModel;
+		dubo.MVP_matrix = floorMVP;
+		dubo.model = floorModel;
+		dubo.prevModel = floorModel;
+		m_DrawUBO->Upload(&dubo, sizeof(dubo), sizeof(dubo));
+
+		BindGeometryDescriptors(shadowTex);
+		m_GbufferDescriptSet->Apply(0);
+
+		// Use dynamic offset to read from offset position in UBO
+		dynamicOffset = sizeof(dubo);
+		cmd.BindDescriptorSet(m_GbufferDescriptSet, 0, &dynamicOffset, 1);
+		cmd.DrawIndexed(36);
+		m_CubePipeline->Unbind();
+	}
+
 };
 
-
-
-
-
+REGISTER_RENDER_PASS(GbufferPass, "Gbuffer", "Base", 11, false)

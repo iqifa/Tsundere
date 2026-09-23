@@ -1,8 +1,9 @@
 #include"VulkanExample.h"
 #include<Core/Application.h>
-#include <Pipeline/Passes/GeometryPassV2.h>
+#include<Pipeline/Passes/GbufferPass.h>
+#include<Pipeline/Passes/DeferredLight.h>
+#include <Pipeline/RenderPassRegistry.h>
 #include <Platform/RHI/RHIImGuiRenderer.h>
-
 
 
 VulkanExampleLayer::VulkanExampleLayer(Ref<Scene> scene, std::string name)
@@ -16,6 +17,14 @@ VulkanExampleLayer::VulkanExampleLayer(Ref<Scene> scene, std::string name)
 	if (!m_WindowHandle) {
 		Error_Core("ExampleLayer: �޷��� Application ��ȡ�����ھ����");
 	}
+
+	// 初始化 Pass 管理器
+	PassCreationContext ctx;
+	ctx.scene = m_Context;
+	ctx.frameData = nullptr;  // 延迟创建
+	ctx.width = 1920;
+	ctx.height = 1080;
+	m_PassManager.RebuildPasses(ctx);
 }
 
 void VulkanExampleLayer::OnUpdate()
@@ -56,6 +65,19 @@ void VulkanExampleLayer::OnImGuiRender()
 	}
 
 	ImGui::End();
+
+	// 渲染 Pass 管理面板
+	if (m_ShowPassManager)
+	{
+		m_PassManager.OnImGuiRender();
+
+		// 如果 Pass 管理器状态改变，标记需要重建
+		if (m_PassManager.NeedsRebuild())
+		{
+			m_GraphDirty = true;
+			m_PassManager.ClearRebuildFlag();
+		}
+	}
 }
 void VulkanExampleLayer::OnEvent(Eventing::Event<>& event)
 {
@@ -117,15 +139,6 @@ void VulkanExampleLayer::ExecuteRenderGraph()
 
 	if (finalColor && m_FinalColorImGuiID == ImTextureID_Invalid)
 		m_FinalColorImGuiID = RHIImGUIRenderer::GetTextureID(finalColor);
-
-	renderResources.SceneColorTexture = finalColor
-		? static_cast<unsigned int>(finalColor->GetNativeID())
-		: 0;
-
-	RHITexture2D* velocity = m_RenderGraph.GetExportedTexture(m_GraphVelocity);
-	renderResources.VelocityTexture = velocity
-		? static_cast<unsigned int>(velocity->GetNativeID())
-		: 0;
 }
 
 void VulkanExampleLayer::BuildRenderGraph(uint32_t width, uint32_t height)
@@ -141,20 +154,38 @@ void VulkanExampleLayer::BuildRenderGraph(uint32_t width, uint32_t height)
 
 	if (!m_GraphFrameData)
 		m_GraphFrameData = CreateRef<RGFrameData>();
-	auto geometryPassV2 = CreateRef<GeometryPassV2>(m_Context, m_GraphFrameData);
-	geometryPassV2->SetViewportSize(width, height);
-	m_RenderGraph.AddPass(geometryPassV2);
+
+	// 更新 Pass 管理器的上下文
+	PassCreationContext ctx;
+	ctx.scene = m_Context;
+	ctx.frameData = m_GraphFrameData;
+	ctx.width = width;
+	ctx.height = height;
+
+	// 从 Pass 管理器获取启用的 Pass
+	auto passes = m_PassManager.GetEnabledPasses();
+	for (auto& pass : passes)
+	{
+		m_RenderGraph.AddPass(pass);
+	}
 
 	m_RenderGraph.Compile();
 
+	m_GraphFinalColor = m_RenderGraph.GetTextureByName("Gbuffer.Normal");
 
-	m_GraphFinalColor = m_RenderGraph.GetTextureByName("Geometry.SceneColor");
+	if (m_GraphFinalColor.id == UINT32_MAX)
+	{
+		m_GraphFinalColor = m_RenderGraph.GetTextureByName("Geometry.SceneColor");
+
+	}
 	m_GraphVelocity = m_RenderGraph.GetTextureByName("Geometry.Velocity");
 
 	m_GraphBuiltWidth = width;
 	m_GraphBuiltHeight = height;
 	m_GraphDirty = false;
 
-
-	Info_Core("[Vulkan Example RenderGraph]: Built graph with {} passes", 1);
+	// 打印已注册和启用的 Pass 信息
+	auto registeredPasses = RenderPassRegistry::Get().GetRegisteredPassNames();
+	Info_Core("[Vulkan Example RenderGraph]: Built graph with {} passes (Total registered: {})",
+		passes.size(), registeredPasses.size());
 }
