@@ -90,6 +90,7 @@ project "T_Core"
     {
         "T_PLATFORM_WINDOWS",
         "T_BUILD_DLL",
+        "IMGUI_API=__declspec(dllexport)",
         RenderBackend == "vulkan" and "Vulkan_For_Render" or "OpenGL_For_Render"
     }
 
