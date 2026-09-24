@@ -13,6 +13,7 @@ project "SandBox"
     }
     removefiles
     {
+        "src/ExampleLayer.*"
     }
 
 
@@ -56,5 +57,6 @@ project "SandBox"
     defines
     {
         "T_PLATFORM_WINDOWS",
+        "IMGUI_API=__declspec(dllimport)",
         RenderBackend == "vulkan" and "Vulkan_For_Render" or "OpenGL_For_Render"
     }
