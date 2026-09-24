@@ -37,6 +37,10 @@ void VulkanExampleLayer::OnUpdate()
 
 void VulkanExampleLayer::OnImGuiRender()
 {
+	// The window stays empty until the graph is built, so ImGui would auto-fit it to 0 height
+	// (and imgui.ini would persist that), leaving OnUpdate to bail out forever.
+	ImGui::SetNextWindowSize(ImVec2(1280.0f, 720.0f), ImGuiCond_FirstUseEver);
+	ImGui::SetNextWindowSizeConstraints(ImVec2(320.0f, 180.0f), ImVec2(FLT_MAX, FLT_MAX));
 	ImGui::Begin("ViewPort");
 	m_ViewportFocused = ImGui::IsWindowFocused();
 

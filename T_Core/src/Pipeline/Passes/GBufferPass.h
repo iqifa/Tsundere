@@ -460,4 +460,4 @@ private:
 
 };
 
-REGISTER_RENDER_PASS(GbufferPass, "Gbuffer", "Base", 11, false)
+REGISTER_RENDER_PASS(GbufferPass, "Gbuffer", "Base", 11, true)

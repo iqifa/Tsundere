@@ -22,16 +22,15 @@ public:
 		if (m_DeferredDescriptorSet)
 		{
 			m_DeferredDescriptorSet->BindUniformBuffer(0, m_DeferredLightingUBO, sizeof(DeferredLightDrawUBO));
-			m_DeferredDescriptorSet->BindUniformBuffer(10, m_LightsData, sizeof(GPULight));
-
-			m_DeferredDescriptorSet->BindTexture(10, m_DefaultTex, 10);
+			m_DeferredDescriptorSet->BindStorageBuffer(1, m_LightsData);			m_DeferredDescriptorSet->BindTexture(10, m_DefaultTex, 10);
 			m_DeferredDescriptorSet->BindTexture(11, m_DefaultTex, 11);
 			m_DeferredDescriptorSet->BindTexture(12, m_DefaultTex, 12);
 			m_DeferredDescriptorSet->BindTexture(13, m_DefaultTex, 13);
+			//m_DeferredDescriptorSet->BindTexture(14, m_DefaultTex, 14);
 
 
 			m_DeferredDescriptorSet->MarkBindingAsDynamic(0);
-			m_DeferredDescriptorSet->MarkBindingAsDynamic(10);
+			m_DeferredDescriptorSet->MarkBindingAsDynamic(1);
 		}
 		else {
 			Error_Core("[{0} Pass]:m_GbufferDescriptSet is Null", GetName());
@@ -75,13 +74,6 @@ public:
 
 	void Setup(RenderGraphBuilder& builder) override
 	{
-		RGTextureHandle m_Albedo;
-		RGTextureHandle m_Velocity;
-		RGTextureHandle m_Normal;
-		RGTextureHandle m_Specular;
-
-
-
 		m_Albedo = builder.ReadTexture("Gbuffer.SceneColor");
 		m_Velocity = builder.ReadTexture("Gbuffer.Velocity");
 		m_Dep_Stencil = builder.ReadTexture("Gbuffer.Depth");
@@ -165,15 +157,19 @@ public:
 
 		m_DeferredLightingUBO->Upload(&dlduo, sizeof(dlduo));
 
+		// Get GBuffer textures from RenderGraph
+		RHITexture2D* normalTex = context.GetTexture(m_Normal);
+		RHITexture2D* albedoTex = context.GetTexture(m_Albedo);
+		RHITexture2D* specularTex = context.GetTexture(m_Specular);
+		RHITexture2D* depthTex = context.GetTexture(m_Dep_Stencil);
 
-		{
-			m_DeferredDescriptorSet->Reset();
-			m_DeferredDescriptorSet->BindUniformBuffer(0, m_DeferredLightingUBO, sizeof(DeferredLightDrawUBO));
-			m_DeferredDescriptorSet->BindUniformBuffer(10, m_LightsData, sizeof(GPULight));
-
-			m_DeferredDescriptorSet->MarkBindingAsDynamic(0);
-			m_DeferredDescriptorSet->MarkBindingAsDynamic(10);
-		}
+		m_DeferredDescriptorSet->Reset();
+		m_DeferredDescriptorSet->BindUniformBuffer(0, m_DeferredLightingUBO, sizeof(DeferredLightDrawUBO));
+		m_DeferredDescriptorSet->BindStorageBuffer(1, m_LightsData);
+		m_DeferredDescriptorSet->BindTexture(10, normalTex ? normalTex : m_DefaultTex.get(), 10);
+		m_DeferredDescriptorSet->BindTexture(11, albedoTex ? albedoTex : m_DefaultTex.get(), 11);
+		m_DeferredDescriptorSet->BindTexture(12, specularTex ? specularTex : m_DefaultTex.get(), 12);
+		m_DeferredDescriptorSet->BindTexture(13, depthTex ? depthTex : m_DefaultTex.get(), 13);
 		m_DeferredDescriptorSet->Apply(0);
 
 		cmd.BindPipeline(m_DeferredPipeline);
@@ -211,6 +207,10 @@ public:
 
 	RGTextureHandle m_Dep_Stencil;
 	RGTextureHandle m_DeferredLight;
+	RGTextureHandle m_Albedo;
+	RGTextureHandle m_Velocity;
+	RGTextureHandle m_Normal;
+	RGTextureHandle m_Specular;
 
 
 
@@ -241,4 +241,4 @@ public:
 	};
 };
 
-REGISTER_RENDER_PASS(DeferredLightPass, "DeferredLight", "Base", 12, false)
+REGISTER_RENDER_PASS(DeferredLightPass, "DeferredLight", "Base", 12, true)

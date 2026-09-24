@@ -482,4 +482,4 @@ private:
 
 // 自动注册到 RenderPassRegistry
 // 参数：类名, Pass名称, 分类, 优先级, 默认启用
-REGISTER_RENDER_PASS(GeometryPassV2, "Geometry", "Base", 10, true)
+REGISTER_RENDER_PASS(GeometryPassV2, "Geometry", "Base", 10, false)
