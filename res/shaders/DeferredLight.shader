@@ -23,7 +23,7 @@ layout(binding = 10) uniform sampler2D u_GBufferNormal;
 layout(binding = 11) uniform sampler2D u_GBufferAlbedo;
 layout(binding = 12) uniform sampler2D u_GBufferSpecular;
 layout(binding = 13) uniform sampler2D u_Depth;
-layout(binding = 14) uniform samplerCube u_Skybox;
+// layout(binding = 14) uniform samplerCube u_Skybox;
 
 
 
@@ -46,7 +46,7 @@ struct Light
     vec4 colorIntensity;
     vec4 params;
 };
-layout(std430, binding = 10) readonly buffer LightBuffer
+layout(std430, binding = 1) readonly buffer LightBuffer
 {
     Light lights[];
 };
@@ -64,7 +64,7 @@ void main(){
     //     o_Color = texture(u_Skybox, viewDir);
     //     return;
     // }
-
+    vec3 lightCol = lights[0].colorIntensity.rgb;
     vec3 normal     = normalize(texture(u_GBufferNormal, v_TexCoord).rgb);
     vec4 albedo     = texture(u_GBufferAlbedo, v_TexCoord);
     vec4 specData   = texture(u_GBufferSpecular, v_TexCoord);
@@ -86,5 +86,5 @@ void main(){
     vec3 halfwayDir = normalize(lightDirection + viewDirection);
     float spec = pow(max(dot(normal, halfwayDir), 0.0), shininess);
     vec3 specular = spec * u_LightColor.xyz * specularColor;
-    o_Color = vec4(diffuse + specular, 1.0);
+o_Color = vec4(diffuse + specular + lightCol * 0.00001, 1.0);
 }

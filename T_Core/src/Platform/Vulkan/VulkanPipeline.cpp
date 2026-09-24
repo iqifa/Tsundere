@@ -8,7 +8,7 @@
 #ifdef RenderAPI_Vulkan
 Ref<RHIPipeline> RHIPipeline::Create(const PipelineDesc& desc)
 {
-    return CreateRef<VulkanPipeline>(desc);
+	return CreateRef<VulkanPipeline>(desc);
 }
 #endif
 
@@ -53,29 +53,29 @@ namespace VulkanPipelineUtil {
 		Error_Core("Unsupported Vulkan format: {0}", static_cast<uint8_t>(format));
 		return VK_FORMAT_UNDEFINED;
 	}
-			Format ResolveDepthFormat(Format requested)
+	Format ResolveDepthFormat(Format requested)
+	{
+		if (requested != Format::D24_UNORM_S8_UINT && requested != Format::D32_SFLOAT && requested != Format::D32_SFLOAT_S8_UINT)
+			return requested;
+
+		auto& context = RHIContext::Get();
+		auto* vkContext = context ? dynamic_cast<RHIVulkanContext*>(context.get()) : nullptr;
+		if (!vkContext || vkContext->GetPhysicalDevice() == VK_NULL_HANDLE)
+			return requested;
+
+		const Format candidates[] = { requested, Format::D32_SFLOAT_S8_UINT, Format::D32_SFLOAT, Format::D24_UNORM_S8_UINT };
+		for (Format candidate : candidates)
 		{
-			if (requested != Format::D24_UNORM_S8_UINT && requested != Format::D32_SFLOAT && requested != Format::D32_SFLOAT_S8_UINT)
-				return requested;
-
-			auto& context = RHIContext::Get();
-			auto* vkContext = context ? dynamic_cast<RHIVulkanContext*>(context.get()) : nullptr;
-			if (!vkContext || vkContext->GetPhysicalDevice() == VK_NULL_HANDLE)
-				return requested;
-
-			const Format candidates[] = { requested, Format::D32_SFLOAT_S8_UINT, Format::D32_SFLOAT, Format::D24_UNORM_S8_UINT };
-			for (Format candidate : candidates)
-			{
-				VkFormatProperties properties{};
-				vkGetPhysicalDeviceFormatProperties(vkContext->GetPhysicalDevice(), ToVkFormat(candidate), &properties);
-				if ((properties.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) != 0)
-					return candidate;
-			}
-
-			Error_Core("No Vulkan depth attachment format is supported");
-			return Format::Unknown;
+			VkFormatProperties properties{};
+			vkGetPhysicalDeviceFormatProperties(vkContext->GetPhysicalDevice(), ToVkFormat(candidate), &properties);
+			if ((properties.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) != 0)
+				return candidate;
 		}
-		VkSampleCountFlagBits ToVkSampleCount(uint32_t sampleCount)
+
+		Error_Core("No Vulkan depth attachment format is supported");
+		return Format::Unknown;
+	}
+	VkSampleCountFlagBits ToVkSampleCount(uint32_t sampleCount)
 	{
 		switch (sampleCount)
 		{
@@ -215,7 +215,7 @@ VulkanPipeline::VulkanPipeline(const PipelineDesc& desc) : m_Desc(desc)
 	VkPipelineShaderStageCreateInfo shaderStages[] = { vertStageInfo, fragStageInfo };
 #pragma endregion
 
-	
+
 #pragma region VertexLayout
 	VkVertexInputBindingDescription bindingDescription{};
 	bindingDescription.binding = 0;
@@ -303,7 +303,7 @@ VulkanPipeline::VulkanPipeline(const PipelineDesc& desc) : m_Desc(desc)
 	rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
 	rasterizer.lineWidth = 1.0f;
 
-	rasterizer.cullMode = 
+	rasterizer.cullMode =
 		VulkanPipelineUtil::ToVKCullMode(desc.cullMode);
 	rasterizer.frontFace =
 		VK_FRONT_FACE_CLOCKWISE;
@@ -400,8 +400,8 @@ VulkanPipeline::VulkanPipeline(const PipelineDesc& desc) : m_Desc(desc)
 	colorBlending.attachmentCount = colorAttachmentCount;
 	colorBlending.pAttachments =
 		colorBlendAttachments.empty()
-			? nullptr
-			: colorBlendAttachments.data();
+		? nullptr
+		: colorBlendAttachments.data();
 
 	colorBlending.blendConstants[0] = 0.0f;
 	colorBlending.blendConstants[1] = 0.0f;
@@ -544,8 +544,8 @@ VulkanPipeline::VulkanPipeline(const PipelineDesc& desc) : m_Desc(desc)
 	renderingInfo.stencilAttachmentFormat =
 		resolvedDepthFormat == Format::D24_UNORM_S8_UINT ||
 		resolvedDepthFormat == Format::D32_SFLOAT_S8_UINT
-			? renderingInfo.depthAttachmentFormat
-			: VK_FORMAT_UNDEFINED;
+		? renderingInfo.depthAttachmentFormat
+		: VK_FORMAT_UNDEFINED;
 	pipelineInfo.pNext = &renderingInfo;
 	pipelineInfo.renderPass = VK_NULL_HANDLE;
 	pipelineInfo.subpass = 0;
@@ -563,10 +563,10 @@ VulkanPipeline::VulkanPipeline(const PipelineDesc& desc) : m_Desc(desc)
 	{
 		Error_Core("Failed to create Vulkan graphics pipeline");
 
-			vkDestroyPipelineLayout(
-				vkcontext->GetDevice(),
-				m_PipelineLayout,
-				nullptr);
+		vkDestroyPipelineLayout(
+			vkcontext->GetDevice(),
+			m_PipelineLayout,
+			nullptr);
 
 		m_PipelineLayout = VK_NULL_HANDLE;
 		return;
