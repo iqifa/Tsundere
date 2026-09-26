@@ -38,6 +38,7 @@ layout(std140, binding = 0) uniform PerPass_DeferredLighting
     vec4  u_LightColor;             // offset 208 (vec3 → vec4)
     float u_Near;                   // offset 260
     float u_Far;                    // offset 264   
+    float u_LightCounts;
 };
 struct Light
 {
@@ -60,8 +61,7 @@ void main(){
     worldPos /= worldPos.w;
     // if (depth >= 1.0)
     // {
-    //     vec3 viewDir = normalize(worldPos.xyz);
-    //     o_Color = texture(u_Skybox, viewDir);
+    //     o_Color = vec4(0.0, 0.0, 0.0, 1.0);
     //     return;
     // }
     vec3 lightCol = lights[0].colorIntensity.rgb;
@@ -86,5 +86,6 @@ void main(){
     vec3 halfwayDir = normalize(lightDirection + viewDirection);
     float spec = pow(max(dot(normal, halfwayDir), 0.0), shininess);
     vec3 specular = spec * u_LightColor.xyz * specularColor;
-o_Color = vec4(diffuse + specular + lightCol * 0.00001, 1.0);
+    o_Color = vec4(diffuse + specular + lightCol * 0.00001, 1.0);
+    o_Color = vec4(specData.rgb, 1.0);
 }

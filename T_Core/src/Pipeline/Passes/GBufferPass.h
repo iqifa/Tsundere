@@ -92,7 +92,8 @@ public:
 		builder.Export(m_Normal);
 		builder.Export(m_Specular);
 		builder.Export(m_Velocity);
-
+		builder.Export(m_Depth);
+		
 
 		//if (currentcamera && currentcamera->skybox)
 		//	currentcamera->skybox->InitializePipeline(builder);

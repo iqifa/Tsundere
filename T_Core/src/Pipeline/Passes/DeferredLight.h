@@ -30,7 +30,6 @@ public:
 
 
 			m_DeferredDescriptorSet->MarkBindingAsDynamic(0);
-			m_DeferredDescriptorSet->MarkBindingAsDynamic(1);
 		}
 		else {
 			Error_Core("[{0} Pass]:m_GbufferDescriptSet is Null", GetName());
@@ -62,8 +61,8 @@ public:
 		pipeDesc.vertexLayout = ScreenVertexLayout;
 		pipeDesc.topology = PrimitiveTopology::Triangles;
 		pipeDesc.cullMode = CullMode::Back;
-		pipeDesc.depthTest = true;
-		pipeDesc.depthWrite = true;
+		pipeDesc.depthTest = false;
+		pipeDesc.depthWrite = false;
 		pipeDesc.srcBlend = BlendFactor::One;
 		pipeDesc.dstBlend = BlendFactor::Zero;
 
@@ -153,7 +152,7 @@ public:
 		dlduo.Far = currentcamera->getFar();
 		dlduo.LightCount = lights.size();
 
-		
+
 
 		m_DeferredLightingUBO->Upload(&dlduo, sizeof(dlduo));
 
@@ -175,9 +174,13 @@ public:
 		cmd.BindPipeline(m_DeferredPipeline);
 		cmd.BindVertexBuffer(ScreenVB, 0);
 		cmd.BindIndexBuffer(ScreenIB);
+		const uint32_t dynamicOffset = 0;
+		cmd.BindDescriptorSet(m_DeferredDescriptorSet, 0, &dynamicOffset, 1);
 
 		cmd.DrawIndexed(6);
 		m_DeferredPipeline->Unbind();
+
+		currentcamera->RenderSkyBox(cmd);
 
 	}
 	const char* GetName() const override { return "DeferredLight"; };
@@ -223,10 +226,11 @@ public:
 		glm::mat4 View;
 		glm::vec4 ViewPos;
 		glm::vec2 ViewportSize;
+		glm::vec2 ShadowMapSize;
 		glm::vec4 LightDir;
 		glm::vec4 LightColor;
-		float Far;
 		float Near;
+		float Far;
 		float LightCount;
 		float pad;
 	};
