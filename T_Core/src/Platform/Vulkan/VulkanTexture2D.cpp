@@ -154,6 +154,19 @@ void VulkanTexture2D::Create(const Texture2DDesc& desc)
         throw std::runtime_error("Failed to create Vulkan texture image view");
     }
 
+    const bool depthAndStencil =
+        (m_AspectMask & VK_IMAGE_ASPECT_DEPTH_BIT) &&
+        (m_AspectMask & VK_IMAGE_ASPECT_STENCIL_BIT);
+    if ((desc.usage & TextureUsage::Sampled) && depthAndStencil)
+    {
+        viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+        if (vkCreateImageView(m_Device, &viewInfo, nullptr, &m_SampledImageView) != VK_SUCCESS)
+        {
+            Destroy();
+            throw std::runtime_error("Failed to create Vulkan depth sampling image view");
+        }
+    }
+
     if (desc.usage & TextureUsage::Sampled)
     {
         auto toFilter = [](FilterMode filter)
@@ -364,6 +377,8 @@ void VulkanTexture2D::Destroy()
 
     if (m_Sampler != VK_NULL_HANDLE)
         vkDestroySampler(m_Device, m_Sampler, nullptr);
+    if (m_SampledImageView != VK_NULL_HANDLE)
+        vkDestroyImageView(m_Device, m_SampledImageView, nullptr);
     if (m_ImageView != VK_NULL_HANDLE)
         vkDestroyImageView(m_Device, m_ImageView, nullptr);
     if (m_Image != VK_NULL_HANDLE)
@@ -372,6 +387,7 @@ void VulkanTexture2D::Destroy()
         vkFreeMemory(m_Device, m_Memory, nullptr);
 
     m_Sampler = VK_NULL_HANDLE;
+    m_SampledImageView = VK_NULL_HANDLE;
     m_ImageView = VK_NULL_HANDLE;
     m_Image = VK_NULL_HANDLE;
     m_Memory = VK_NULL_HANDLE;

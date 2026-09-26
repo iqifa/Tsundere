@@ -359,13 +359,13 @@ void VulkanDescriptorSet::Apply(uint32_t slot, const uint32_t* dynamicOffsets, u
             auto* texture = value.texture
                 ? dynamic_cast<VulkanTexture2D*>(value.texture)
                 : nullptr;
-            if (!texture || texture->GetImageView() == VK_NULL_HANDLE ||
+            if (!texture || texture->GetSampledImageView() == VK_NULL_HANDLE ||
                 texture->GetSampler() == VK_NULL_HANDLE)
                 continue;
 
             imageInfos.push_back({
                 texture->GetSampler(),
-                texture->GetImageView(),
+                texture->GetSampledImageView(),
                 texture->GetLayout() == VK_IMAGE_LAYOUT_UNDEFINED
                     ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
                     : texture->GetLayout() });

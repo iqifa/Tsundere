@@ -27,6 +27,12 @@ public:
 
     VkImage GetImage() const { return m_Image; }
     VkImageView GetImageView() const { return m_ImageView; }
+    // Depth/stencil images keep a combined view for attachments. Sampling a
+    // combined image sampler requires a view with only one aspect.
+    VkImageView GetSampledImageView() const
+    {
+        return m_SampledImageView != VK_NULL_HANDLE ? m_SampledImageView : m_ImageView;
+    }
     VkSampler GetSampler() const { return m_Sampler; }
     VkImageAspectFlags GetAspectMask() const { return m_AspectMask; }
     VkImageLayout GetLayout() const { return m_Layout; }
@@ -45,6 +51,7 @@ private:
     VkImage m_Image = VK_NULL_HANDLE;
     VkDeviceMemory m_Memory = VK_NULL_HANDLE;
     VkImageView m_ImageView = VK_NULL_HANDLE;
+    VkImageView m_SampledImageView = VK_NULL_HANDLE;
     VkSampler m_Sampler = VK_NULL_HANDLE;
     VkImageAspectFlags m_AspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     VkImageLayout m_Layout = VK_IMAGE_LAYOUT_UNDEFINED;

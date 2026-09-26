@@ -321,6 +321,30 @@ void RenderGraph::ExecutePass(RGPass& pass, RHICommandBuffer& commandBuffer, Ren
     // come *after* the barrier. BarrierFlags::None makes this a no-op.
     commandBuffer.ResourceBarrier(pass.barriers);
 
+    // A previous pass may have left these images in an attachment layout.
+    // Combined image samplers require a read-only layout, so transition
+    // declared SRV reads before this pass records descriptor writes.
+    auto isAttachment = [&](ResourceId id)
+    {
+        for (const auto& attachment : pass.colorAttachments)
+        {
+            if (attachment.texture.id == id)
+                return true;
+        }
+        return pass.depthAttachment && pass.depthAttachment->texture.id == id;
+    };
+    for (const auto& read : pass.reads)
+    {
+        if (read.access != RGAccess::ReadSRV && read.access != RGAccess::DepthRead)
+            continue;
+        if (isAttachment(read.resource))
+            continue;
+
+        RHITexture2D* texture = GetTexture({ read.resource, generation_ });
+        if (texture)
+            commandBuffer.PrepareTextureForSampling(texture);
+    }
+
     const bool hasDepth = pass.depthAttachment.has_value();
 
     // No attachments at all: a compute or copy pass. Nothing to bind.

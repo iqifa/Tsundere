@@ -143,7 +143,7 @@ namespace Vulkan_ImGui
             return ImTextureID_Invalid;
         }
 
-        const VkImageView imageView = vulkanTexture->GetImageView();
+        const VkImageView imageView = vulkanTexture->GetSampledImageView();
         const VkSampler sampler = vulkanTexture->GetSampler();
         if (imageView == VK_NULL_HANDLE || sampler == VK_NULL_HANDLE)
         {
