@@ -77,15 +77,13 @@ project "T_Core"
     systemversion "10.0.22621.0"    -- windows SKD版本
 
     links{
-        "glfw3.lib","opengl32.lib","glew32.lib","assimp-vc143-mtd.lib","comdlg32.lib","vulkan-1.lib","shaderc_shared.lib"
+        "glfw3.lib","opengl32.lib","glew32.lib","assimp-vc143-mtd.lib","comdlg32.lib","vulkan-1.lib","shaderc_shared.lib","spirv-cross-c-shared.lib"
     }
 
 
-    filter{
-        "system:windows",
-        "action:vs2022",
-        buildoptions{"/utf-8","/MDd"}
-    }
+    filter{ "system:windows", "action:vs2022" }
+        buildoptions{"/utf-8","/MDd","/FS"}
+    filter{}
     defines
     {
         "T_PLATFORM_WINDOWS",
@@ -98,7 +96,9 @@ project "T_Core"
     postbuildcommands{
         ("{COPY} %{cfg.targetdir} ../bin"),
         "{COPY} ../Dependence/lib/GLEW/glew32.dll ../bin",
-        "{COPY} ../Dependence/lib/assimp/assimp-vc143-mtd.dll ../bin"
+        "{COPY} ../Dependence/lib/assimp/assimp-vc143-mtd.dll ../bin",
+        "{COPY} C:/VulkanSDK/1.4.357.0/Bin/shaderc_shared.dll ../bin",
+        "{COPY} C:/VulkanSDK/1.4.357.0/Bin/spirv-cross-c-shared.dll ../bin"
     }
 
     

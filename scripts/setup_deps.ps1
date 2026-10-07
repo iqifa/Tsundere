@@ -229,7 +229,7 @@ if ($SkipAssimp) {
 }
 
 # ---------------------------------------------------------------------------
-# Vulkan SDK : needed for BOTH backends (premake always links vulkan-1 / shaderc_shared)
+# Vulkan SDK : needed for BOTH backends (premake always links vulkan-1 / shaderc_shared / spirv-cross-c-shared)
 # ---------------------------------------------------------------------------
 Write-Step "Vulkan SDK $($V.VulkanSDK)"
 if (Test-Path "$VulkanRoot\Lib\vulkan-1.lib") {
@@ -265,6 +265,10 @@ $required = [ordered]@{
     'assimp dll'              = "$Dep\lib\assimp\$assimpLibName.dll"
     'Vulkan SDK vulkan-1.lib' = "$VulkanRoot\Lib\vulkan-1.lib"
     'Vulkan SDK shaderc'      = "$VulkanRoot\Lib\shaderc_shared.lib"
+    'Vulkan SDK shaderc dll'  = "$VulkanRoot\Bin\shaderc_shared.dll"
+    'Vulkan SDK SPIRV-Cross'  = "$VulkanRoot\Lib\spirv-cross-c-shared.lib"
+    'Vulkan SDK SPIRV-Cross dll' = "$VulkanRoot\Bin\spirv-cross-c-shared.dll"
+    'Vulkan SDK SPIRV-Cross header' = "$VulkanRoot\Include\spirv_cross\spirv_cross_c.h"
     "Windows SDK $($V.WinSDK)" = "${env:ProgramFiles(x86)}\Windows Kits\10\Include\$($V.WinSDK)"
 }
 $missing = 0

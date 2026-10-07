@@ -197,9 +197,14 @@ cmake --build build --config Debug --parallel
 
 - 安装到 `C:\VulkanSDK\1.4.357.0`（安装包会自动设置 `VULKAN_SDK` 并把 `Bin` 加进 PATH）。
 - 静默安装：`vulkansdk-windows-X64-1.4.357.0.exe --root C:\VulkanSDK\1.4.357.0 --accept-licenses --default-answer --confirm-command install`（需要管理员权限）。
-- **OpenGL 后端也需要**：premake 在两个后端下都会链接 `vulkan-1.lib`、`shaderc_shared.lib`，
+- **OpenGL 后端也需要**：premake 在两个后端下都会链接 `vulkan-1.lib`、`shaderc_shared.lib`、`spirv-cross-c-shared.lib`，
 而且 `imgui_impl_vulkan.cpp` 总会被编译进 `T_Core.dll`。
-- 运行时：`vulkan-1.dll` 由显卡驱动提供；Vulkan 后端还需要 `shaderc_shared.dll`，它在 SDK 的 `Bin` 里，靠 PATH 找到。
+- **Shader 编译依赖 SDK**：两个后端的 shader 都由 `T_Core/src/Platform/ShaderCompiler.cpp` 编译，
+先用 shaderc（`<shaderc/shaderc.h>`）编成 SPIR-V，再用 SPIRV-Cross 的 C API（`<spirv_cross/spirv_cross_c.h>`）做反射；
+OpenGL 后端还会把 SPIR-V 转回 GLSL 430。这两个库都随 SDK 安装，不需要另外下载。
+- **必须用 C API 的动态库** `spirv-cross-c-shared`：SDK 里的 SPIRV-Cross 静态库（`spirv-cross-core.lib` 等）是 Release `/MD` 编的，
+和项目的 `/MDd` 不匹配，链接会报运行库冲突。
+- 运行时：`vulkan-1.dll` 由显卡驱动提供；`shaderc_shared.dll` 和 `spirv-cross-c-shared.dll` 由 `T_Core` 的 post-build 从 SDK 的 `Bin` 拷到 `bin/`。
 
 
 
@@ -260,7 +265,8 @@ entt::meta_factory<T>{}.type(entt::hashed_string{ name });
 EnTT 4.x（master）要求 C++20，需要把 premake 的++ `cppdialect` ++改成 `C++20`，改动面更大。
 
 **6. Vulkan SDK 路径**：`T_Core/premake5.lua` 和 `SandBox/premake5.lua` 的 `includedirs`、`libdirs` 里都写死了
-`C:/VulkanSDK/1.4.357.0`，装了别的版本要同时改这 4 处（或者改成 `os.getenv("VULKAN_SDK")`）。
+`C:/VulkanSDK/1.4.357.0`，`T_Core/premake5.lua` 的 `postbuildcommands` 里拷 `shaderc_shared.dll`、`spirv-cross-c-shared.dll`
+的两行也写死了这个路径。装了别的版本要同时改这 6 处（或者改成 `os.getenv("VULKAN_SDK")`）。
 `setup_deps.ps1` 顶部的 `$V.VulkanSDK` 也要一起改。
 
 **7. assimp 库名**：premake 的 `links`、`linkoptions` 和 `postbuildcommands` 里都写死了 `assimp-vc143-mtd`。
@@ -269,7 +275,7 @@ EnTT 4.x（master）要求 C++20，需要把 premake 的++ `cppdialect` ++改成
 ## 其他说明
 
 - **运行库**：项目用 `/MDd`。官方的 `glfw3.lib` 是 `/MD` 编的，链接时可能出现 `LNK4098` 警告，不影响使用。assimp 按上面的参数编出来就是 `/MDd`，是匹配的。
-- **DLL 拷贝**：`T_Core` 的 post-build 会把 `glew32.dll`、`assimp-vc143-mtd.dll` 拷到 `bin/`。GLFW 是静态链接，不需要 dll。
+- **DLL 拷贝**：`T_Core` 的 post-build 会把 `glew32.dll`、`assimp-vc143-mtd.dll`、`shaderc_shared.dll`、`spirv-cross-c-shared.dll` 拷到 `bin/`。GLFW 是静态链接，不需要 dll。
 - **不要**把第三方库提交进 git：`.gitignore` 已经忽略了 `T_Core/vender/`*、`Dependence/*`，只保留 `.gitkeep`。
 
 
@@ -285,6 +291,9 @@ EnTT 4.x（master）要求 C++20，需要把 premake 的++ `cppdialect` ++改成
 | `LNK2019 ImGui::Begin ...`                     | `IMGUI_API` 没有导出，见第 3 条（重新跑一次 `premake5 vs2022`）                          |
 | `LNK2019 stbi_load`                            | 缺 `stb_image.cpp`                                                         |
 | 找不到 `vulkan/vulkan.h` 或 `vulkan-1.lib`         | Vulkan SDK 没装，或者版本和 premake 里写的不一致                                        |
+| 找不到 `spirv_cross/spirv_cross_c.h` 或 `spirv-cross-c-shared.lib` | 同上；装 SDK 时没勾掉 SPIRV-Cross 组件的话默认就有                                  |
+| 启动提示缺 `shaderc_shared.dll` / `spirv-cross-c-shared.dll` | post-build 没跑成功（看 SDK 路径是否正确），或者手动从 SDK 的 `Bin` 拷到 `bin/`              |
+| 链接报 `LNK2038` `RuntimeLibrary` 不匹配（spirv-cross） | 链接了 SDK 的 SPIRV-Cross 静态库，改成 `spirv-cross-c-shared.lib`                        |
 | assimp 编译时报 zlib 相关错误                          | 勾选 `ASSIMP_BUILD_ZLIB=ON`，用 assimp 自带的 zlib                               |
 | 找不到 `assimp/config.h`                          | 只拷了源码目录的头文件，漏了 build 目录里生成的 `config.h`、`revision.h`                       |
 

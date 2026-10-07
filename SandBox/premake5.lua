@@ -49,11 +49,9 @@ project "SandBox"
         "glfw3.lib","opengl32.lib","glew32.lib","assimp-vc143-mtd.lib","T_Core.lib","vulkan-1.lib","shaderc_shared.lib"
     }
 
-    filter{
-        "system:windows",
-        "action:vs2022",
-        buildoptions{"/utf-8","/MDd"}
-    }
+    filter{ "system:windows", "action:vs2022" }
+        buildoptions{"/utf-8","/MDd","/FS"}
+    filter{}
     defines
     {
         "T_PLATFORM_WINDOWS",
