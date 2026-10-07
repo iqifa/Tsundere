@@ -149,9 +149,9 @@ public:
 		cmd.SetDepthFunc(CompareOp::Less);
 
 		// 3. ��ȡ�������
-		mat4 view = currentcamera->GetViewFront();
-		mat4 proj = currentcamera->GetProj();
-		mat4 currentViewProj = proj * view;
+		glm::mat4 view = currentcamera->GetViewFront();
+		glm::mat4 proj = currentcamera->GetProj();
+		glm::mat4 currentViewProj = proj * view;
 
 		if (EnableJitter)
 			proj = Jittering(proj, (float)m_Width, (float)m_Height);
@@ -187,7 +187,7 @@ public:
 			if (!model || model->meshes.empty())
 				continue;
 
-			mat4 modelMat = transform.GetTransform();
+			glm::mat4 modelMat = transform.GetTransform();
 
 			for (size_t i = 0; i < model->meshes.size(); i++)
 			{
@@ -255,7 +255,7 @@ private:
 	uint32_t m_Width = 1920;
 	uint32_t m_Height = 1080;
 	int m_FrameCount = 0;
-	mat4 m_PrevViewProjMatrix = mat4(1.0f);
+	glm::mat4 m_PrevViewProjMatrix = glm::mat4(1.0f);
 
 	Ref<RHIBuffer> m_CubeVB;
 	Ref<RHIBuffer> m_CubeIB;
@@ -361,21 +361,21 @@ private:
 		m_CubePipelineDesc = pipeDesc;
 	}
 
-	mat4 Jittering(const mat4& originalProj, float width, float height)
+	glm::mat4 Jittering(const glm::mat4& originalProj, float width, float height)
 	{
 		int jitterIndex = m_FrameCount % 16;
-		vec2 currentJitter = GetHaltonJitter(jitterIndex);
+		glm::vec2 currentJitter = GetHaltonJitter(jitterIndex);
 
 		float deltaX = currentJitter.x * 2.0f / width;
 		float deltaY = currentJitter.y * 2.0f / height;
 
-		mat4 jitteredProjMatrix = originalProj;
+		glm::mat4 jitteredProjMatrix = originalProj;
 		jitteredProjMatrix[2][0] += deltaX;
 		jitteredProjMatrix[2][1] += deltaY;
 
 		return jitteredProjMatrix;
 	}
-	vec2 GetHaltonJitter(int index)
+	glm::vec2 GetHaltonJitter(int index)
 	{
 		auto halton = [](int index, int base) -> float {
 			float f = 1.0f;
@@ -389,7 +389,7 @@ private:
 			return r;
 			};
 
-		return vec2(halton(index + 1, 2) - 0.5f, halton(index + 1, 3) - 0.5f);
+		return glm::vec2(halton(index + 1, 2) - 0.5f, halton(index + 1, 3) - 0.5f);
 	}
 
 	void BindGeometryDescriptors(RHITexture2D* shadowTex)
@@ -408,9 +408,9 @@ private:
 	}
 	void DrawFallbackCube(
 		RHICommandBuffer& cmd,
-		const mat4& proj,
-		const mat4& view,
-		const mat4& currentViewProj,
+		const glm::mat4& proj,
+		const glm::mat4& view,
+		const glm::mat4& currentViewProj,
 		RHITexture2D* shadowTex)
 	{
 		m_GbufferShader->Bind();
@@ -418,8 +418,8 @@ private:
 		m_DefaultTex->Bind(11);
 		m_DefaultTex->Bind(12);
 
-		mat4 model = scale(mat4(1.0f), vec3(1.0f, 2.0f, 1.0f));
-		mat4 mvp = proj * view * model;
+		glm::mat4 model = scale(glm::mat4(1.0f), glm::vec3(1.0f, 2.0f, 1.0f));
+		glm::mat4 mvp = proj * view * model;
 
 		GbufferDrawUBO dubo;
 		dubo.MVP_matrix = mvp;
@@ -441,9 +441,9 @@ private:
 		cmd.BindDescriptorSet(m_GbufferDescriptSet, 0, &dynamicOffset, 1);
 		cmd.DrawIndexed(36);
 		// Floor
-		mat4 floorModel = translate(mat4(1.0f), vec3(0.0f, -2.0f, 0.0f));
-		floorModel = scale(floorModel, vec3(10.0f, 0.05f, 10.0f));
-		mat4 floorMVP = proj * view * floorModel;
+		glm::mat4 floorModel = translate(glm::mat4(1.0f), glm::vec3(0.0f, -2.0f, 0.0f));
+		floorModel = scale(floorModel, glm::vec3(10.0f, 0.05f, 10.0f));
+		glm::mat4 floorMVP = proj * view * floorModel;
 		dubo.MVP_matrix = floorMVP;
 		dubo.model = floorModel;
 		dubo.prevModel = floorModel;

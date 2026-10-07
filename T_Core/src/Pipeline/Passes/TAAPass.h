@@ -56,9 +56,9 @@ public:
 
 		int nextIdx = (m_CurrentIdx + 1) % 2;
 
-		mat4 view = currentcamera->GetViewFront();
-		mat4 proj = currentcamera->GetProj();
-		mat4 currentViewProj = proj * view;
+		glm::mat4 view = currentcamera->GetViewFront();
+		glm::mat4 proj = currentcamera->GetProj();
+		glm::mat4 currentViewProj = proj * view;
 
 		auto cmd = RHIRenderer::GetCmd();
 
@@ -196,9 +196,9 @@ public:
 				// u_PrevViewProj as standalone uniforms — they live in PerPass_TAA
 				// now, so the only way to feed them is via the UBO + descriptor set.
 				TAAUBO ubo;
-				mat4 view = currentcamera->GetViewFront();
-				mat4 proj = currentcamera->GetProj();
-				mat4 currentViewProj = proj * view;
+				glm::mat4 view = currentcamera->GetViewFront();
+				glm::mat4 proj = currentcamera->GetProj();
+				glm::mat4 currentViewProj = proj * view;
 				ubo.u_InverseViewProj = glm::inverse(currentViewProj);
 				ubo.u_PrevViewProj    = m_PrevViewProj;
 				m_UBO->Upload(&ubo, sizeof(ubo));
@@ -330,7 +330,7 @@ private:
 	Ref<RHITexture2D> m_GraphPrevDepth;
 
 	int m_CurrentIdx = 0;
-	mat4 m_PrevViewProj = mat4(1.0f);
+	glm::mat4 m_PrevViewProj = glm::mat4(1.0f);
 	FrameBufferSpecification m_Spec;
 };
 

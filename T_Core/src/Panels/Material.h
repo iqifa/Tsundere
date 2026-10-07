@@ -30,8 +30,8 @@ public:
 			case ValueType::FLOAT:  { float* v = new float(*(float*)oldPtr); varies.push_back({ (unsigned int)v, type, name }); break; }
 			case ValueType::DOUBLE: { double* v = new double(*(double*)oldPtr); varies.push_back({ (unsigned int)v, type, name }); break; }
 			case ValueType::CHAR:   { char* v = new char(*(char*)oldPtr); varies.push_back({ (unsigned int)v, type, name }); break; }
-			case ValueType::VEC2:   { vec2* v = new vec2(*(vec2*)oldPtr); varies.push_back({ (unsigned int)v, type, name }); break; }
-			case ValueType::VEC3:   { vec3* v = new vec3(*(vec3*)oldPtr); varies.push_back({ (unsigned int)v, type, name }); break; }
+			case ValueType::VEC2:   { glm::vec2* v = new glm::vec2(*(glm::vec2*)oldPtr); varies.push_back({ (unsigned int)v, type, name }); break; }
+			case ValueType::VEC3:   { glm::vec3* v = new glm::vec3(*(glm::vec3*)oldPtr); varies.push_back({ (unsigned int)v, type, name }); break; }
 			case ValueType::TEXTURE:{ Ref<RHITexture2D>* v = new Ref<RHITexture2D>(*(Ref<RHITexture2D>*)oldPtr); varies.push_back({ (unsigned int)v, type, name }); break; }
 			case ValueType::HEADER: varies.push_back({ 0, type, name }); break;
 			default: break;

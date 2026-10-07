@@ -49,9 +49,9 @@ public:
 
 		m_ShadowMask->BindAsImage(1, ImageAccess::WriteOnly);
 
-		mat4 view = currentcamera->GetViewFront();
-		mat4 proj = currentcamera->GetProj();
-		mat4 invViewProj = glm::inverse(proj * view);
+		glm::mat4 view = currentcamera->GetViewFront();
+		glm::mat4 proj = currentcamera->GetProj();
+		glm::mat4 invViewProj = glm::inverse(proj * view);
 
 		// PerPass_ShadowRay UBO. Struct declared in class scope.
 		ShadowRayUBO ubo;
@@ -155,8 +155,8 @@ public:
 
 				maskTex->BindAsImage(1, ImageAccess::WriteOnly);
 
-				mat4 view = currentcamera->GetViewFront();
-				mat4 proj = currentcamera->GetProj();
+				glm::mat4 view = currentcamera->GetViewFront();
+				glm::mat4 proj = currentcamera->GetProj();
 				m_Shader->SetUniformMat4f("u_InvViewProj", glm::inverse(proj * view));
 						m_Shader->SetUniformVec2("u_Resolution",
 					glm::vec2((float)width, (float)height));

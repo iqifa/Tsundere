@@ -126,7 +126,7 @@ public:
 		}
 
 		// Reset accumulation on camera movement or viewport change
-		vec3 camPos = currentcamera->getpos();
+		glm::vec3 camPos = currentcamera->getpos();
 		if (glm::distance(camPos, m_LastCamPos) > 0.01f ||
 			m_LastViewportSize.x != (float)m_Spec.Width ||
 			m_LastViewportSize.y != (float)m_Spec.Height)
@@ -160,8 +160,8 @@ public:
 		// Material SSBO
 		m_MaterialSSBO->BindToSlot(5);
 
-		mat4 view = currentcamera->GetViewFront();
-		mat4 proj = currentcamera->GetProj();
+		glm::mat4 view = currentcamera->GetViewFront();
+		glm::mat4 proj = currentcamera->GetProj();
 
 		// PerPass_PathTrace UBO (matches std140 layout in PathTrace.shader).
 		// Total 160 bytes.

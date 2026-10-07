@@ -187,10 +187,10 @@ namespace {
 				s_MeshRenderState.MaterialWidgets.push_back(new Widget::Input<double>(label, value));
 				break;
 			case ValueType::VEC2:
-				s_MeshRenderState.MaterialWidgets.push_back(new Widget::Input<vec2>(label, value));
+				s_MeshRenderState.MaterialWidgets.push_back(new Widget::Input<glm::vec2>(label, value));
 				break;
 			case ValueType::VEC3:
-				s_MeshRenderState.MaterialWidgets.push_back(new Widget::Input<vec3>(label, value));
+				s_MeshRenderState.MaterialWidgets.push_back(new Widget::Input<glm::vec3>(label, value));
 				break;
 			case ValueType::TEXTURE:
 				s_MeshRenderState.MaterialWidgets.push_back(new Widget::DiyWidget([label, value]() {

@@ -2,8 +2,6 @@
 #ifndef INPUT
 #define INPUT
 #include"Widget.h"
-
-using namespace glm;
 namespace Widget {
 	template<class T>
 	class  Input :public Widget
@@ -54,16 +52,16 @@ namespace Widget {
 			*var = str;
 		}
 		template<>
-		void Draw<vec2>()
+		void Draw<glm::vec2>()
 		{
-			vec2* var = (vec2*)value;
+			glm::vec2* var = (glm::vec2*)value;
 			float* aa = (float*)var;
 			ImGui::InputFloat2(Lable.c_str(), aa);
 		}
 		template<>
-		void Draw<vec3>()
+		void Draw<glm::vec3>()
 		{
-			vec3* var = (vec3*)value;
+			glm::vec3* var = (glm::vec3*)value;
 			float* aa = (float*)var;
 			ImGui::InputFloat3(Lable.c_str(), aa);
 		}

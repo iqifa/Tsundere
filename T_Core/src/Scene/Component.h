@@ -38,27 +38,27 @@ namespace Component
 
 	struct Transform
 	{
-		vec3 Position = { 0.0f,0.0f,0.0f };
-		vec3 Rotation = { 0.0f,0.0f,0.0f };
-		vec3 Scale = { 1.0f,1.0f,1.0f };
+		glm::vec3 Position = { 0.0f,0.0f,0.0f };
+		glm::vec3 Rotation = { 0.0f,0.0f,0.0f };
+		glm::vec3 Scale = { 1.0f,1.0f,1.0f };
 
 		Transform() = default;
 		Transform(const Transform&) = default;
-		Transform(const vec3& Position) :Position(Position) {}
+		Transform(const glm::vec3& Position) :Position(Position) {}
 
-		mat4 GetTransform() const
+		glm::mat4 GetTransform() const
 		{
-			mat4 rotation = translate(glm::identity<mat4>(), glm::vec3(0.0f, 0.0f, 0.0f));
-			rotation = rotate(rotation, Rotation.x, vec3(1.0f, 0.0f, 0.0f));
-			rotation = rotate(rotation, Rotation.y, vec3(0.0f, 1.0f, 0.0f));
-			rotation = rotate(rotation, Rotation.z, vec3(0.0f, 0.0f, 1.0f));
-			return translate(mat4(1.0f), Position) * rotation * scale(mat4(1.0f), Scale);
+			glm::mat4 rotation = translate(glm::identity<glm::mat4>(), glm::vec3(0.0f, 0.0f, 0.0f));
+			rotation = rotate(rotation, Rotation.x, glm::vec3(1.0f, 0.0f, 0.0f));
+			rotation = rotate(rotation, Rotation.y, glm::vec3(0.0f, 1.0f, 0.0f));
+			rotation = rotate(rotation, Rotation.z, glm::vec3(0.0f, 0.0f, 1.0f));
+			return translate(glm::mat4(1.0f), Position) * rotation * scale(glm::mat4(1.0f), Scale);
 		}
 
-		mat4 GetMVP()const
+		glm::mat4 GetMVP()const
 		{
-			mat4 view = currentcamera->GetViewFront();
-			mat4 proj = currentcamera->GetProj();
+			glm::mat4 view = currentcamera->GetViewFront();
+			glm::mat4 proj = currentcamera->GetProj();
 			return proj * view * GetTransform();
 		}
 	};
@@ -105,7 +105,7 @@ namespace Component
 	};
 	struct Camera
 	{
-		vec3 Target;
+		glm::vec3 Target;
 	};
 
 	struct MeshRender {
@@ -140,10 +140,10 @@ namespace Component
 		LightType type = LightType::Directional;
 		uint8_t pad[3] = { 0, 0, 0 }; // Padding to align the struct to 16 bytes
 
-		vec3 Color = { 1.0f, 1.0f, 1.0f };
+		glm::vec3 Color = { 1.0f, 1.0f, 1.0f };
 		float Intensity = 1.0f;
 
-		vec3 Direction = { -0.5f, -1.0f, -0.5f };
+		glm::vec3 Direction = { -0.5f, -1.0f, -0.5f };
 		float Ambient = 0.1f;
 
 

@@ -45,7 +45,7 @@ void VulkanExampleLayer::OnImGuiRender()
 	m_ViewportFocused = ImGui::IsWindowFocused();
 
 	const ImVec2 viewportPanelSize = ImGui::GetContentRegionAvail();
-	const vec2 newViewportSize = {
+	const glm::vec2 newViewportSize = {
 		viewportPanelSize.x,
 		viewportPanelSize.y
 	};

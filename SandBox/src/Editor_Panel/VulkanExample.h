@@ -21,7 +21,7 @@ private:
 	void ExecuteRenderGraph();
 	void BuildRenderGraph(uint32_t width, uint32_t height);
 
-	vec2 m_ViewPortSize{ 0.0f };
+	glm::vec2 m_ViewPortSize{ 0.0f };
 	GLFWwindow* m_WindowHandle = nullptr;
 
 

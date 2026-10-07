@@ -28,11 +28,11 @@ public:
 			return;
 
 		// --- Step 1: compute light view-projection matrix ---
-		mat4 cameraView = currentcamera->GetViewFront();
-		mat4 cameraProj = currentcamera->GetProj();
-		mat4 lightView, lightProj;
+		glm::mat4 cameraView = currentcamera->GetViewFront();
+		glm::mat4 cameraProj = currentcamera->GetProj();
+		glm::mat4 lightView, lightProj;
 		ComputeLightViewProj(scene, cameraView, cameraProj, lightView, lightProj);
-		mat4 lightViewProj = lightProj * lightView;
+		glm::mat4 lightViewProj = lightProj * lightView;
 
 		// --- Step 2: render scene geometry into depth-only FBO ---
 		auto cmd = RHIRenderer::GetCmd();
@@ -64,7 +64,7 @@ public:
 			if (!model)
 				continue;
 
-			mat4 modelMat = transform.GetTransform();
+			glm::mat4 modelMat = transform.GetTransform();
 			m_DepthShader->SetUniformMat4f("u_Model", modelMat);
 
 			for (auto& mesh : model->meshes)
@@ -84,13 +84,13 @@ public:
 			cmd->BindIndexBuffer(m_FallbackIB);
 
 			// Draw cube
-			mat4 cubeModel = scale(mat4(1.0f), vec3(1.0f, 2.0f, 1.0f));
+			glm::mat4 cubeModel = scale(glm::mat4(1.0f), glm::vec3(1.0f, 2.0f, 1.0f));
 			m_DepthShader->SetUniformMat4f("u_Model", cubeModel);
 			cmd->DrawIndexed(m_FallbackIndexCount);
 
 			// Draw floor plane (flattened cube) to receive shadows
-			mat4 floorModel = translate(mat4(1.0f), vec3(0.0f, -2.0f, 0.0f));
-			floorModel = scale(floorModel, vec3(10.0f, 0.05f, 10.0f));
+			glm::mat4 floorModel = translate(glm::mat4(1.0f), glm::vec3(0.0f, -2.0f, 0.0f));
+			floorModel = scale(floorModel, glm::vec3(10.0f, 0.05f, 10.0f));
 			m_DepthShader->SetUniformMat4f("u_Model", floorModel);
 			cmd->DrawIndexed(m_FallbackIndexCount);
 		}
@@ -137,11 +137,11 @@ public:
 			},
 			[this, scene, frameData, shadowDepth](RHICommandBuffer& cmd, RenderGraphResources& resources)
 			{
-				mat4 cameraView = currentcamera->GetViewFront();
-				mat4 cameraProj = currentcamera->GetProj();
-				mat4 lightView, lightProj;
+				glm::mat4 cameraView = currentcamera->GetViewFront();
+				glm::mat4 cameraProj = currentcamera->GetProj();
+				glm::mat4 lightView, lightProj;
 				ComputeLightViewProj(scene, cameraView, cameraProj, lightView, lightProj);
-				mat4 lightViewProj = lightProj * lightView;
+				glm::mat4 lightViewProj = lightProj * lightView;
 
 				// The graph has already bound the FBO, set the viewport and
 				// cleared depth. Only per-pass state is left to us.
@@ -183,12 +183,12 @@ public:
 					cmd.BindVertexBuffer(m_FallbackVB);
 					cmd.BindIndexBuffer(m_FallbackIB);
 
-					mat4 cubeModel = scale(mat4(1.0f), vec3(1.0f, 2.0f, 1.0f));
+					glm::mat4 cubeModel = scale(glm::mat4(1.0f), glm::vec3(1.0f, 2.0f, 1.0f));
 					m_DepthShader->SetUniformMat4f("u_Model", cubeModel);
 					cmd.DrawIndexed(m_FallbackIndexCount);
 
-					mat4 floorModel = translate(mat4(1.0f), vec3(0.0f, -2.0f, 0.0f));
-					floorModel = scale(floorModel, vec3(10.0f, 0.05f, 10.0f));
+					glm::mat4 floorModel = translate(glm::mat4(1.0f), glm::vec3(0.0f, -2.0f, 0.0f));
+					floorModel = scale(floorModel, glm::vec3(10.0f, 0.05f, 10.0f));
 					m_DepthShader->SetUniformMat4f("u_Model", floorModel);
 					cmd.DrawIndexed(m_FallbackIndexCount);
 				}
@@ -308,48 +308,51 @@ private:
 	// Compute light view-projection matrix for directional light
 	// -------------------------------------------------------------------------
 	void ComputeLightViewProj(Ref<Scene> scene,
-	                          const mat4& cameraView, const mat4& cameraProj,
-	                          mat4& outLightView, mat4& outLightProj)
+	                          const glm::mat4& cameraView, const glm::mat4& cameraProj,
+		glm::mat4& outLightView, glm::mat4& outLightProj)
 	{
 		// 1. Extract light direction from scene
-		vec3 lightDir = normalize(vec3(-0.5f, -1.0f, -0.5f));
-		for (auto entityID : scene->m_Registry.view<Component::DirectionalLight>())
+		glm::vec3 lightDir = normalize(glm::vec3(-0.5f, -1.0f, -0.5f));
+		for (auto entityID : scene->m_Registry.view<Component::Light>())
 		{
-			lightDir = normalize(scene->m_Registry.get<Component::DirectionalLight>(entityID).Direction);
+			auto& light = scene->m_Registry.get<Component::Light>(entityID);
+			if (light.type != Component::Light::LightType::Directional)
+				continue;
+			lightDir = normalize(light.Direction);
 			break;
 		}
 
 		// 2. Compute camera frustum 8 corners in world space
-		mat4 invVP = inverse(cameraProj * cameraView);
-		vec3 corners[8];
+		glm::mat4 invVP = inverse(cameraProj * cameraView);
+		glm::vec3 corners[8];
 		for (int z = 0; z < 2; z++)
 		{
 			for (int y = 0; y < 2; y++)
 			{
 				for (int x = 0; x < 2; x++)
 				{
-					vec4 ndc = vec4(x * 2.0f - 1.0f, y * 2.0f - 1.0f, z * 2.0f - 1.0f, 1.0f);
-					vec4 ws = invVP * ndc;
-					corners[z * 4 + y * 2 + x] = vec3(ws) / ws.w;
+					glm::vec4 ndc = glm::vec4(x * 2.0f - 1.0f, y * 2.0f - 1.0f, z * 2.0f - 1.0f, 1.0f);
+					glm::vec4 ws = invVP * ndc;
+					corners[z * 4 + y * 2 + x] = glm::vec3(ws) / ws.w;
 				}
 			}
 		}
 
 		// 3. Light view matrix: look from behind camera along light direction
-		vec3 cameraPos = currentcamera->getpos();
-		vec3 lightTarget = cameraPos;
-		vec3 lightPos = lightTarget - lightDir * 50.0f;
-		vec3 up = vec3(0.0f, 1.0f, 0.0f);
+		glm::vec3 cameraPos = currentcamera->getpos();
+		glm::vec3 lightTarget = cameraPos;
+		glm::vec3 lightPos = lightTarget - lightDir * 50.0f;
+		glm::vec3 up = glm::vec3(0.0f, 1.0f, 0.0f);
 		if (abs(dot(lightDir, up)) > 0.99f)
-			up = vec3(1.0f, 0.0f, 0.0f);
+			up = glm::vec3(1.0f, 0.0f, 0.0f);
 		outLightView = glm::lookAt(lightPos, lightTarget, up);
 
 		// 4. Transform frustum corners to light space, compute AABB
-		vec3 minLS = vec3( 3.4e38f);
-		vec3 maxLS = vec3(-3.4e38f);
+		glm::vec3 minLS = glm::vec3( 3.4e38f);
+		glm::vec3 maxLS = glm::vec3(-3.4e38f);
 		for (int i = 0; i < 8; i++)
 		{
-			vec3 ls = vec3(outLightView * vec4(corners[i], 1.0f));
+			glm::vec3 ls = glm::vec3(outLightView * glm::vec4(corners[i], 1.0f));
 			minLS = min(minLS, ls);
 			maxLS = max(maxLS, ls);
 		}

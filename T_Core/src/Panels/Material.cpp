@@ -67,12 +67,12 @@ void Material::InitVarie(Uniform uniform)
 	}
 	else if (uniform.Type == "vec2")
 	{
-		vec2* value = new vec2;
+		glm::vec2* value = new glm::vec2;
 		varies.push_back(tuple<unsigned int, ValueType, string>((unsigned int)value, ValueType::VEC2, uniform.Name));
 	}
 	else if (uniform.Type == "vec3")
 	{
-		vec3* value = new vec3;
+		glm::vec3* value = new glm::vec3;
 		varies.push_back(tuple<unsigned int, ValueType, string>((unsigned int)value, ValueType::VEC3, uniform.Name));
 	}
 	else if (uniform.Type == "sampler2D")
@@ -98,8 +98,8 @@ void Material::Render(Ref<RHIShader> overrideShader)
 		case ValueType::INT:ValueChange<int>(std::get<2>(value), std::get<0>(value), targetShader);break;
 		case ValueType::FLOAT: { float* v = (float*)std::get<0>(value); targetShader->SetUniform1f(std::get<2>(value), *v); break; }
 		case ValueType::DOUBLE: { float v = (float)*(double*)std::get<0>(value); targetShader->SetUniform1f(std::get<2>(value), v); break; }
-		case ValueType::VEC2: { vec2* v = (vec2*)std::get<0>(value); targetShader->SetUniformVec2(std::get<2>(value), *v); break; }
-		case ValueType::VEC3: { vec3* v = (vec3*)std::get<0>(value); targetShader->SetUniformVec3(std::get<2>(value), *v); break; }
+		case ValueType::VEC2: { glm::vec2* v = (glm::vec2*)std::get<0>(value); targetShader->SetUniformVec2(std::get<2>(value), *v); break; }
+		case ValueType::VEC3: { glm::vec3* v = (glm::vec3*)std::get<0>(value); targetShader->SetUniformVec3(std::get<2>(value), *v); break; }
 		case ValueType::TEXTURE:
 			ValueChange<Ref<RHITexture2D>>(std::get<2>(value), std::get<0>(value), targetShader, count++); break;
 		default:
@@ -126,8 +126,8 @@ void Material::Save()
 		case ValueType::INT:	fs << "int" << endl << lable << endl << *(int*)value << endl; break;
 		case ValueType::FLOAT:	fs << "float" << endl << lable << endl << *(float*)value << endl; break;
 		case ValueType::DOUBLE:	fs << "double" << endl << lable << endl << *(double*)value << endl; break;
-		case ValueType::VEC2: { vec2* v = (vec2*)value; fs << "vec2" << endl << lable << endl << v->x << " " << v->y << endl; break; }
-		case ValueType::VEC3: { vec3* v = (vec3*)value; fs << "vec3" << endl << lable << endl << v->x << " " << v->y << " " << v->z << endl; break; }
+		case ValueType::VEC2: { glm::vec2* v = (glm::vec2*)value; fs << "vec2" << endl << lable << endl << v->x << " " << v->y << endl; break; }
+		case ValueType::VEC3: { glm::vec3* v = (glm::vec3*)value; fs << "vec3" << endl << lable << endl << v->x << " " << v->y << " " << v->z << endl; break; }
 		case ValueType::TEXTURE:{
 			Ref<RHITexture2D>* t = (Ref<RHITexture2D>*)value;
 			fs << "texture" << endl << lable << endl;

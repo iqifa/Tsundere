@@ -4,7 +4,6 @@
 #include"Panels/Material.h"
 using namespace Component;
 using namespace entt;
-using namespace glm;
 
 class Scene;
 

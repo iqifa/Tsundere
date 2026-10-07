@@ -25,7 +25,7 @@ class Scene;
 // the resource edges: a consumer that reads the producer's texture runs after it.
 struct RGFrameData
 {
-	mat4 ShadowLightViewProj = mat4(1.0f);
+	glm::mat4 ShadowLightViewProj = glm::mat4(1.0f);
 	bool HasShadowMap = false;
 
 	// Native id of the shadow map produced this frame, so the editor's debug

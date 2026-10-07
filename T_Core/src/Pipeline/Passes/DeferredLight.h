@@ -13,6 +13,7 @@ public:
 		m_LightsData = RHIBuffer::Create(BufferDesc{ maxLightCapicity * sizeof(GPULight), BufferUsage::Storage, true, nullptr });
 	
 		m_DeferredLightShader = RHIShader::Create("D:/Code/C++/Tsundere/res/shaders/DeferredLight.shader");
+		ValidateShaderLayout();
 
 		unsigned char white[4] = { 255, 255, 255, 255 };
 		m_DefaultTex = RHITexture2D::Create({ 1, 1, Format::RGBA8_UNORM, FilterMode::Linear, FilterMode::Linear,
@@ -95,6 +96,9 @@ public:
 		builder.Export(m_DeferredLight);
 		// builder.Export(m_Dep_Stencil);
 
+		if (currentcamera && currentcamera->skybox)
+			currentcamera->skybox->InitializePipeline(builder, false);
+
 		if (!m_DeferredPipeline)
 		{
 			m_DeferredPipelineDesc.descriptorSets = { m_DeferredDescriptorSet };
@@ -118,26 +122,35 @@ public:
 		cmd.SetDepthTest(false);
 		cmd.SetDepthFunc(CompareOp::Always);
 
-		mat4 view = currentcamera->GetViewFront();
-		mat4 proj = currentcamera->GetProj();
-		mat4 currentViewProj = proj * view;
+		glm::mat4 view = currentcamera->GetViewFront();
+		glm::mat4 proj = currentcamera->GetProj();
+		glm::mat4 currentViewProj = proj * view;
 
 
 		//if (EnableJitter)
 		//	proj = Jittering(proj, (float)m_Width, (float)m_Height);
 
 		
-
 		
 		std::vector<GPULight> lights;
+		glm::vec3 ambient(0.0f);
+		bool hasAmbient = false;
 		for (auto [entityID, trans, light] : m_Scene->m_Registry.view<Component::Transform, Component::Light>().each())
 		{
+			if (!hasAmbient && light.type == Component::Light::LightType::Directional)
+			{
+				ambient = light.Color * light.Intensity * light.Ambient;
+				hasAmbient = true;
+			}
+
 			GPULight Glight;
 
 			Glight.direc_ambient = { light.Direction,(float)light.Ambient };
 			Glight.color_intens = { light.Color ,light.Intensity };
-			Glight.pos_type = { trans.Position ,light.type };
+			Glight.pos_type = { trans.Position ,static_cast<float>(light.type) };
 			Glight.Param = { light.Params.Data[0], light.Params.Data[1], light.Params.Data[2], light.Params.Data[3] };
+			if (light.type == Component::Light::LightType::Area)
+				Glight.Param.z = static_cast<float>(light.Params.Area.Shape);
 			lights.push_back(Glight);
 		}
 		m_LightsData->Upload(lights.data(), lights.size() * sizeof(GPULight));
@@ -145,12 +158,13 @@ public:
 		DeferredLightDrawUBO dlduo;	
 		dlduo.InvViewProjNoTrans = glm::inverse(currentViewProj);
 		dlduo.View = view;
-		dlduo.ViewPos = vec4(currentcamera->getpos(), 0.0f);
+		dlduo.ViewPos = glm::vec4(currentcamera->getpos(), 0.0f);
 		dlduo.ViewportSize = { m_Width,m_Height };
 
 		dlduo.Near = currentcamera->getNear();
 		dlduo.Far = currentcamera->getFar();
 		dlduo.LightCount = lights.size();
+		dlduo.Ambient = glm::vec4(ambient, 0.0f);
 
 
 
@@ -171,6 +185,9 @@ public:
 		m_DeferredDescriptorSet->BindTexture(13, depthTex ? depthTex : m_DefaultTex.get(), 13);
 		m_DeferredDescriptorSet->Apply(0);
 
+		// The lighting shader discards background pixels (depth == 1), so the skybox must be drawn first.
+		currentcamera->RenderSkyBox(cmd);
+
 		cmd.BindPipeline(m_DeferredPipeline);
 		cmd.BindVertexBuffer(ScreenVB, 0);
 		cmd.BindIndexBuffer(ScreenIB);
@@ -179,11 +196,28 @@ public:
 
 		cmd.DrawIndexed(6);
 		m_DeferredPipeline->Unbind();
-
-		currentcamera->RenderSkyBox(cmd);
-
 	}
 	const char* GetName() const override { return "DeferredLight"; };
+
+	void ValidateShaderLayout() const
+	{
+		if (!m_DeferredLightShader)
+			return;
+
+		const ShaderReflection& reflection = m_DeferredLightShader->GetReflection();
+		if (const ShaderBlock* ubo = reflection.FindUniformBlock(0); ubo && ubo->Size != sizeof(DeferredLightDrawUBO))
+		{
+			Error_Core("[{} Pass]: DeferredLightDrawUBO is {} bytes but shader block '{}' is {} bytes",
+				GetName(), sizeof(DeferredLightDrawUBO), ubo->Name, ubo->Size);
+		}
+
+		const ShaderBlock* ssbo = reflection.FindStorageBlock(1);
+		if (ssbo && !ssbo->Members.empty() && ssbo->Members[0].ArrayStride != sizeof(GPULight))
+		{
+			Error_Core("[{} Pass]: GPULight is {} bytes but shader array '{}' has stride {}",
+				GetName(), sizeof(GPULight), ssbo->Members[0].Name, ssbo->Members[0].ArrayStride);
+		}
+	}
 	void SetViewportSize(uint32_t width, uint32_t height)
 	{
 		m_Width = width;
@@ -227,12 +261,11 @@ public:
 		glm::vec4 ViewPos;
 		glm::vec2 ViewportSize;
 		glm::vec2 ShadowMapSize;
-		glm::vec4 LightDir;
-		glm::vec4 LightColor;
 		float Near;
 		float Far;
 		float LightCount;
 		float pad;
+		glm::vec4 Ambient;
 	};
 
 	struct GPULight

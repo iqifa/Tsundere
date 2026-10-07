@@ -196,7 +196,7 @@ public:
 
 		// Probe debug visualization
 		bool ShowProbes = false;
-		void RenderProbeDebug(mat4 view, mat4 proj)
+		void RenderProbeDebug(glm::mat4 view, glm::mat4 proj)
 		{
 			if (!ShowProbes || m_TotalProbes == 0) return;
 			if (!m_ProbeVisShader)
@@ -204,7 +204,7 @@ public:
 			if (!m_ProbeVisPipeline)
 				BuildProbeVisGeometry();
 
-			mat4 vp = proj * view;
+			glm::mat4 vp = proj * view;
 			auto cmd = RHIRenderer::GetCmd();
 			m_ProbeVisShader->Bind();
 			cmd->SetDepthTest(false);
@@ -217,7 +217,7 @@ public:
 			for (int i = 0; i < m_TotalProbes; i++)
 			{
 				glm::vec3 pos = DDGI::ProbeWorldPos(GridSize, GridOrigin, Spacing, m_ScrollOffset, i);
-				mat4 model = glm::translate(glm::mat4(1.0f), pos);
+				glm::mat4 model = glm::translate(glm::mat4(1.0f), pos);
 				m_ProbeVisShader->SetUniformMat4f("u_MVP", vp * model);
 				cmd->Draw(1);
 			}

@@ -74,9 +74,38 @@ public:
 		m_Depth = builder.CreateTexture("Depth", depthDesc);
 
 		// 3. 声明渲染目标（内部会注册 Write 依赖）
-		builder.SetColorOutput(0, m_SceneColor, RGLoadOp::Clear, { 0.0f, 0.0f, 0.0f, 1.0f });
-		builder.SetColorOutput(1, m_Velocity, RGLoadOp::Clear, { 0.0f, 0.0f, 0.0f, 0.0f });
-		builder.SetDepthOutput(m_Depth, RGLoadOp::Clear, 1.0f);
+		// MSAA 时渲染到多重采样附件，pass 结束时 resolve 到上面的单采样纹理，下游 pass 不受影响。
+		if (m_SampleCount > 1)
+		{
+			RDGTextureDesc colorMSDesc = colorDesc;
+			colorMSDesc.sampleCount = m_SampleCount;
+			colorMSDesc.usage = TextureUsage::ColorAttachment;
+
+			RDGTextureDesc velocityMSDesc = colorMSDesc;
+			velocityMSDesc.format = Format::RG16F;
+
+			RDGTextureDesc depthMSDesc = depthDesc;
+			depthMSDesc.sampleCount = m_SampleCount;
+			depthMSDesc.usage = TextureUsage::DepthStencil;
+
+			RGTextureHandle sceneColorMS = builder.CreateTexture("SceneColorMS", colorMSDesc);
+			RGTextureHandle velocityMS = builder.CreateTexture("VelocityMS", velocityMSDesc);
+			RGTextureHandle depthMS = builder.CreateTexture("DepthMS", depthMSDesc);
+
+			builder.SetColorOutput(0, sceneColorMS, RGLoadOp::Clear, { 0.0f, 0.0f, 0.0f, 1.0f });
+			builder.SetColorOutput(1, velocityMS, RGLoadOp::Clear, { 0.0f, 0.0f, 0.0f, 0.0f });
+			builder.SetDepthOutput(depthMS, RGLoadOp::Clear, 1.0f);
+
+			builder.SetColorResolve(0, m_SceneColor);
+			builder.SetColorResolve(1, m_Velocity);
+			builder.SetDepthResolve(m_Depth);
+		}
+		else
+		{
+			builder.SetColorOutput(0, m_SceneColor, RGLoadOp::Clear, { 0.0f, 0.0f, 0.0f, 1.0f });
+			builder.SetColorOutput(1, m_Velocity, RGLoadOp::Clear, { 0.0f, 0.0f, 0.0f, 0.0f });
+			builder.SetDepthOutput(m_Depth, RGLoadOp::Clear, 1.0f);
+		}
 
 		// 这些资源会在图执行结束后被 ExampleLayer 读取并显示。
 		builder.Export(m_SceneColor);
@@ -132,22 +161,24 @@ public:
 		cmd.SetDepthFunc(CompareOp::Less);
 
 		// 3. 获取相机矩阵
-		mat4 view = currentcamera->GetViewFront();
-		mat4 proj = currentcamera->GetProj();
-		mat4 currentViewProj = proj * view;
+		glm::mat4 view = currentcamera->GetViewFront();
+		glm::mat4 proj = currentcamera->GetProj();
+		glm::mat4 currentViewProj = proj * view;
 
 		if (EnableJitter)
 			proj = Jittering(proj, (float)m_Width, (float)m_Height);
 
 		// 4. 获取光照信息
-		vec3 lightDir = vec3(-0.5f, -1.0f, -0.5f);
-		vec3 lightColor = vec3(1.0f);
+		glm::vec3 lightDir = glm::vec3(-0.5f, -1.0f, -0.5f);
+		glm::vec3 lightColor = glm::vec3(1.0f);
 		float ambientStrength = 0.1f;
-		vec3 viewPos = currentcamera->getpos();
+		glm::vec3 viewPos = currentcamera->getpos();
 
-		for (auto entityID : m_Scene->m_Registry.view<Component::DirectionalLight>())
+		for (auto entityID : m_Scene->m_Registry.view<Component::Light>())
 		{
-			auto& dl = m_Scene->m_Registry.get<Component::DirectionalLight>(entityID);
+			auto& dl = m_Scene->m_Registry.get<Component::Light>(entityID);
+			if (dl.type != Component::Light::LightType::Directional)
+				continue;
 			lightDir = dl.Direction;
 			lightColor = dl.Color * dl.Intensity;
 			ambientStrength = dl.Ambient;
@@ -200,7 +231,7 @@ public:
 			if (!model || model->meshes.empty())
 				continue;
 
-			mat4 modelMat = transform.GetTransform();
+			glm::mat4 modelMat = transform.GetTransform();
 
 			for (size_t i = 0; i < model->meshes.size(); i++)
 			{
@@ -249,6 +280,17 @@ public:
 		m_Width = width;
 		m_Height = height;
 	}
+
+	// 1 = 关闭 MSAA；支持 2/4/8。sample count 会烘焙进 pipeline，修改后需要重建 RenderGraph。
+	void SetSampleCount(uint32_t samples)
+	{
+		if (samples == m_SampleCount)
+			return;
+		m_SampleCount = samples;
+		m_CubePipeline.reset();
+		m_ScenePipeline.reset();
+	}
+	uint32_t GetSampleCount() const { return m_SampleCount; }
 
 private:
 	// UBO 结构（和原 GeometryPass 一致）
@@ -370,9 +412,9 @@ private:
 
 	void DrawFallbackCube(
 		RHICommandBuffer& cmd,
-		const mat4& proj,
-		const mat4& view,
-		const mat4& currentViewProj,
+		const glm::mat4& proj,
+		const glm::mat4& view,
+		const glm::mat4& currentViewProj,
 		RHITexture2D* shadowTex)
 	{
 		m_LitShader->Bind();
@@ -380,8 +422,8 @@ private:
 		m_DefaultTex->Bind(11);
 		m_DefaultTex->Bind(12);
 
-		mat4 model = scale(mat4(1.0f), vec3(1.0f, 2.0f, 1.0f));
-		mat4 mvp = proj * view * model;
+		glm::mat4 model = scale(glm::mat4(1.0f), glm::vec3(1.0f, 2.0f, 1.0f));
+		glm::mat4 mvp = proj * view * model;
 
 		GeometryDrawUBO dubo;
 		dubo.MVP_matrix = mvp;
@@ -403,9 +445,9 @@ private:
 		cmd.BindDescriptorSet(m_GeometryDescriptorSet, 0, &dynamicOffset, 1);
 		cmd.DrawIndexed(36);
 		// Floor
-		mat4 floorModel = translate(mat4(1.0f), vec3(0.0f, -2.0f, 0.0f));
-		floorModel = scale(floorModel, vec3(10.0f, 0.05f, 10.0f));
-		mat4 floorMVP = proj * view * floorModel;
+		glm::mat4 floorModel = translate(glm::mat4(1.0f), glm::vec3(0.0f, -2.0f, 0.0f));
+		floorModel = scale(floorModel, glm::vec3(10.0f, 0.05f, 10.0f));
+		glm::mat4 floorMVP = proj * view * floorModel;
 		dubo.MVP_matrix = floorMVP;
 		dubo.model = floorModel;
 		dubo.prevModel = floorModel;
@@ -421,22 +463,22 @@ private:
 		m_CubePipeline->Unbind();
 	}
 
-	mat4 Jittering(const mat4& originalProj, float width, float height)
+	glm::mat4 Jittering(const glm::mat4& originalProj, float width, float height)
 	{
 		int jitterIndex = m_FrameCount % 16;
-		vec2 currentJitter = GetHaltonJitter(jitterIndex);
+		glm::vec2 currentJitter = GetHaltonJitter(jitterIndex);
 
 		float deltaX = currentJitter.x * 2.0f / width;
 		float deltaY = currentJitter.y * 2.0f / height;
 
-		mat4 jitteredProjMatrix = originalProj;
+		glm::mat4 jitteredProjMatrix = originalProj;
 		jitteredProjMatrix[2][0] += deltaX;
 		jitteredProjMatrix[2][1] += deltaY;
 
 		return jitteredProjMatrix;
 	}
 
-	vec2 GetHaltonJitter(int index)
+	glm::vec2 GetHaltonJitter(int index)
 	{
 		auto halton = [](int index, int base) -> float {
 			float f = 1.0f;
@@ -450,7 +492,7 @@ private:
 			return r;
 		};
 
-		return vec2(halton(index + 1, 2) - 0.5f, halton(index + 1, 3) - 0.5f);
+		return glm::vec2(halton(index + 1, 2) - 0.5f, halton(index + 1, 3) - 0.5f);
 	}
 
 	Ref<Scene> m_Scene;
@@ -476,8 +518,9 @@ private:
 
 	uint32_t m_Width = 1920;
 	uint32_t m_Height = 1080;
+	uint32_t m_SampleCount = 4;
 	int m_FrameCount = 0;
-	mat4 m_PrevViewProjMatrix = mat4(1.0f);
+	glm::mat4 m_PrevViewProjMatrix = glm::mat4(1.0f);
 };
 
 // 自动注册到 RenderPassRegistry

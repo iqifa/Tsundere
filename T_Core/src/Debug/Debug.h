@@ -7,7 +7,6 @@
 
 #include"spdlog/spdlog.h"
 #include"spdlog/sinks/ansicolor_sink.h"
-using namespace glm;
 #ifndef DEBUG
 
 #define DEBUG
