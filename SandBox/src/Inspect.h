@@ -15,4 +15,7 @@ public:
 	void OnUpdate() override;
 	void OnImGuiRender() override;
 	void OnEvent(Eventing::Event<>& event) override;
+
+	void DrawEntityNode(Entity entity);
+
 };

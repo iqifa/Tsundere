@@ -15,6 +15,8 @@ void main()
 #shader fragment
 #version 430 core
 
+#include "include/Lighting.glsl"
+
 layout(location = 0) in vec2 v_TexCoord;
 
 layout(location = 0) out vec4 o_Color;
@@ -25,67 +27,53 @@ layout(binding = 12) uniform sampler2D u_GBufferSpecular;
 layout(binding = 13) uniform sampler2D u_Depth;
 // layout(binding = 14) uniform samplerCube u_Skybox;
 
-
-
 layout(std140, binding = 0) uniform PerPass_DeferredLighting
 {
-    mat4  u_InvViewProjNoTrans;     
-    mat4  u_View;               
-    vec4  u_ViewPos;                
-    vec2  u_ViewportSize;           
-    vec2  u_ShadowMapSize;       
-    vec4  u_LightDir;               // offset 192 (vec3 → vec4)
-    vec4  u_LightColor;             // offset 208 (vec3 → vec4)
-    float u_Near;                   // offset 260
-    float u_Far;                    // offset 264   
-    float u_LightCounts;
+    mat4  u_InvViewProjNoTrans;     // offset 0
+    mat4  u_View;                   // offset 64
+    vec4  u_ViewPos;                // offset 128
+    vec2  u_ViewportSize;           // offset 144
+    vec2  u_ShadowMapSize;          // offset 152
+    float u_Near;                   // offset 160
+    float u_Far;                    // offset 164
+    float u_LightCounts;            // offset 168
+    vec4  u_Ambient;                // offset 176 (rgb = ambient radiance)
 };
-struct Light
-{
-    vec4 positionRadius;
-    vec4 directionType;
-    vec4 colorIntensity;
-    vec4 params;
-};
+
 layout(std430, binding = 1) readonly buffer LightBuffer
 {
     Light lights[];
 };
 
-
 void main(){
     float depth = texture(u_Depth, v_TexCoord).r;
+    if (depth >= 1.0)
+        discard;
 
     vec4 clipPos = vec4(v_TexCoord * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
     vec4 worldPos = u_InvViewProjNoTrans * clipPos;
     worldPos /= worldPos.w;
-    // if (depth >= 1.0)
-    // {
-    //     o_Color = vec4(0.0, 0.0, 0.0, 1.0);
-    //     return;
-    // }
-    vec3 lightCol = lights[0].colorIntensity.rgb;
-    vec3 normal     = normalize(texture(u_GBufferNormal, v_TexCoord).rgb);
-    vec4 albedo     = texture(u_GBufferAlbedo, v_TexCoord);
-    vec4 specData   = texture(u_GBufferSpecular, v_TexCoord);
 
-    vec3 lightDirection = normalize(-u_LightDir.xyz);
-    vec3 viewDirection  = normalize(u_ViewPos - worldPos).xyz;
+    vec4 albedo   = texture(u_GBufferAlbedo, v_TexCoord);
+    vec4 specData = texture(u_GBufferSpecular, v_TexCoord);
 
+    Surface surf;
+    surf.P             = worldPos.xyz;
+    surf.N             = normalize(texture(u_GBufferNormal, v_TexCoord).rgb);
+    surf.V             = normalize(u_ViewPos.xyz - worldPos.xyz);
+    surf.diffuseColor  = albedo.rgb;
+    surf.specularColor = specData.rgb;
+    surf.shininess     = specData.a * 255.0;
 
-    vec3 diffuseColor   = albedo.rgb;
-    vec3 specularColor  = specData.rgb;
-    float shininess     = specData.a * 255.0;
+    vec3 result = vec3(0.0);
+    int count = int(u_LightCounts + 0.5);
+    for (int i = 0; i < count; ++i)
+    {
+        LightSample ls;
+        if (SampleLight(lights[i], surf, ls))
+            result += ShadeBRDF(surf, ls);
+    }
+    result += EvaluateAmbient(surf, u_Ambient.rgb);
 
-
-    float diff = max(dot(normal, lightDirection), 0.0);
-    diff = diff * 0.5 + 0.5;
-    vec3 diffuse = diff * u_LightColor.xyz * diffuseColor;
-
-    // Specular (Blinn-Phong, matches Lit.shader)
-    vec3 halfwayDir = normalize(lightDirection + viewDirection);
-    float spec = pow(max(dot(normal, halfwayDir), 0.0), shininess);
-    vec3 specular = spec * u_LightColor.xyz * specularColor;
-    o_Color = vec4(diffuse + specular + lightCol * 0.00001, 1.0);
-    o_Color = vec4(specData.rgb, 1.0);
+    o_Color = vec4(result, 1.0);
 }

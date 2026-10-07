@@ -113,22 +113,6 @@ namespace Component
 		std::vector<Ref<Material>> materials;
 	};
 
-	struct DirectionalLight
-	{
-		vec3 Direction = { -0.5f, -1.0f, -0.5f };
-		vec3 Color = { 1.0f, 1.0f, 1.0f };
-		float Intensity = 1.0f;
-		float Ambient = 0.1f;
-	};
-
-	struct PointLight
-	{
-		vec3 Color = { 1.0f, 1.0f, 1.0f };
-		float Intensity = 1.0f;
-		float Radius = 5.0f;
-		float Falloff = 1.0f;
-	};
-
 	struct Light {
 		enum class LightType : uint8_t {
 			Directional = 0,
@@ -147,30 +131,50 @@ namespace Component
 		float Ambient = 0.1f;
 
 
+		// Only one union member may carry a default initializer; otherwise the
+		// union's default constructor is deleted and AddComponent<Light>() fails.
 		union {
 			struct {
-				float Radius = 5.0f;
-				float Falloff = 1.0f;
-				float _unpad[2] = { 0.0f, 0.0f }; // Padding to align the struct to 16 bytes
-			} Attenuation;;
+				float Radius;
+				float Falloff;
+				float _unpad[2];
+			} Attenuation;
 
 			struct {
-				float Radius = 5.0f;
-				float Falloff = 1.0f;
-				float InnerAngle = 15.0f;
-				float OuterAngle = 30.0f;
+				float Radius;
+				float Falloff;
+				float InnerAngle;   // degrees
+				float OuterAngle;   // degrees
 			}Spot;
 			struct {
-				float Width = 1.0f;
-				float Height = 1.0f;
-				uint32_t Shape = 0; // 0: Rectangle, 1: Disk
+				float Width;
+				float Height;
+				uint32_t Shape; // 0: Rectangle, 1: Disk
 				float _unpad;
 			}Area;
 
-			float Data[4];
+			float Data[4] = { 5.0f, 1.0f, 15.0f, 30.0f };
 		}Params;
+
+		void ResetParams()
+		{
+			switch (type)
+			{
+			case LightType::Point:
+				Params.Attenuation = { 5.0f, 1.0f, { 0.0f, 0.0f } };
+				break;
+			case LightType::Spot:
+				Params.Spot = { 5.0f, 1.0f, 15.0f, 30.0f };
+				break;
+			case LightType::Area:
+				Params.Area = { 1.0f, 1.0f, 0u, 0.0f };
+				break;
+			default:
+				Params.Data[0] = Params.Data[1] = Params.Data[2] = Params.Data[3] = 0.0f;
+				break;
+			}
+		}
 	};
 }
 
 #endif // !COMPONENT
-
