@@ -29,6 +29,7 @@ struct SkyBox
     std::vector<std::string> texpaths;
     Ref<RHITextureCube> m_Cmp;
     Ref<RHIShader> m_Shader;
+    Ref<RHIShader> m_ColorOnlyShader;
     Ref<RHIPipeline> m_Pipeline;
     Ref<RHIBuffer> m_VertexBuffer;
     Ref<RHIBuffer> m_MatrixUBO;
@@ -56,6 +57,7 @@ struct SkyBox
         m_Cmp = RHITextureCube::Create({ 0, Format::RGBA8_UNORM, texpaths,
                                          FilterMode::Linear, FilterMode::Linear });
         m_Shader = RHIShader::Create("D:/Code/C++/Tsundere/res/shaders/SkyBox.shader");
+        m_ColorOnlyShader = RHIShader::Create("D:/Code/C++/Tsundere/res/shaders/SkyBoxColor.shader");
         m_VertexBuffer = RHIBuffer::Create({
             static_cast<uint32_t>(sizeof(skyboxVertices)), BufferUsage::Vertex,
             false, skyboxVertices });
@@ -67,9 +69,11 @@ struct SkyBox
         m_DescriptorSet->BindCubeMap(10, m_Cmp, 10);
     }
 
-    bool InitializePipeline(RenderGraphBuilder& builder)
+    // writeVelocity must match the pass layout: SkyBox.shader writes MotionVector to color slot 1.
+    bool InitializePipeline(RenderGraphBuilder& builder, bool writeVelocity = true)
     {
-        if (!m_Shader || !m_VertexBuffer || !m_DescriptorSet)
+        Ref<RHIShader> shader = writeVelocity ? m_Shader : m_ColorOnlyShader;
+        if (!shader || !m_VertexBuffer || !m_DescriptorSet)
             return false;
 
         VertexLayout layout;
@@ -77,7 +81,7 @@ struct SkyBox
         layout.attributes = { { 0, VertexFormat::Float3, 0, 0 } };
 
         PipelineDesc desc;
-        desc.shader = m_Shader;
+        desc.shader = shader;
         desc.vertexLayout = layout;
         desc.cullMode = CullMode::None;
         desc.depthTest = true;
@@ -85,7 +89,7 @@ struct SkyBox
         desc.depthOp = CompareOp::LessEqual;
         desc.descriptorSets = { m_DescriptorSet };
 
-        m_Pipeline = builder.CreatePipeline(m_Shader, layout, &desc);
+        m_Pipeline = builder.CreatePipeline(shader, layout, &desc);
         if (m_Pipeline)
             m_Pipeline->SetupVertexFormat(m_VertexBuffer);
         return m_Pipeline != nullptr;
