@@ -1,6 +1,6 @@
 #include "GLShader.h"
 #include"Debug/Debug.h"
-#include"Platform/ShaderParser.h"
+#include"Platform/ShaderCompiler.h"
 #include<shared_mutex>
 using namespace std;
 
@@ -10,26 +10,7 @@ using namespace std;
 
 GLShader::GLShader(const string& filepath, const string& name) :m_FilePath(filepath), m_RendererID(0), m_Name(name)
 {
-	ParsedShader parsed = ParseShaderFile(filepath);
-	uniform = std::move(parsed.uniforms);
-
-	auto& sources = parsed.sources;
-	auto itComp = sources.find(ShaderStage::Compute);
-	if (itComp != sources.end())
-	{
-		m_RendererID = CreateComputeShader(itComp->second);
-	}
-	else
-	{
-		auto itVert = sources.find(ShaderStage::Vertex);
-		auto itFrag = sources.find(ShaderStage::Fragment);
-		string vertSrc = (itVert != sources.end()) ? itVert->second : "";
-		string fragSrc = (itFrag != sources.end()) ? itFrag->second : "";
-		if (!vertSrc.empty() || !fragSrc.empty())
-			m_RendererID = CreateShader(vertSrc, fragSrc);
-	}
-
-	cout << "\033[1;32mSuccessful Parse Shader:" + m_Name + "!\033[0m" << endl;
+	Build(filepath);
 }
 
 GLShader::GLShader(const string& filepath) :m_FilePath(filepath), m_RendererID(0)
@@ -41,10 +22,22 @@ GLShader::GLShader(const string& filepath) :m_FilePath(filepath), m_RendererID(0
 	auto count = LastDot - LastSlash;
 	m_Name = filepath.substr(LastSlash, count);
 
-	ParsedShader parsed = ParseShaderFile(filepath);
-	uniform = std::move(parsed.uniforms);
+	Build(filepath);
+}
 
-	auto& sources = parsed.sources;
+void GLShader::Build(const string& filepath)
+{
+	CompiledShader compiled = CompileShaderFile(filepath, ShaderTarget::OpenGL);
+	if (!compiled.Success)
+	{
+		Error_Core("[{}]: shader build failed", m_Name);
+		return;
+	}
+
+	uniform = std::move(compiled.Uniforms);
+	m_Reflection = std::move(compiled.Reflection);
+
+	auto& sources = compiled.Glsl;
 	auto itComp = sources.find(ShaderStage::Compute);
 	if (itComp != sources.end())
 	{
@@ -105,6 +98,20 @@ unsigned int  GLShader::CompileShader(unsigned int type, const string& source)
 	return id;
 }
 
+void GLShader::CheckLinkStatus(unsigned int program) const
+{
+	int linked = GL_FALSE;
+	glGetProgramiv(program, GL_LINK_STATUS, &linked);
+	if (linked == GL_TRUE)
+		return;
+
+	int length = 0;
+	glGetProgramiv(program, GL_INFO_LOG_LENGTH, &length);
+	string log(length > 0 ? length : 1, '\0');
+	glGetProgramInfoLog(program, length, &length, log.data());
+	Error_Core("Failed to link [{}]: {}", m_Name, log);
+}
+
 Ref<GLShader> GLShader::Create(const string& filepath, const string& name)
 {
 	return CreateRef<GLShader>(filepath, name);
@@ -124,6 +131,7 @@ unsigned int GLShader::CreateShader(const string& vertexShader, const string& fr
 	glAttachShader(program, vs);
 	glAttachShader(program, fs);
 	glLinkProgram(program);
+	CheckLinkStatus(program);
 	glValidateProgram(program);
 
 	glDeleteShader(vs);
@@ -141,6 +149,7 @@ unsigned int GLShader::CreateComputeShader(const string& computeSource)
 	unsigned int program = glCreateProgram();
 	glAttachShader(program, cs);
 	glLinkProgram(program);
+	CheckLinkStatus(program);
 	glValidateProgram(program);
 
 	glDeleteShader(cs);
@@ -173,16 +182,16 @@ void GLShader::SetUniform1i(const string& name, int value)const
 	glUniform1i(GetUniformLocation(name), value);
 }
 
-void GLShader::SetUniformMat4f(const string& name, const mat4& mat4)const
+void GLShader::SetUniformMat4f(const string& name, const glm::mat4& mat4)const
 {
 	glUniformMatrix4fv(GetUniformLocation(name), 1, false, &mat4[0][0]);
 }
 
-void GLShader::SetUniformVec3(const string& name, const vec3& value) const
+void GLShader::SetUniformVec3(const string& name, const glm::vec3& value) const
 {
 	glUniform3fv(GetUniformLocation(name), 1, &value[0]);
 }
-void GLShader::SetUniformVec2(const string& name, const vec2& value) const
+void GLShader::SetUniformVec2(const string& name, const glm::vec2& value) const
 {
 	glUniform2fv(GetUniformLocation(name), 1, &value[0]);
 }

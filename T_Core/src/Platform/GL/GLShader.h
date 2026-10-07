@@ -5,7 +5,6 @@
 #include"Core/Core.h"
 #include"Platform/RHI/RHIShader.h"
 #include<shared_mutex>
-using namespace glm;
 
 // Uniform struct is now defined in RHIShader.h (shared RHI type).
 
@@ -16,6 +15,7 @@ private:
 	unsigned int m_RendererID;
 	std::string m_FilePath;
 	mutable std::unordered_map<std::string, int> m_UniformLocationCache;
+	ShaderReflection m_Reflection;
 public:
 	std::vector<Uniform> uniform;   // kept public for backward compat; GetUniforms() returns this
 public:
@@ -34,6 +34,7 @@ public:
 	const std::string& GetPath() const override { return m_FilePath; }
 	uint32_t GetID() const override { return m_RendererID; }
 	const std::vector<Uniform>& GetUniforms() const override { return uniform; }
+	const ShaderReflection& GetReflection() const override { return m_Reflection; }
 
 	// Uniform setters
 	void SetUniform4f(const std::string& name, float v0, float v1, float v2, float v3) const override;
@@ -49,9 +50,11 @@ public:
 	static Ref<GLShader>CreateCompute(const std::string& filepath);
 
 private:
+	void Build(const std::string& filepath);
 	unsigned int CompileShader(unsigned int type, const std::string& source);
 	unsigned int CreateShader(const std::string& vertexShader, const std::string& fragmentShader);
 	unsigned int CreateComputeShader(const std::string& computeSource);
+	void CheckLinkStatus(unsigned int program) const;
 	int GetUniformLocation(const std::string& name)const;
 };
 

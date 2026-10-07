@@ -13,6 +13,7 @@ private:
 	std::string m_Name;
 	std::string m_FilePath;
 	std::vector<Uniform> uniform;
+	ShaderReflection m_Reflection;
 
 	unsigned int m_HandleID;
 
@@ -30,6 +31,7 @@ public:
 
 	uint32_t GetID() const override { return m_HandleID; }
 	const std::vector<Uniform>& GetUniforms() const override { return uniform; }
+	const ShaderReflection& GetReflection() const override { return m_Reflection; }
 
 	void SetUniform4f(const std::string& name, float v0, float v1, float v2, float v3) const override;
 	void SetUniform1f(const std::string& name, float value) const override;
@@ -48,9 +50,8 @@ public:
 	const std::string& GetPath() const override { return m_FilePath; }
 
 private:
-	VkShaderModule CompileShader(unsigned int type, const std::string& source);
-	//VkShaderModule CreateShader(const std::string& vertexShader, const std::string& fragmentShader);
-	//VkShaderModule CreateComputeShader(const std::string& computeSource);
+	void Build(const std::string& filepath);
+	VkShaderModule CreateShaderModule(const std::vector<uint32_t>& spirv);
 
 
 	VkShaderModule vertexShader = 0;

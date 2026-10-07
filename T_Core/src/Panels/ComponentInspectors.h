@@ -55,92 +55,133 @@ inline void RenderTransformInspector(Entity& entity)
 	}
 }
 
-inline void RenderDirectionalLightInspector(Entity& entity)
+inline void RenderLightInspector(Entity& entity)
 {
-	ImGui::PushID("##DirLight");
+	ImGui::PushID("##Light");
 
-	bool open = ImGui::CollapsingHeader("DirectionalLight",
+	bool open = ImGui::CollapsingHeader("Light",
 		ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_AllowItemOverlap);
 
 	float btnW = ImGui::CalcTextSize("-").x + ImGui::GetStyle().FramePadding.x * 2;
 	ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - btnW);
 	if (ImGui::SmallButton("-"))
 	{
-		entity.RemoveComponent<DirectionalLight>();
+		entity.RemoveComponent<Light>();
 		ImGui::PopID();
 		return;
 	}
 
 	if (open)
 	{
-		auto& dl = entity.GetComponent<DirectionalLight>();
+		using LightType = Light::LightType;
+		auto& light = entity.GetComponent<Light>();
+
 		ImGui::Columns(2);
 		ImGui::SetColumnWidth(0, 100.0f);
 
+		static const char* s_TypeNames[] = { "Directional", "Point", "Spot", "Area" };
+		int typeIdx = static_cast<int>(light.type);
+		ImGui::Text("Type");
+		ImGui::NextColumn();
+		if (ImGui::Combo("##lType", &typeIdx, s_TypeNames, IM_ARRAYSIZE(s_TypeNames)))
+		{
+			light.type = static_cast<LightType>(typeIdx);
+			light.ResetParams();
+		}
+		ImGui::NextColumn();
+
 		ImGui::Text("Color");
 		ImGui::NextColumn();
-		ImGui::ColorEdit3("##dlColor", &dl.Color[0]);
+		ImGui::ColorEdit3("##lColor", &light.Color[0]);
 		ImGui::NextColumn();
 
 		ImGui::Text("Intensity");
 		ImGui::NextColumn();
-		ImGui::DragFloat("##dlIntensity", &dl.Intensity, 0.05f, 0.0f, 100.0f);
+		ImGui::DragFloat("##lIntensity", &light.Intensity, 0.05f, 0.0f, 200.0f);
 		ImGui::NextColumn();
 
-		ImGui::Text("Ambient");
-		ImGui::NextColumn();
-		ImGui::DragFloat("##dlAmbient", &dl.Ambient, 0.01f, 0.0f, 1.0f);
-		ImGui::NextColumn();
+		if (light.type != LightType::Point)
+		{
+			ImGui::Text("Direction");
+			ImGui::NextColumn();
+			ImGui::DragFloat3("##lDirection", &light.Direction[0], 0.05f);
+			ImGui::NextColumn();
+		}
 
-		ImGui::Text("Direction");
-		ImGui::NextColumn();
-		ImGui::DragFloat3("##dlDirection", &dl.Direction[0], 0.05f);
-		ImGui::Columns(1);
-	}
+		switch (light.type)
+		{
+		case LightType::Directional:
+			ImGui::Text("Ambient");
+			ImGui::NextColumn();
+			ImGui::DragFloat("##lAmbient", &light.Ambient, 0.01f, 0.0f, 1.0f);
+			ImGui::NextColumn();
+			break;
 
-	ImGui::PopID();
-}
+		case LightType::Point:
+			ImGui::Text("Radius");
+			ImGui::NextColumn();
+			ImGui::DragFloat("##lRadius", &light.Params.Attenuation.Radius, 0.05f, 0.0f, 100.0f);
+			ImGui::NextColumn();
 
-inline void RenderPointLightInspector(Entity& entity)
-{
-	ImGui::PushID("##PointLight");
+			ImGui::Text("Falloff");
+			ImGui::NextColumn();
+			ImGui::DragFloat("##lFalloff", &light.Params.Attenuation.Falloff, 0.05f, 0.1f, 8.0f);
+			ImGui::NextColumn();
+			break;
 
-	bool open = ImGui::CollapsingHeader("PointLight",
-		ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_AllowItemOverlap);
+		case LightType::Spot:
+		{
+			auto& spot = light.Params.Spot;
+			ImGui::Text("Radius");
+			ImGui::NextColumn();
+			ImGui::DragFloat("##lRadius", &spot.Radius, 0.05f, 0.0f, 100.0f);
+			ImGui::NextColumn();
 
-	float btnW = ImGui::CalcTextSize("-").x + ImGui::GetStyle().FramePadding.x * 2;
-	ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - btnW);
-	if (ImGui::SmallButton("-"))
-	{
-		entity.RemoveComponent<PointLight>();
-		ImGui::PopID();
-		return;
-	}
+			ImGui::Text("Falloff");
+			ImGui::NextColumn();
+			ImGui::DragFloat("##lFalloff", &spot.Falloff, 0.05f, 0.1f, 8.0f);
+			ImGui::NextColumn();
 
-	if (open)
-	{
-		auto& pl = entity.GetComponent<PointLight>();
-		ImGui::Columns(2);
-		ImGui::SetColumnWidth(0, 100.0f);
+			ImGui::Text("Inner Angle");
+			ImGui::NextColumn();
+			ImGui::DragFloat("##lInner", &spot.InnerAngle, 0.1f, 0.0f, spot.OuterAngle);
+			ImGui::NextColumn();
 
-		ImGui::Text("Color");
-		ImGui::NextColumn();
-		ImGui::ColorEdit3("##plColor", &pl.Color[0]);
-		ImGui::NextColumn();
+			ImGui::Text("Outer Angle");
+			ImGui::NextColumn();
+			ImGui::DragFloat("##lOuter", &spot.OuterAngle, 0.1f, spot.InnerAngle, 89.0f);
+			ImGui::NextColumn();
+			break;
+		}
 
-		ImGui::Text("Intensity");
-		ImGui::NextColumn();
-		ImGui::DragFloat("##plIntensity", &pl.Intensity, 0.05f, 0.0f, 200.0f);
-		ImGui::NextColumn();
+		case LightType::Area:
+		{
+			auto& area = light.Params.Area;
+			static const char* s_ShapeNames[] = { "Rectangle", "Disk" };
+			int shape = static_cast<int>(area.Shape);
+			ImGui::Text("Shape");
+			ImGui::NextColumn();
+			if (ImGui::Combo("##lShape", &shape, s_ShapeNames, IM_ARRAYSIZE(s_ShapeNames)))
+				area.Shape = static_cast<uint32_t>(shape);
+			ImGui::NextColumn();
 
-		ImGui::Text("Radius");
-		ImGui::NextColumn();
-		ImGui::DragFloat("##plRadius", &pl.Radius, 0.05f, 0.0f, 100.0f);
-		ImGui::NextColumn();
+			const bool isDisk = area.Shape == 1;
+			ImGui::Text(isDisk ? "Diameter" : "Width");
+			ImGui::NextColumn();
+			ImGui::DragFloat("##lWidth", &area.Width, 0.05f, 0.01f, 100.0f);
+			ImGui::NextColumn();
 
-		ImGui::Text("Falloff");
-		ImGui::NextColumn();
-		ImGui::DragFloat("##plFalloff", &pl.Falloff, 0.05f, 0.1f, 8.0f);
+			if (!isDisk)
+			{
+				ImGui::Text("Height");
+				ImGui::NextColumn();
+				ImGui::DragFloat("##lHeight", &area.Height, 0.05f, 0.01f, 100.0f);
+				ImGui::NextColumn();
+			}
+			break;
+		}
+		}
+
 		ImGui::Columns(1);
 	}
 
@@ -483,20 +524,12 @@ inline void RenderMaterialInspector(Entity& entity)
 // Add component functions
 // ============================================================================
 
-inline void AddDirectionalLightComponent(Entity& entity)
+inline void AddLightComponent(Entity& entity)
 {
-	if (!entity.HasComponent<DirectionalLight>())
-		entity.AddComponent<DirectionalLight>();
+	if (!entity.HasComponent<Light>())
+		entity.AddComponent<Light>();
 	else
-		Warn_Core("Component DirectionalLight already exists");
-}
-
-inline void AddPointLightComponent(Entity& entity)
-{
-	if (!entity.HasComponent<PointLight>())
-		entity.AddComponent<PointLight>();
-	else
-		Warn_Core("Component PointLight already exists");
+		Warn_Core("Component Light already exists");
 }
 
 inline void AddMeshRenderComponent(Entity& entity)
@@ -564,15 +597,9 @@ inline const auto s_RegMeta_Transform = []() {
 	return 0;
 }();
 
-inline const auto s_RegMeta_DirectionalLight = []() {
-	ComponentRegistrar::Register<DirectionalLight>("DirectionalLight",
-		RenderDirectionalLightInspector, AddDirectionalLightComponent);
-	return 0;
-}();
-
-inline const auto s_RegMeta_PointLight = []() {
-	ComponentRegistrar::Register<PointLight>("PointLight",
-		RenderPointLightInspector, AddPointLightComponent);
+inline const auto s_RegMeta_Light = []() {
+	ComponentRegistrar::Register<Light>("Light",
+		RenderLightInspector, AddLightComponent);
 	return 0;
 }();
 

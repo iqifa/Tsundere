@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RHITypes.h"
+#include "RHIShaderReflection.h"
 #include "Core/Core.h"
 #include "HeadLine.h"
 #include <glm/glm.hpp>
@@ -8,24 +9,19 @@
 #include <vector>
 #include <shared_mutex>
 
-// Uniform metadata — parsed from shader source, drives the Material editor
-// and the per-pass UBO builder.
-//
-// Binding rules (resolved at parse time, see ShaderParser.cpp):
-//   - Default: every uniform is a member of the per-pass UBO at binding=0
-//     (descriptor set 0, binding 0). GLShader auto-injects a std140 UBO
-//     block wrapping all loose uniforms before compile, so .shader files
-//     keep writing `uniform mat4 foo;` with no extra boilerplate.
-//   - `// @binding <N>` directly above a `uniform` declaration pins that
-//     uniform to binding N (e.g. a sampler binding directly).
-//   - Samplers are auto-pinned to bindings 10..63 (one per sampler, in
-//     source order) and excluded from the UBO. Override with @binding.
+// Editor-facing uniform list that drives the Material inspector, built by
+// ShaderCompiler from SPIR-V reflection in source declaration order.
+//   - Loose `uniform <type> <name>;` values (OpenGL only): inUBO = true, binding = 0.
+//   - Samplers / storage images: inUBO = false, binding = resolved binding.
+//     Samplers without an explicit `layout(binding = N)` get 10, 11, ... on OpenGL.
+//   - `[Header <label>]` lines become Type == "Head" entries.
+//   - Uniforms between `[System]` markers are engine-driven and omitted.
 struct Uniform
 {
     std::string Name;
     std::string Type;
-    uint32_t    binding = 0;     // 0 = UBO member; N>0 = pinned binding
-    bool        inUBO   = true;  // false when pinned to a non-UBO binding
+    uint32_t    binding = 0;
+    bool        inUBO   = true;
 };
 
 // Shader module interface.
@@ -50,6 +46,10 @@ public:
 
     // Parsed uniforms (for Material editor UI)
     virtual const std::vector<Uniform>& GetUniforms() const = 0;
+
+    // Resource layout reflected from SPIR-V. Empty for OpenGL shaders that
+    // bypass SPIR-V (e.g. GL_ARB_bindless_texture).
+    virtual const ShaderReflection& GetReflection() const = 0;
 
     // --- Uniform setters (transitional — DescriptorSet will replace these in Chunk 4/5) ---
     virtual void SetUniform4f(const std::string& name, float v0, float v1, float v2, float v3) const = 0;
