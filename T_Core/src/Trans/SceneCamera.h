@@ -6,7 +6,6 @@
 #include"HeadLine.h"
 #include"Scene/SkyBox.h"
 
-using namespace glm;
 
 class T_API SceneCamera {
 public:
@@ -37,9 +36,9 @@ public:
 	float getFar() { return far_plane; }
 	float getNear() { return near_plan; }
 
-	void GLPrecessInput(GLFWwindow* window,float speed);
-	void GLMouseInput(float xoffset, float yoffset, GLboolean constrainPitch);
-	void GLScrollInput(float xoffset, float yoffset);
+	void ProcessKeyboard(GLFWwindow* window, float speed);
+	void ProcessMouseLook(float dx, float dy, bool constrainPitch = true);
+	void ProcessScroll(float delta);
 	float m_AspectRatio = 1.125f;
 	void RenderSkyBox(RHICommandBuffer& commandBuffer);
 private:

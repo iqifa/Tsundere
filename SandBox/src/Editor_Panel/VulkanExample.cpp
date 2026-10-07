@@ -124,9 +124,6 @@ void VulkanExampleLayer::ExecuteRenderGraph()
 		BuildRenderGraph(width, height);
 	}
 
-	if (m_ViewportFocused)
-		currentcamera->GLPrecessInput(m_WindowHandle, 0.5f);
-
 	m_RenderGraph.Execute(*context);
 
 	RHITexture2D* finalColor = m_RenderGraph.GetExportedTexture(m_GraphFinalColor);

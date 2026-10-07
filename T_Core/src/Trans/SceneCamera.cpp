@@ -73,7 +73,7 @@ mat4 SceneCamera::GetProj()
 	return proj_psp;
 }
 
-void SceneCamera::GLPrecessInput(GLFWwindow* window, float speed)
+void SceneCamera::ProcessKeyboard(GLFWwindow* window, float speed)
 {
 	vec3 cameraUp(0.0f, 1.0f, 0.0f);
 	if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
@@ -86,13 +86,13 @@ void SceneCamera::GLPrecessInput(GLFWwindow* window, float speed)
 		cameraPos += normalize(cross(cameraFront, cameraUp)) * speed;
 }
 
-void SceneCamera::GLMouseInput(float xoffset, float yoffset, GLboolean constrainPitch)
+void SceneCamera::ProcessMouseLook(float dx, float dy, bool constrainPitch)
 {
-	xoffset *= sensitive;
-	yoffset *= sensitive;
+	dx *= sensitive;
+	dy *= sensitive;
 
-	yaw += xoffset;
-	pitch += yoffset;
+	yaw += dx;
+	pitch += dy;
 
 	if (constrainPitch)
 	{
@@ -108,9 +108,6 @@ void SceneCamera::GLMouseInput(float xoffset, float yoffset, GLboolean constrain
 	/// <summary>
 	/// 问题 ，做完以后记得回来看
 	/// </summary>
-	/// <param name="xoffset"></param>
-	/// <param name="yoffset"></param>
-	/// <param name="constrainPitch"></param>
 	vec3 front;
 	front.x = cos(radians(yaw)) * cos(radians(pitch));
 	front.y = sin(radians(pitch));
@@ -124,10 +121,10 @@ void SceneCamera::GLMouseInput(float xoffset, float yoffset, GLboolean constrain
 	vec3 Right = normalize(cross(cameraFront, WorldUp));
 	cameraUp = normalize(cross(Right, cameraFront));
 }
-void SceneCamera::GLScrollInput(float xoffset, float yoffset)
+void SceneCamera::ProcessScroll(float delta)
 {
 	if (fov >= 1.0f && fov <= 45.0f)
-		fov -= yoffset;
+		fov -= delta;
 	if (fov <= 1.0f)
 		fov = 1.0f;
 	if (fov >= 45.0f)
