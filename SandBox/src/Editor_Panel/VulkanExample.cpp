@@ -19,7 +19,7 @@ VulkanExampleLayer::VulkanExampleLayer(Ref<Scene> scene, std::string name)
 	}
 
 	// 初始化 Pass 管理器
-	PassCreationContext ctx;
+	PassCreationContext ctx; 
 	ctx.scene = m_Context;
 	ctx.frameData = nullptr;  // 延迟创建
 	ctx.width = 1920;
@@ -172,12 +172,11 @@ void VulkanExampleLayer::BuildRenderGraph(uint32_t width, uint32_t height)
 
 	m_RenderGraph.Compile();
 
-	m_GraphFinalColor = m_RenderGraph.GetTextureByName("Gbuffer.Normal");
+	m_GraphFinalColor = m_RenderGraph.GetTextureByName("DeferredLight.Light");
 
 	if (m_GraphFinalColor.id == UINT32_MAX)
 	{
 		m_GraphFinalColor = m_RenderGraph.GetTextureByName("Geometry.SceneColor");
-
 	}
 	m_GraphVelocity = m_RenderGraph.GetTextureByName("Geometry.Velocity");
 

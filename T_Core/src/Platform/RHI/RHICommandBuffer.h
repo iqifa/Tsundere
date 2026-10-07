@@ -40,6 +40,8 @@ struct ColorAttachmentBeginInfo
     AttachmentLoadOp loadOp = AttachmentLoadOp::Load;
     AttachmentStoreOp storeOp = AttachmentStoreOp::Store;
     std::array<float, 4> clearValue = { 0.0f, 0.0f, 0.0f, 1.0f };
+    // Single-sample target the multisampled attachment is averaged into at pass end.
+    RHITexture2D* resolveTarget = nullptr;
 };
 
 struct DepthAttachmentBeginInfo
@@ -51,6 +53,8 @@ struct DepthAttachmentBeginInfo
     AttachmentStoreOp stencilStoreOp = AttachmentStoreOp::Store;
     uint32_t clearStencil = 0;
     bool readOnly = false;
+    // Depth has no meaningful average, so this resolves sample 0.
+    RHITexture2D* resolveTarget = nullptr;
 };
 
 struct RenderPassBeginInfo

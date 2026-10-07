@@ -152,6 +152,32 @@ void RenderGraphBuilder::SetDepthOutput(
         m_Pass.writes.push_back({ texture.id, RGAccess::DepthWrite });
 }
 
+void RenderGraphBuilder::SetColorResolve(uint32_t slot, RGTextureHandle target)
+{
+    for (auto& attachment : m_Pass.colorAttachments)
+    {
+        if (attachment.slot != slot)
+            continue;
+
+        attachment.resolveTarget = target;
+        m_Pass.writes.push_back({ target.id, RGAccess::RenderTarget });
+        return;
+    }
+    Error_Core("RenderGraph: pass {0} resolves color slot {1} before SetColorOutput", m_PassName, slot);
+}
+
+void RenderGraphBuilder::SetDepthResolve(RGTextureHandle target)
+{
+    if (!m_Pass.depthAttachment.has_value())
+    {
+        Error_Core("RenderGraph: pass {} resolves depth before SetDepthOutput", m_PassName);
+        return;
+    }
+
+    m_Pass.depthAttachment->resolveTarget = target;
+    m_Pass.writes.push_back({ target.id, RGAccess::DepthWrite });
+}
+
 void RenderGraphBuilder::Export(RGTextureHandle texture)
 {
     m_Graph.ExportTexture(texture);

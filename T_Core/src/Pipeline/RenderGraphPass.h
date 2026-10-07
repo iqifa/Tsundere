@@ -73,6 +73,10 @@ public:
 		float clearDepth = 1.0f,
 		bool readOnly = false);
 
+	// MSAA resolve：在对应的 Set*Output 之后调用，target 必须是同尺寸同格式的单采样纹理。
+	void SetColorResolve(uint32_t slot, RGTextureHandle target);
+	void SetDepthResolve(RGTextureHandle target);
+
 	// ========================================
 	// 资源导出
 	// ========================================

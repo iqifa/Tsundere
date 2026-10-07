@@ -415,6 +415,8 @@ void RenderGraph::ExecutePass(RGPass& pass, RHICommandBuffer& commandBuffer, Ren
         color.loadOp = toLoadOp(attachment.loadOp);
         color.storeOp = toStoreOp(attachment.storeOp);
         color.clearValue = attachment.clearColor;
+        if (attachment.resolveTarget.id != InvalidResourceId)
+            color.resolveTarget = GetTexture(attachment.resolveTarget);
 
         // Keep the legacy GL clear path populated during the RHI migration.
         ColorClear& clear = beginInfo.colorClears[attachment.slot];
@@ -430,6 +432,8 @@ void RenderGraph::ExecutePass(RGPass& pass, RHICommandBuffer& commandBuffer, Ren
         beginInfo.depth.storeOp = toStoreOp(attachment.storeOp);
         beginInfo.depth.clearDepth = attachment.clearDepth;
         beginInfo.depth.readOnly = attachment.readOnly;
+        if (attachment.resolveTarget.id != InvalidResourceId)
+            beginInfo.depth.resolveTarget = GetTexture(attachment.resolveTarget);
 
         beginInfo.clearDepth = (attachment.loadOp == RGLoadOp::Clear);
         beginInfo.depthClearValue = attachment.clearDepth;

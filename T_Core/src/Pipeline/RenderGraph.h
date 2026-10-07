@@ -162,6 +162,9 @@ struct T_API RGColorAttachment
 	RGStoreOp storeOp = RGStoreOp::Store;
 
 	std::array<float, 4> clearColor = { 0.0f, 0.0f, 0.0f, 1.0f };
+
+	// Optional single-sample texture the MSAA attachment resolves into at pass end.
+	RGTextureHandle resolveTarget;
 };
 
 struct T_API RGDepthAttachment
@@ -175,6 +178,8 @@ struct T_API RGDepthAttachment
 
 	// A depth attachment the pass only tests against, never writes.
 	bool readOnly = false;
+
+	RGTextureHandle resolveTarget;
 };
 
 struct T_API RGPass

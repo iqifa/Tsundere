@@ -207,6 +207,23 @@ void VulkanCommandBuffer::BeginRenderPass(Ref<RHIFramebuffer> fb, const RenderPa
                 src->clearValue[2],
                 src->clearValue[3] }};
         }
+
+        if (src && src->resolveTarget)
+        {
+            auto* resolve = dynamic_cast<VulkanTexture2D*>(src->resolveTarget);
+            if (!resolve || resolve->GetImageView() == VK_NULL_HANDLE ||
+                texture->GetSampleCount() == 1 || resolve->GetSampleCount() != 1 ||
+                resolve->GetWidth() != texture->GetWidth() ||
+                resolve->GetHeight() != texture->GetHeight())
+            {
+                Error_Core("VulkanCommandBuffer: color attachment {} has an invalid resolve target", i);
+                return;
+            }
+            TransitionImage(command, *resolve, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+            color[i].resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
+            color[i].resolveImageView = resolve->GetImageView();
+            color[i].resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        }
     }
 
     auto* depthTexture = info.hasDepth
@@ -255,6 +272,26 @@ void VulkanCommandBuffer::BeginRenderPass(Ref<RHIFramebuffer> fb, const RenderPa
         depth.clearValue.depthStencil = {
             info.depth.clearDepth,
             info.depth.clearStencil };
+
+        if (info.depth.resolveTarget)
+        {
+            auto* resolve = dynamic_cast<VulkanTexture2D*>(info.depth.resolveTarget);
+            if (!resolve || resolve->GetImageView() == VK_NULL_HANDLE ||
+                depthTexture->GetSampleCount() == 1 || resolve->GetSampleCount() != 1 ||
+                resolve->GetWidth() != depthTexture->GetWidth() ||
+                resolve->GetHeight() != depthTexture->GetHeight() ||
+                resolve->GetFormat() != depthTexture->GetFormat())
+            {
+                Error_Core("VulkanCommandBuffer: depth attachment has an invalid resolve target");
+                return;
+            }
+            TransitionImage(command, *resolve, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+            // SAMPLE_ZERO is the only depth/stencil resolve mode every device must support,
+            // and depth and stencil must use the same mode unless independentResolveNone is set.
+            depth.resolveMode = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
+            depth.resolveImageView = resolve->GetImageView();
+            depth.resolveImageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        }
 
         if (hasStencil)
         {
