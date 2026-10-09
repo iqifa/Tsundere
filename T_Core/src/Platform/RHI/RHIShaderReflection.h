@@ -35,7 +35,7 @@ struct ShaderImageBinding
 };
 
 struct ShaderReflection
-{
+{ 
     std::vector<ShaderBlock>        UniformBlocks;
     std::vector<ShaderBlock>        StorageBlocks;
     std::vector<ShaderImageBinding> SampledImages;

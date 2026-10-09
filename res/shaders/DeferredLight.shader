@@ -63,6 +63,7 @@ void main(){
     surf.V             = normalize(u_ViewPos.xyz - worldPos.xyz);
     surf.diffuseColor  = albedo.rgb;
     surf.specularColor = specData.rgb;
+    // GBuffer stores shininess in RGBA8 alpha as shininess/255.
     surf.shininess     = specData.a * 255.0;
 
     vec3 result = vec3(0.0);

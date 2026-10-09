@@ -180,6 +180,21 @@ void GLCommandBuffer::BindDescriptorSet(Ref<RHIDescriptorSet> set, uint32_t slot
         set->Apply(slot, dynamicOffsets, dynamicOffsetCount);
 }
 
+void GLCommandBuffer::PushConstants(const void* data, uint32_t size)
+{
+    if (!data || size < sizeof(glm::mat4) * 2 || !m_CurrentPipeline)
+        return;
+
+    Ref<RHIShader> shader = m_CurrentPipeline->GetShader();
+    if (!shader)
+        return;
+
+    // SPIRV-Cross emits `uniform DrawPush pc` and keeps the member accesses.
+    const auto* matrices = static_cast<const glm::mat4*>(data);
+    shader->SetUniformMat4f("pc.model", matrices[0]);
+    shader->SetUniformMat4f("pc.prevModel", matrices[1]);
+}
+
 void GLCommandBuffer::Draw(uint32_t vertexCount, uint32_t firstVertex)
 {
     unsigned int prim = m_CurrentPipeline

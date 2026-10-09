@@ -152,7 +152,7 @@ void ExampleLayer::OnUpdate()
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 		if (m_ViewportFocused)
-			currentcamera->GLPrecessInput(m_WindowHandle, 0.1f);
+			currentcamera->ProcessKeyboard(m_WindowHandle, 0.1f);
 
 		pathTracePass->Execute(m_Context, renderResources);
 
@@ -164,7 +164,7 @@ void ExampleLayer::OnUpdate()
 		{
 			// --- Deferred Rendering Path ---
 			if (m_ViewportFocused)
-				currentcamera->GLPrecessInput(m_WindowHandle, 0.1f);
+				currentcamera->ProcessKeyboard(m_WindowHandle, 0.1f);
 
 			// Shadow Map Pass (depth map from light's perspective)
 			if (shadowMapPass)
@@ -201,7 +201,7 @@ void ExampleLayer::OnUpdate()
 		{
 			// --- Forward Rendering Path (RHI) ---
 			if (m_ViewportFocused)
-				currentcamera->GLPrecessInput(m_WindowHandle, 0.5f);
+				currentcamera->ProcessKeyboard(m_WindowHandle, 0.5f);
 
 			// Shadow Map Pass (depth map from light's perspective)
 			if (shadowMapPass)
@@ -407,14 +407,14 @@ void ExampleLayer::OnImGuiRender()
 		float yoffset = -io.MouseDelta.y; // Y 轴需要翻转
 
 		if (currentcamera)
-			currentcamera->GLMouseInput(xoffset, yoffset, true);
+			currentcamera->ProcessMouseLook(xoffset, yoffset);
 	}
 
 	// 2. 处理鼠标滚轮缩放
 	if (m_ViewportFocused && io.MouseWheel != 0.0f)
 	{
 		if (currentcamera)
-			currentcamera->GLScrollInput(0.0f, io.MouseWheel);
+			currentcamera->ProcessScroll(io.MouseWheel);
 	}
 #pragma endregion
 
@@ -737,7 +737,7 @@ void ExampleLayer::ExecuteRenderGraph()
 	}
 
 	if (m_ViewportFocused)
-		currentcamera->GLPrecessInput(m_WindowHandle, 0.5f);
+		currentcamera->ProcessKeyboard(m_WindowHandle, 0.5f);
 
 	Ref<RHIContext> context = RHIRenderer::GetContext();
 	if (!context)
@@ -979,7 +979,7 @@ void ExampleLayer::ExecuteRenderGraphV2()
 	}
 
 	if (m_ViewportFocused)
-		currentcamera->GLPrecessInput(m_WindowHandle, 0.5f);
+		currentcamera->ProcessKeyboard(m_WindowHandle, 0.5f);
 
 	Ref<RHIContext> context = RHIRenderer::GetContext();
 	if (!context)

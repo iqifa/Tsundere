@@ -10,8 +10,7 @@ public:
 
 
 
-		constexpr uint32_t maxDrawObjects = 16;
-		m_DrawUBO = RHIBuffer::Create(BufferDesc{ sizeof(GbufferDrawUBO) * maxDrawObjects, BufferUsage::Uniform, true, nullptr });
+		m_CameraUBO = RHIBuffer::Create(BufferDesc{ sizeof(CameraUBO), BufferUsage::Uniform, true, nullptr });
 		m_FrameUBO = RHIBuffer::Create(BufferDesc{ sizeof(GbufferFrameUBO), BufferUsage::Uniform, true, nullptr });
 
 
@@ -28,14 +27,12 @@ public:
 		m_GbufferDescriptSet = RHIDescriptorSet::Create();
 		if (m_GbufferDescriptSet)
 		{
-			m_GbufferDescriptSet->BindUniformBuffer(0, m_DrawUBO, sizeof(GbufferDrawUBO));
 			m_GbufferDescriptSet->BindUniformBuffer(1, m_FrameUBO);
+			m_GbufferDescriptSet->BindUniformBuffer(2, m_CameraUBO);
 			m_GbufferDescriptSet->BindTexture(10, m_DefaultTex, 10);
 			m_GbufferDescriptSet->BindTexture(11, m_DefaultTex, 11);
 			m_GbufferDescriptSet->BindTexture(12, m_DefaultTex, 12);
 			m_GbufferDescriptSet->BindTexture(13, m_DefaultTex, 13);
-
-			m_GbufferDescriptSet->MarkBindingAsDynamic(0);
 		}
 		else {
 			Error_Core("[GBuffer Pass]:m_GbufferDescriptSet is Null")
@@ -65,30 +62,22 @@ public:
 		depthDesc.format = Format::D24_UNORM_S8_UINT;
 		depthDesc.usage = TextureUsage::DepthStencil | TextureUsage::Sampled;
 
-		// Position and Normal need RGB16F for better precision and 3 components
-		RDGTextureDesc posNormalDesc = colorDesc;
-		posNormalDesc.format = Format::RGBA16F;  // Use float format for position/normal
-		
-		
-		m_Position = builder.CreateTexture("Position", colorDesc);  // RGB16F
+		RDGTextureDesc normalDesc = colorDesc;
+		normalDesc.format = Format::RGBA16F;
 
 		m_SceneColor = builder.CreateTexture("SceneColor", colorDesc);
 		m_Velocity = builder.CreateTexture("Velocity", velocityDesc);
 		m_Depth = builder.CreateTexture("Depth", depthDesc);
-		m_Normal = builder.CreateTexture("Normal", posNormalDesc);      // RGB16F (not RG16F!)
+		m_Normal = builder.CreateTexture("Normal", normalDesc);
 		m_Specular = builder.CreateTexture("Specular", colorDesc);
 
-
-		builder.SetColorOutput(0, m_Position, RGLoadOp::Clear, { 0.0f,0.0f,0.0f,1.0f });
-		builder.SetColorOutput(1, m_Normal, RGLoadOp::Clear, { 0.0f,0.0f,0.0f,1.0f });
-		builder.SetColorOutput(2, m_SceneColor, RGLoadOp::Clear, { 1.0f,0.0f,0.0f,1.0f });
-		builder.SetColorOutput(3, m_Specular, RGLoadOp::Clear, { 0.0f,0.0f,0.0f,1.0f });
-		builder.SetColorOutput(4, m_Velocity, RGLoadOp::Clear, { 0.0f, 0.0f, 0.0f, 0.0f });
+		builder.SetColorOutput(0, m_Normal, RGLoadOp::Clear, { 0.0f,0.0f,0.0f,1.0f });
+		builder.SetColorOutput(1, m_SceneColor, RGLoadOp::Clear, { 1.0f,0.0f,0.0f,1.0f });
+		builder.SetColorOutput(2, m_Specular, RGLoadOp::Clear, { 0.0f,0.0f,0.0f,1.0f });
+		builder.SetColorOutput(3, m_Velocity, RGLoadOp::Clear, { 0.0f, 0.0f, 0.0f, 0.0f });
 		builder.SetDepthOutput(m_Depth, RGLoadOp::Clear, 1.0f);
 
-
 		builder.Export(m_SceneColor);
-		builder.Export(m_Position);
 		builder.Export(m_Normal);
 		builder.Export(m_Specular);
 		builder.Export(m_Velocity);
@@ -162,6 +151,12 @@ public:
 		fubo.hasNormalMap = 0;
 		m_FrameUBO->Upload(&fubo, sizeof(fubo));
 
+		CameraUBO camera;
+		camera.jitteredViewProj = proj * view;
+		camera.viewProj = currentViewProj;
+		camera.prevViewProj = m_PrevViewProjMatrix;
+		m_CameraUBO->Upload(&camera, sizeof(camera));
+
 		m_GbufferShader->Bind();
 
 		if (!m_GbufferDescriptSet)
@@ -201,18 +196,10 @@ public:
 
 					mat->Render(m_GbufferShader);
 
-					// Per-draw UBO
-					GbufferDrawUBO dubo;
-					dubo.MVP_matrix = proj * view * modelMat;
-					dubo.model = modelMat;
-					dubo.prevModel = modelMat;
-					dubo.viewProj = currentViewProj;
-					dubo.prevViewProj = m_PrevViewProjMatrix;
-					m_DrawUBO->Upload(&dubo, sizeof(dubo));
-
 					BindGeometryDescriptors(shadowTex);
 					m_GbufferDescriptSet->Apply(0);
 					cmd.BindDescriptorSet(m_GbufferDescriptSet, 0);
+					PushDrawModel(cmd, modelMat, modelMat);
 
 					mesh.gpuMesh->Draw(cmd);
 					drewSomething = true;
@@ -221,7 +208,7 @@ public:
 	
 		if (!drewSomething)
 		{
-			DrawFallbackCube(cmd, proj, view, currentViewProj, shadowTex);
+			DrawFallbackCube(cmd, shadowTex);
 		}
 
 		m_PrevViewProjMatrix = currentViewProj;
@@ -237,7 +224,7 @@ public:
 private:
 	Ref<Scene> m_Scene;
 	Ref<RGFrameData> m_FrameData;
-	Ref<RHIBuffer> m_DrawUBO;
+	Ref<RHIBuffer> m_CameraUBO;
 	Ref<RHIBuffer> m_FrameUBO;
 	Ref<RHITexture2D> m_DefaultTex;
 	Ref<RHIDescriptorSet> m_GbufferDescriptSet;
@@ -246,7 +233,6 @@ private:
 	RGTextureHandle m_SceneColor;
 	RGTextureHandle m_Velocity;
 	RGTextureHandle m_Depth;
-	RGTextureHandle m_Position;
 	RGTextureHandle m_Normal;
 	RGTextureHandle m_Specular;
 
@@ -267,15 +253,6 @@ private:
 
 
 
-
-	struct GbufferDrawUBO
-	{
-		glm::mat4 MVP_matrix;
-		glm::mat4 model;
-		glm::mat4 prevModel;
-		glm::mat4 viewProj;
-		glm::mat4 prevViewProj;
-	};
 
 	struct GbufferFrameUBO
 	{
@@ -356,6 +333,7 @@ private:
 		pipeDesc.depthWrite = true;
 		pipeDesc.srcBlend = BlendFactor::One;
 		pipeDesc.dstBlend = BlendFactor::Zero;
+		pipeDesc.pushConstantSize = sizeof(DrawPushConstants);
 
 		m_CubeVertexLayout = vtxLayout;
 		m_CubePipelineDesc = pipeDesc;
@@ -395,8 +373,8 @@ private:
 	void BindGeometryDescriptors(RHITexture2D* shadowTex)
 	{
 		m_GbufferDescriptSet->Reset();
-		m_GbufferDescriptSet->BindUniformBuffer(0, m_DrawUBO, sizeof(GbufferDrawUBO));
 		m_GbufferDescriptSet->BindUniformBuffer(1, m_FrameUBO);
+		m_GbufferDescriptSet->BindUniformBuffer(2, m_CameraUBO);
 		m_GbufferDescriptSet->BindTexture(10, m_DefaultTex, 10);
 		m_GbufferDescriptSet->BindTexture(11, m_DefaultTex, 11);
 		m_GbufferDescriptSet->BindTexture(12, m_DefaultTex, 12);
@@ -406,28 +384,12 @@ private:
 		else
 			m_GbufferDescriptSet->BindTexture(13, m_DefaultTex, 13);
 	}
-	void DrawFallbackCube(
-		RHICommandBuffer& cmd,
-		const glm::mat4& proj,
-		const glm::mat4& view,
-		const glm::mat4& currentViewProj,
-		RHITexture2D* shadowTex)
+	void DrawFallbackCube(RHICommandBuffer& cmd, RHITexture2D* shadowTex)
 	{
 		m_GbufferShader->Bind();
 		m_DefaultTex->Bind(10);
 		m_DefaultTex->Bind(11);
 		m_DefaultTex->Bind(12);
-
-		glm::mat4 model = scale(glm::mat4(1.0f), glm::vec3(1.0f, 2.0f, 1.0f));
-		glm::mat4 mvp = proj * view * model;
-
-		GbufferDrawUBO dubo;
-		dubo.MVP_matrix = mvp;
-		dubo.model = model;
-		dubo.prevModel = model;
-		dubo.viewProj = currentViewProj;
-		dubo.prevViewProj = m_PrevViewProjMatrix;
-		m_DrawUBO->Upload(&dubo, sizeof(dubo), 0);  // Upload to offset 0
 
 		BindGeometryDescriptors(shadowTex);
 		m_GbufferDescriptSet->Apply(0);
@@ -435,26 +397,15 @@ private:
 		cmd.BindPipeline(m_CubePipeline);
 		cmd.BindVertexBuffer(m_CubeVB, 0);
 		cmd.BindIndexBuffer(m_CubeIB);
+		cmd.BindDescriptorSet(m_GbufferDescriptSet, 0);
 
-		// Dynamic UBO requires offset even when reading from position 0
-		uint32_t dynamicOffset = 0;
-		cmd.BindDescriptorSet(m_GbufferDescriptSet, 0, &dynamicOffset, 1);
+		glm::mat4 model = scale(glm::mat4(1.0f), glm::vec3(1.0f, 2.0f, 1.0f));
+		PushDrawModel(cmd, model, model);
 		cmd.DrawIndexed(36);
-		// Floor
+
 		glm::mat4 floorModel = translate(glm::mat4(1.0f), glm::vec3(0.0f, -2.0f, 0.0f));
 		floorModel = scale(floorModel, glm::vec3(10.0f, 0.05f, 10.0f));
-		glm::mat4 floorMVP = proj * view * floorModel;
-		dubo.MVP_matrix = floorMVP;
-		dubo.model = floorModel;
-		dubo.prevModel = floorModel;
-		m_DrawUBO->Upload(&dubo, sizeof(dubo), sizeof(dubo));
-
-		BindGeometryDescriptors(shadowTex);
-		m_GbufferDescriptSet->Apply(0);
-
-		// Use dynamic offset to read from offset position in UBO
-		dynamicOffset = sizeof(dubo);
-		cmd.BindDescriptorSet(m_GbufferDescriptSet, 0, &dynamicOffset, 1);
+		PushDrawModel(cmd, floorModel, floorModel);
 		cmd.DrawIndexed(36);
 		m_CubePipeline->Unbind();
 	}

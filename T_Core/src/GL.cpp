@@ -106,7 +106,7 @@ int main(void)
 		ImGui::NewFrame();
 		//if(currentcamera)
 		//GLCall(currentcamera->RenderSkyBox());
-		currentcamera->GLPrecessInput(window, 0.05f);
+		currentcamera->ProcessKeyboard(window, 0.05f);
 		ImGui::ShowDemoWindow();
 		ShowDockSpace();
 		//fb->Bind();
@@ -160,11 +160,11 @@ void mouse_callback(GLFWwindow* window, double Xpos, double Ypos)
 	lastX = xpos;
 	lastY = ypos;
 	if(currentcamera&&glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT)==GLFW_PRESS)
-		currentcamera->GLMouseInput(xoffset, yoffset, true);
+		currentcamera->ProcessMouseLook(xoffset, yoffset);
 }
 void mouse_scrollback(GLFWwindow* window, double xpos, double ypos)
 {
-	currentcamera->GLScrollInput(xpos, ypos);
+	currentcamera->ProcessScroll(static_cast<float>(ypos));
 }
 
 void ShowDockSpace()

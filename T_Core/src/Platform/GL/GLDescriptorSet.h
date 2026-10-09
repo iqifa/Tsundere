@@ -47,6 +47,7 @@ private:
         Ref<RHIBuffer> buffer;
         uint32_t slot;
         bool isStorage;
+        uint32_t dynamicRange = 0;
     };
 
     std::vector<TextureBinding> m_Textures;

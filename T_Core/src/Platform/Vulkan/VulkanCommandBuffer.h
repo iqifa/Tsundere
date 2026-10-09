@@ -24,6 +24,7 @@ public:
     void BindDescriptorSet(Ref<RHIDescriptorSet> set, uint32_t slot = 0,
                            const uint32_t* dynamicOffsets = nullptr,
                            uint32_t dynamicOffsetCount = 0) override;
+    void PushConstants(const void* data, uint32_t size) override;
 
     void Draw(uint32_t vertexCount, uint32_t firstVertex = 0) override;
     void DrawIndexed(uint32_t indexCount, uint32_t firstIndex = 0) override;

@@ -246,7 +246,14 @@ namespace
         shaderc_compile_options_t options = shaderc_compile_options_initialize();
         if (target == ShaderTarget::OpenGL)
         {
-            shaderc_compile_options_set_target_env(options, shaderc_target_env_opengl, shaderc_env_version_opengl_4_5);
+            // layout(push_constant) is rejected by the OpenGL shaderc client.
+            // Compile that stage as Vulkan SPIR-V; EmitGLSL lowers the block to a
+            // default-block uniform (`uniform DrawPush pc`).
+            const bool hasPushConstant = source.find("push_constant") != std::string::npos;
+            if (hasPushConstant)
+                shaderc_compile_options_set_target_env(options, shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_2);
+            else
+                shaderc_compile_options_set_target_env(options, shaderc_target_env_opengl, shaderc_env_version_opengl_4_5);
             // SPIR-V requires a location on every varying and loose uniform. OpenGL
             // sources rely on name matching instead; FixupForOpenGL restores that.
             shaderc_compile_options_set_auto_map_locations(options, true);
@@ -564,6 +571,9 @@ namespace
         spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, kGLSLVersion);
         spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ES, SPVC_FALSE);
         spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_VULKAN_SEMANTICS, SPVC_FALSE);
+        // Keep push constants as `uniform DrawPush pc`, not a UBO. glUniform
+        // addresses the members as "pc.model" and "pc.prevModel".
+        spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_EMIT_PUSH_CONSTANT_AS_UNIFORM_BUFFER, SPVC_FALSE);
         spvc_compiler_install_compiler_options(module.Compiler, options);
 
         const char* source = nullptr;

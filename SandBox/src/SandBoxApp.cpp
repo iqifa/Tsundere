@@ -2,7 +2,7 @@
 #include"Event/Event.h"
 #include"Panels/ImGuiLayer.h"
 //#include"ExampleLayer.h"
-//#include"Inspect.h"
+#include"Inspect.h"
 #include"Editor_Panel/VulkanExample.h"
 //#include"Panels/ModelImportPanel.h"
 //#include"Panels/TextureImportPanel.h"
@@ -18,10 +18,10 @@ public:
 		#ifdef RenderAPI_Vulkan
 			PushLayer(new VulkanExampleLayer(m_ActivateScene,"VulkanExample"));
 #else
-			PushLayer(new VulkanExampleLayer(m_ActivateScene, "Example"));
+			PushLayer(new VulkanExampleLayer(m_ActivateScene, "OpenGL- Example"));
 #endif
 		//PushLayer(new ExampleLayer(m_ActivateScene, "Example"));
-		//PushLayer(new Inspect(m_ActivateScene, "Inspect"));
+		PushLayer(new Inspect(m_ActivateScene, "Inspect"));
 		//PushLayer(new ModelImportPanel("Model Import"));
 		//PushLayer(new TextureImportPanel("Texture Import"));
 	}

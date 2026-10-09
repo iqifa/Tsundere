@@ -32,6 +32,9 @@ void VulkanExampleLayer::OnUpdate()
 	if (m_ViewPortSize.x <= 0.0f || m_ViewPortSize.y <= 0.0f)
 		return;
 
+	if (m_ViewportFocused && m_WindowHandle && currentcamera)
+		currentcamera->ProcessKeyboard(m_WindowHandle, 0.5f);
+
 	ExecuteRenderGraph();
 }
 
@@ -43,6 +46,16 @@ void VulkanExampleLayer::OnImGuiRender()
 	ImGui::SetNextWindowSizeConstraints(ImVec2(320.0f, 180.0f), ImVec2(FLT_MAX, FLT_MAX));
 	ImGui::Begin("ViewPort");
 	m_ViewportFocused = ImGui::IsWindowFocused();
+
+	ImGuiIO& io = ImGui::GetIO();
+	if (m_ViewportFocused && ImGui::IsMouseDown(ImGuiMouseButton_Right) && currentcamera)
+	{
+		float xoffset = io.MouseDelta.x;
+		float yoffset = -io.MouseDelta.y;
+		currentcamera->ProcessMouseLook(xoffset, yoffset);
+	}
+	if (m_ViewportFocused && io.MouseWheel != 0.0f && currentcamera)
+		currentcamera->ProcessScroll(io.MouseWheel);
 
 	const ImVec2 viewportPanelSize = ImGui::GetContentRegionAvail();
 	const glm::vec2 newViewportSize = {

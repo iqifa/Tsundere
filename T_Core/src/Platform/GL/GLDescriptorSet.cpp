@@ -33,15 +33,14 @@ void GLDescriptorSet::BindStorageImage(uint32_t binding, Ref<RHIStorageImage> im
 
 void GLDescriptorSet::BindUniformBuffer(uint32_t binding, Ref<RHIBuffer> buffer, uint32_t dynamicRange)
 {
-    (void)dynamicRange;  // OpenGL doesn't need this - handled automatically in Apply
     if (buffer)
-        m_Buffers.push_back({ buffer, binding, false });
+        m_Buffers.push_back({ buffer, binding, false, dynamicRange });
 }
 
 void GLDescriptorSet::BindStorageBuffer(uint32_t binding, Ref<RHIBuffer> buffer)
 {
     if (buffer)
-        m_Buffers.push_back({ buffer, binding, true });
+        m_Buffers.push_back({ buffer, binding, true, 0 });
 }
 
 void GLDescriptorSet::MarkBindingAsDynamic(uint32_t binding)
@@ -88,7 +87,11 @@ void GLDescriptorSet::Apply(uint32_t slot, const uint32_t* dynamicOffsets, uint3
             if (dynamicOffsets && dynamicOffsetIndex < dynamicOffsetCount)
             {
                 uint32_t offset = dynamicOffsets[dynamicOffsetIndex++];
-                GLsizeiptr size = glBuf->GetSize() - offset; // Bind from offset to end of buffer
+                // Bind one element. Binding through to the end of a multi-slot
+                // buffer makes the range larger than the uniform block.
+                GLsizeiptr size = bb.dynamicRange > 0
+                    ? static_cast<GLsizeiptr>(bb.dynamicRange)
+                    : static_cast<GLsizeiptr>(glBuf->GetSize() - offset);
 
                 if (bb.isStorage)
                 {

@@ -15,10 +15,7 @@ public:
 		// 初始化 Shader 和资源
 		m_LitShader = RHIShader::Create("D:/Code/C++/Tsundere/res/shaders/Lit.shader");
 
-		// 创建 UBO - 扩大DrawUBO以支持多个对象的动态offset
-		// 至少需要 2 * sizeof(GeometryDrawUBO) 来存储cube和floor的数据
-		constexpr uint32_t maxDrawObjects = 16;  // 支持最多16个对象
-		m_DrawUBO = RHIBuffer::Create(BufferDesc{ sizeof(GeometryDrawUBO) * maxDrawObjects, BufferUsage::Uniform, true, nullptr });
+		m_CameraUBO = RHIBuffer::Create(BufferDesc{ sizeof(CameraUBO), BufferUsage::Uniform, true, nullptr });
 		m_FrameUBO = RHIBuffer::Create(BufferDesc{ sizeof(GeometryFrameUBO), BufferUsage::Uniform, true, nullptr });
 
 		// 创建 Fallback Cube
@@ -32,17 +29,12 @@ public:
 		m_GeometryDescriptorSet = RHIDescriptorSet::Create();
 		if (m_GeometryDescriptorSet)
 		{
-			// Bind DrawUBO with dynamicRange = sizeof(single object)
-			// This tells Vulkan that each dynamic offset reads one GeometryDrawUBO
-			m_GeometryDescriptorSet->BindUniformBuffer(0, m_DrawUBO, sizeof(GeometryDrawUBO));
 			m_GeometryDescriptorSet->BindUniformBuffer(1, m_FrameUBO);
+			m_GeometryDescriptorSet->BindUniformBuffer(2, m_CameraUBO);
 			m_GeometryDescriptorSet->BindTexture(10, m_DefaultTex, 10);
 			m_GeometryDescriptorSet->BindTexture(11, m_DefaultTex, 11);
 			m_GeometryDescriptorSet->BindTexture(12, m_DefaultTex, 12);
 			m_GeometryDescriptorSet->BindTexture(13, m_DefaultTex, 13);
-
-			// Mark binding 0 (DrawUBO) as dynamic to support dynamic offsets
-			m_GeometryDescriptorSet->MarkBindingAsDynamic(0);
 		}
 	}
 
@@ -203,6 +195,12 @@ public:
 		fubo.hasNormalMap = 0;
 		m_FrameUBO->Upload(&fubo, sizeof(fubo));
 
+		CameraUBO camera;
+		camera.jitteredViewProj = proj * view;
+		camera.viewProj = currentViewProj;
+		camera.prevViewProj = m_PrevViewProjMatrix;
+		m_CameraUBO->Upload(&camera, sizeof(camera));
+
 		// 7. 绑定 Shader 和稳定的 descriptor layout
 		m_LitShader->Bind();
 
@@ -245,18 +243,10 @@ public:
 
 				mat->Render(m_LitShader);
 
-				// Per-draw UBO
-				GeometryDrawUBO dubo;
-				dubo.MVP_matrix = proj * view * modelMat;
-				dubo.model = modelMat;
-				dubo.prevModel = modelMat;
-				dubo.viewProj = currentViewProj;
-				dubo.prevViewProj = m_PrevViewProjMatrix;
-				m_DrawUBO->Upload(&dubo, sizeof(dubo));
-
 				BindGeometryDescriptors(shadowTex);
 				m_GeometryDescriptorSet->Apply(0);
 				cmd.BindDescriptorSet(m_GeometryDescriptorSet, 0);
+				PushDrawModel(cmd, modelMat, modelMat);
 
 				mesh.gpuMesh->Draw(cmd);
 				drewSomething = true;
@@ -266,7 +256,7 @@ public:
 		// 10. Fallback Cube（如果没有场景物体）
 		if (!drewSomething)
 		{
-			DrawFallbackCube(cmd, proj, view, currentViewProj, shadowTex);
+			DrawFallbackCube(cmd, shadowTex);
 		}
 
 		m_PrevViewProjMatrix = currentViewProj;
@@ -293,16 +283,6 @@ public:
 	uint32_t GetSampleCount() const { return m_SampleCount; }
 
 private:
-	// UBO 结构（和原 GeometryPass 一致）
-	struct GeometryDrawUBO
-	{
-		glm::mat4 MVP_matrix;
-		glm::mat4 model;
-		glm::mat4 prevModel;
-		glm::mat4 viewProj;
-		glm::mat4 prevViewProj;
-	};
-
 	struct GeometryFrameUBO
 	{
 		glm::vec4 lightDir;
@@ -321,8 +301,8 @@ private:
 	void BindGeometryDescriptors(RHITexture2D* shadowTex)
 	{
 		m_GeometryDescriptorSet->Reset();
-		m_GeometryDescriptorSet->BindUniformBuffer(0, m_DrawUBO, sizeof(GeometryDrawUBO));
 		m_GeometryDescriptorSet->BindUniformBuffer(1, m_FrameUBO);
+		m_GeometryDescriptorSet->BindUniformBuffer(2, m_CameraUBO);
 		m_GeometryDescriptorSet->BindTexture(10, m_DefaultTex, 10);
 		m_GeometryDescriptorSet->BindTexture(11, m_DefaultTex, 11);
 		m_GeometryDescriptorSet->BindTexture(12, m_DefaultTex, 12);
@@ -405,33 +385,18 @@ private:
 		pipeDesc.depthWrite = true;
 		pipeDesc.srcBlend = BlendFactor::One;
 		pipeDesc.dstBlend = BlendFactor::Zero;
+		pipeDesc.pushConstantSize = sizeof(DrawPushConstants);
 
 		m_CubeVertexLayout = vtxLayout;
 		m_CubePipelineDesc = pipeDesc;
 	}
 
-	void DrawFallbackCube(
-		RHICommandBuffer& cmd,
-		const glm::mat4& proj,
-		const glm::mat4& view,
-		const glm::mat4& currentViewProj,
-		RHITexture2D* shadowTex)
+	void DrawFallbackCube(RHICommandBuffer& cmd, RHITexture2D* shadowTex)
 	{
 		m_LitShader->Bind();
 		m_DefaultTex->Bind(10);
 		m_DefaultTex->Bind(11);
 		m_DefaultTex->Bind(12);
-
-		glm::mat4 model = scale(glm::mat4(1.0f), glm::vec3(1.0f, 2.0f, 1.0f));
-		glm::mat4 mvp = proj * view * model;
-
-		GeometryDrawUBO dubo;
-		dubo.MVP_matrix = mvp;
-		dubo.model = model;
-		dubo.prevModel = model;
-		dubo.viewProj = currentViewProj;
-		dubo.prevViewProj = m_PrevViewProjMatrix;
-		m_DrawUBO->Upload(&dubo, sizeof(dubo), 0);  // Upload to offset 0
 
 		BindGeometryDescriptors(shadowTex);
 		m_GeometryDescriptorSet->Apply(0);
@@ -439,26 +404,15 @@ private:
 		cmd.BindPipeline(m_CubePipeline);
 		cmd.BindVertexBuffer(m_CubeVB, 0);
 		cmd.BindIndexBuffer(m_CubeIB);
+		cmd.BindDescriptorSet(m_GeometryDescriptorSet, 0);
 
-		// Dynamic UBO requires offset even when reading from position 0
-		uint32_t dynamicOffset = 0;
-		cmd.BindDescriptorSet(m_GeometryDescriptorSet, 0, &dynamicOffset, 1);
+		glm::mat4 model = scale(glm::mat4(1.0f), glm::vec3(1.0f, 2.0f, 1.0f));
+		PushDrawModel(cmd, model, model);
 		cmd.DrawIndexed(36);
-		// Floor
+
 		glm::mat4 floorModel = translate(glm::mat4(1.0f), glm::vec3(0.0f, -2.0f, 0.0f));
 		floorModel = scale(floorModel, glm::vec3(10.0f, 0.05f, 10.0f));
-		glm::mat4 floorMVP = proj * view * floorModel;
-		dubo.MVP_matrix = floorMVP;
-		dubo.model = floorModel;
-		dubo.prevModel = floorModel;
-		m_DrawUBO->Upload(&dubo, sizeof(dubo), sizeof(dubo));
-
-		BindGeometryDescriptors(shadowTex);
-		m_GeometryDescriptorSet->Apply(0);
-
-		// Use dynamic offset to read from offset position in UBO
-		dynamicOffset = sizeof(dubo);
-		cmd.BindDescriptorSet(m_GeometryDescriptorSet, 0, &dynamicOffset, 1);
+		PushDrawModel(cmd, floorModel, floorModel);
 		cmd.DrawIndexed(36);
 		m_CubePipeline->Unbind();
 	}
@@ -498,7 +452,7 @@ private:
 	Ref<Scene> m_Scene;
 	Ref<RGFrameData> m_FrameData;
 	Ref<RHIShader> m_LitShader;
-	Ref<RHIBuffer> m_DrawUBO;
+	Ref<RHIBuffer> m_CameraUBO;
 	Ref<RHIBuffer> m_FrameUBO;
 	Ref<RHIDescriptorSet> m_GeometryDescriptorSet;
 	Ref<RHITexture2D> m_DefaultTex;

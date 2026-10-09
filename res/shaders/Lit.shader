@@ -7,11 +7,16 @@ layout(location = 2) in vec2 aTexCoords;
 layout(location = 3) in vec3 aTangent;
 layout(location = 4) in vec3 aBitangent;
 
-layout(std140, binding = 0) uniform PerDraw_Geometry
+// OpenGL: SPIRV-Cross lowers this block to `uniform DrawPush pc`.
+layout(push_constant) uniform DrawPush
 {
-    mat4 MVP_matrix;
     mat4 model;
     mat4 prevModel;
+} pc;
+
+layout(std140, binding = 2) uniform PerFrame_Camera
+{
+    mat4 jitteredViewProj;
     mat4 viewProj;
     mat4 prevViewProj;
 };
@@ -26,16 +31,16 @@ layout(location = 6) out vec4 v_PreviousClipPos;
 
 void main()
 {
-    vec4 worldPos = model * vec4(aPos, 1.0);
+    vec4 worldPos = pc.model * vec4(aPos, 1.0);
     v_FragPos = worldPos.xyz;
     v_TexCoords = aTexCoords;
-    v_Normal = normalize(mat3(transpose(inverse(model))) * aNormal);
-    v_Tangent = normalize(mat3(model) * aTangent);
-    v_Bitangent = normalize(mat3(model) * aBitangent);
+    v_Normal = normalize(mat3(transpose(inverse(pc.model))) * aNormal);
+    v_Tangent = normalize(mat3(pc.model) * aTangent);
+    v_Bitangent = normalize(mat3(pc.model) * aBitangent);
 
-    gl_Position = MVP_matrix * vec4(aPos, 1.0);
+    gl_Position = jitteredViewProj * worldPos;
     v_CurrentClipPos = viewProj * worldPos;
-    v_PreviousClipPos = prevViewProj * prevModel * vec4(aPos, 1.0);
+    v_PreviousClipPos = prevViewProj * pc.prevModel * vec4(aPos, 1.0);
 }
 
 #shader fragment

@@ -30,7 +30,8 @@ struct CompiledShader
 // with shaderc. `#include "path"` resolves relative to the including file, and
 // TS_OPENGL / TS_VULKAN is defined for the active target.
 //
-// OpenGL: GLSL -> SPIR-V (OpenGL semantics) -> GLSL 430 via SPIRV-Cross. Sources
-// using GL_ARB_bindless_texture cannot go through SPIR-V and are passed to the
-// driver as written (no #include, no reflection).
+// OpenGL: GLSL -> SPIR-V -> GLSL 430 via SPIRV-Cross. A stage that uses
+// layout(push_constant) is compiled as Vulkan SPIR-V, then lowered to
+// `uniform <Block> <instance>`. Sources using GL_ARB_bindless_texture cannot
+// go through SPIR-V and are passed to the driver as written (no #include, no reflection).
 CompiledShader CompileShaderFile(const std::string& filepath, ShaderTarget target);

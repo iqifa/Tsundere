@@ -87,6 +87,11 @@ public:
     virtual void BindDescriptorSet(Ref<RHIDescriptorSet> set, uint32_t slot = 0,
                                    const uint32_t* dynamicOffsets = nullptr,
                                    uint32_t dynamicOffsetCount = 0) = 0;
+    // Vulkan: vkCmdPushConstants for the vertex stage. The bound pipeline's
+    // layout must include a range of at least `size` bytes.
+    // OpenGL: SPIRV-Cross emits the block as `uniform DrawPush pc`. The first
+    // two mat4s are "pc.model" and "pc.prevModel".
+    virtual void PushConstants(const void* data, uint32_t size) = 0;
     virtual void Draw(uint32_t vertexCount, uint32_t firstVertex = 0) = 0;
     virtual void DrawIndexed(uint32_t indexCount, uint32_t firstIndex = 0) = 0;
     virtual void DrawFullscreenQuad() = 0;

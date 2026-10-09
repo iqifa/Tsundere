@@ -381,6 +381,22 @@ void VulkanCommandBuffer::BindDescriptorSet(
         dynamicOffsetCount,
         dynamicOffsets);
 }
+
+void VulkanCommandBuffer::PushConstants(const void* data, uint32_t size)
+{
+    VkCommandBuffer command = Cmd();
+    if (!data || size == 0 || command == VK_NULL_HANDLE ||
+        m_CurrentPipelineLayout == VK_NULL_HANDLE)
+        return;
+
+    vkCmdPushConstants(
+        command,
+        m_CurrentPipelineLayout,
+        VK_SHADER_STAGE_VERTEX_BIT,
+        0,
+        size,
+        data);
+}
 void VulkanCommandBuffer::Draw(uint32_t count, uint32_t first) { if (Cmd()) vkCmdDraw(Cmd(), count, 1, first, 0); }
 void VulkanCommandBuffer::DrawIndexed(uint32_t count, uint32_t first) { if (Cmd() && m_CurrentIndexBuffer) vkCmdDrawIndexed(Cmd(), count, 1, first, 0, 0); }
 void VulkanCommandBuffer::DrawFullscreenQuad() { Draw(3, 0); }

@@ -14,6 +14,7 @@
 #include<algorithm>
 #include<Debug/Debug.h>
 #include<Pipeline/RenderGraph.h>
+#include "Platform/RHI/RHICommandBuffer.h"
 class Scene;
 
 // CPU-side values that graph passes hand to each other.
@@ -75,6 +76,34 @@ struct  RenderResources
 	Ref<RHITexture2D> ShadowMaskRHI;   // RHI-backed shadow mask (R8)
 	Ref<RHIFramebuffer> TargetFBO;     // RHI-backed render target FBO
 };
+
+// Per-draw transform. 128 bytes is the Vulkan minimum maxPushConstantsSize.
+// viewProj stays in the per-frame camera UBO; MVP is viewProj * model in the shader.
+// OpenGL has no push constants. SPIRV-Cross emits `uniform DrawPush pc`, and
+// PushConstants writes "pc.model" / "pc.prevModel".
+struct DrawPushConstants
+{
+	glm::mat4 model;
+	glm::mat4 prevModel;
+};
+static_assert(sizeof(DrawPushConstants) == 128, "DrawPushConstants must fit in the Vulkan push-constant minimum");
+
+// Per frame, not per draw. jitteredViewProj is what gl_Position uses;
+// viewProj is the unjittered matrix motion vectors sample.
+struct CameraUBO
+{
+	glm::mat4 jitteredViewProj;
+	glm::mat4 viewProj;
+	glm::mat4 prevViewProj;
+};
+
+inline void PushDrawModel(RHICommandBuffer& cmd, const glm::mat4& model, const glm::mat4& prevModel)
+{
+	DrawPushConstants pc;
+	pc.model = model;
+	pc.prevModel = prevModel;
+	cmd.PushConstants(&pc, sizeof(pc));
+}
 
 class  RenderPass
 {

@@ -77,6 +77,10 @@ struct PipelineDesc
     // OpenGL ignores this; Vulkan uses their native layouts in VkPipelineLayout.
     std::vector<Ref<RHIDescriptorSet>> descriptorSets;
 
+    // Vertex-stage push-constant range in bytes. 0 means the pipeline has none.
+    // Vulkan bakes this into VkPipelineLayout. OpenGL ignores it.
+    uint32_t pushConstantSize = 0;
+
     // Render-target interface. RDG derives this from the current pass and all
     // graphics backends may use it for validation or pipeline caching.
     RenderingSignature renderingSignature;

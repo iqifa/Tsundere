@@ -438,8 +438,12 @@ VulkanPipeline::VulkanPipeline(const PipelineDesc& desc) : m_Desc(desc)
 		? nullptr
 		: descriptorSetLayouts.data();
 
-	layoutInfo.pushConstantRangeCount = 0;
-	layoutInfo.pPushConstantRanges = nullptr;
+	VkPushConstantRange pushRange{};
+	pushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+	pushRange.offset = 0;
+	pushRange.size = desc.pushConstantSize;
+	layoutInfo.pushConstantRangeCount = desc.pushConstantSize > 0 ? 1u : 0u;
+	layoutInfo.pPushConstantRanges = desc.pushConstantSize > 0 ? &pushRange : nullptr;
 
 	auto& context = RHIContext::Get();
 	if (!context)
