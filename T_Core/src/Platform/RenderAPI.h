@@ -26,6 +26,7 @@
 #include "Platform/RHI/RHIDescriptorSet.h"
 #include "Platform/RHI/RHISwapChain.h"
 #include "Platform/RHI/RHIRenderer.h"
+#include "Platform/RHI/RHIImGuiRenderer.h"
 
 // Include GL backend implementations
 #ifdef RenderAPI_OpenGL
