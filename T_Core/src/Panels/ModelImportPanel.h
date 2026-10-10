@@ -5,6 +5,7 @@
 #include "Platform/FileDialog.h"
 #include "Core/Threading/ResourceLoader.h"
 #include "Scene/BVHBuilder.h"
+#include "Scene/Scene.h"
 #include "HeadLine.h"
 
 #include <algorithm>
@@ -15,8 +16,8 @@
 class ModelImportPanel : public Engine::Layer
 {
 public:
-	ModelImportPanel(const std::string& name = "Model Import")
-		: Layer(name) {}
+	ModelImportPanel(Ref<Scene> scene, const std::string& name = "Model Import")
+		: Layer(name), m_Scene(std::move(scene)) {}
 
 	void OnImGuiRender() override
 	{
@@ -199,6 +200,9 @@ private:
 			}
 			ImGui::Text("Mesh %d    skinned vertices %d / %zu",
 				m_SelectedMesh, skinned, mesh.vertices.size());
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Delete mesh"))
+				DeleteSelectedMesh(*model);
 		}
 
 		ImGui::Separator();
@@ -283,6 +287,36 @@ private:
 		return true;
 	}
 
+	void DeleteSelectedMesh(Model& model)
+	{
+		if (m_SelectedMesh < 0 || m_SelectedMesh >= (int)model.meshes.size())
+			return;
+
+		const int removed = m_SelectedMesh;
+		Engine::ResourceLoader::NotifyMeshRemoved(
+			My_map::GetModel(m_SelectedPath), static_cast<size_t>(removed));
+		model.meshes.erase(model.meshes.begin() + removed);
+
+		if (m_Scene)
+		{
+			auto view = m_Scene->m_Registry.view<Component::MeshRender>();
+			for (auto entity : view)
+			{
+				auto& meshrender = view.get<Component::MeshRender>(entity);
+				if (meshrender.ModelPath != m_SelectedPath)
+					continue;
+				if (removed < (int)meshrender.materials.size())
+					meshrender.materials.erase(meshrender.materials.begin() + removed);
+			}
+		}
+
+		if (m_SelectedMesh >= (int)model.meshes.size())
+			m_SelectedMesh = (int)model.meshes.size() - 1;
+		if (m_SelectedMesh < 0)
+			m_SelectedMesh = 0;
+		BVHBuilder::MarkActiveDirty();
+	}
+
 	void ApplyVertexEdit(Model& model)
 	{
 		if (m_Scale <= 0.0f)
@@ -301,6 +335,7 @@ private:
 		BVHBuilder::MarkActiveDirty();
 	}
 
+	Ref<Scene> m_Scene;
 	char m_PathBuf[512] = {};
 	std::string m_SelectedPath;
 	bool m_DetailOpen = false;

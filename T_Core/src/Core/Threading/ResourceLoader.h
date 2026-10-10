@@ -67,6 +67,9 @@ public:
 	static void RequestShaderLoad(const std::string& path, const std::string& name = "");
 	static void RequestModelLoad(const std::string& path);
 	static void RequestBVHBuild(Ref<BVHBuilder> builder);
+	// Main thread. Keeps an in-progress GPU upload pointed at the same mesh
+	// after a submesh is erased from the model.
+	static void NotifyMeshRemoved(const Ref<Model>& model, size_t removedIndex);
 
 	// Called once per frame, BEFORE rendering
 	static void DispatchQueuedLoads();
@@ -577,6 +580,19 @@ inline void ResourceLoader::CompleteModelLoad(AsyncLoadRequest& req)
 
 // Process a limited number of pending mesh GPU uploads each frame.
 // Called after completion processing, before rendering.
+inline void ResourceLoader::NotifyMeshRemoved(const Ref<Model>& model, size_t removedIndex)
+{
+	if (!model)
+		return;
+	for (auto& pending : s_PendingGPUModels)
+	{
+		if (pending.model != model)
+			continue;
+		if (removedIndex < pending.nextMeshIdx)
+			pending.nextMeshIdx--;
+	}
+}
+
 inline void ResourceLoader::ProcessIncrementalGPUUploads()
 {
 	int uploaded = 0;
