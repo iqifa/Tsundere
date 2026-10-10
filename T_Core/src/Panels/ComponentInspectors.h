@@ -10,6 +10,7 @@
 #include "Widget.h"
 #include "Scene/Scene.h"
 #include "Scene/BVHBuilder.h"
+#include "Core/Threading/ResourceLoader.h"
 
 // ============================================================================
 // Inspector free functions
@@ -197,6 +198,8 @@ namespace {
 		bool NeedRebuild = false;
 		Entity LastEntity;
 		int SelectedMaterialIdx = 0;
+		std::string SyncedModelPath;
+		size_t SyncedMeshCount = 0;
 	};
 	inline MeshRenderInspectorState s_MeshRenderState;
 
@@ -213,7 +216,7 @@ namespace {
 
 		for (auto& var : mat->varies)
 		{
-			unsigned int value = std::get<0>(var);
+			uintptr_t value = std::get<0>(var);
 			std::string label = std::get<2>(var);
 
 			switch (std::get<1>(var))
@@ -303,6 +306,8 @@ inline void RenderMeshRenderInspector(Entity& entity)
 	{
 		ClearMaterialWidgets();
 		state.SelectedMaterialIdx = 0;
+		state.SyncedModelPath.clear();
+		state.SyncedMeshCount = 0;
 		state.LastEntity = entity;
 	}
 
@@ -356,18 +361,6 @@ inline void RenderMeshRenderInspector(Entity& entity)
 				if (ImGui::Selectable(display.c_str(), selected))
 				{
 					meshrender.ModelPath = path;
-					Ref<Model> model = My_map::GetModel(path);
-					if (model)
-					{
-						size_t meshCount = model->meshes.size();
-						meshrender.materials.resize(meshCount);
-						for (size_t i = 0; i < meshCount; i++)
-						{
-							if (!meshrender.materials[i])
-								meshrender.materials[i] = CreateRef<Material>(
-									"D:/Code/C++/Tsundere/res/shaders/Lamber.shader");
-						}
-					}
 					state.SelectedMaterialIdx = 0;
 					ClearMaterialWidgets();
 					BVHBuilder::MarkActiveDirty();
@@ -384,20 +377,8 @@ inline void RenderMeshRenderInspector(Entity& entity)
 			if (!importPath.empty())
 			{
 				My_map::AddModelPath(importPath);
-				My_map::LoadModel(importPath);
+				Engine::ResourceLoader::RequestModelLoad(importPath);
 				meshrender.ModelPath = importPath;
-				Ref<Model> model = My_map::GetModel(importPath);
-				if (model)
-				{
-					size_t meshCount = model->meshes.size();
-					meshrender.materials.resize(meshCount);
-					for (size_t i = 0; i < meshCount; i++)
-					{
-						if (!meshrender.materials[i])
-							meshrender.materials[i] = CreateRef<Material>(
-								"D:/Code/C++/Tsundere/res/shaders/Lamber.shader");
-					}
-				}
 				state.SelectedMaterialIdx = 0;
 				ClearMaterialWidgets();
 				BVHBuilder::MarkActiveDirty();
@@ -409,6 +390,21 @@ inline void RenderMeshRenderInspector(Entity& entity)
 		Ref<Model> model = meshrender.ModelPath.empty()
 			? nullptr
 			: My_map::GetModel(meshrender.ModelPath);
+
+		if (model && (state.SyncedModelPath != meshrender.ModelPath
+			|| state.SyncedMeshCount != model->meshes.size()))
+		{
+			size_t meshCount = model->meshes.size();
+			meshrender.materials.resize(meshCount);
+			for (size_t i = 0; i < meshCount; i++)
+			{
+				if (!meshrender.materials[i])
+					meshrender.materials[i] = CreateRef<Material>(
+						"D:/Code/C++/Tsundere/res/shaders/Lamber.shader");
+			}
+			state.SyncedModelPath = meshrender.ModelPath;
+			state.SyncedMeshCount = meshCount;
+		}
 
 		if (!meshrender.materials.empty())
 		{

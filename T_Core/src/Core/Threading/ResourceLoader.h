@@ -13,6 +13,7 @@
 #include "ExternalFiles.h"
 
 #include <deque>
+#include <unordered_map>
 #include <unordered_set>
 #include <mutex>
 #include <condition_variable>
@@ -44,6 +45,7 @@ struct AsyncLoadRequest
 
 	// Model: CPU-only mesh data (no GL objects, safe to create on worker thread)
 	std::vector<MeshAsset> loadedMeshes;
+	std::vector<ModelBone> bones;
 
 	// BVH: target builder (BuildBVH CPU part runs on worker)
 	Ref<BVHBuilder> bvhBuilder;
@@ -362,6 +364,39 @@ inline void ResourceLoader::ExecuteModelLoad(AsyncLoadRequest& req)
 		return;
 	}
 
+	auto toGlm = [](const aiMatrix4x4& m) {
+		glm::mat4 result;
+		result[0][0] = m.a1; result[1][0] = m.a2; result[2][0] = m.a3; result[3][0] = m.a4;
+		result[0][1] = m.b1; result[1][1] = m.b2; result[2][1] = m.b3; result[3][1] = m.b4;
+		result[0][2] = m.c1; result[1][2] = m.c2; result[2][2] = m.c3; result[3][2] = m.c4;
+		result[0][3] = m.d1; result[1][3] = m.d2; result[2][3] = m.d3; result[3][3] = m.d4;
+		return result;
+	};
+
+	std::unordered_map<std::string, int> boneIndex;
+	auto addBoneWeight = [](Vertex& vertex, int boneID, float weight) {
+		for (int i = 0; i < MAX_BONE_INFLUENCE; ++i)
+		{
+			if (vertex.m_BoneIDs[i] < 0)
+			{
+				vertex.m_BoneIDs[i] = boneID;
+				vertex.m_Weights[i] = weight;
+				return;
+			}
+		}
+		int smallest = 0;
+		for (int i = 1; i < MAX_BONE_INFLUENCE; ++i)
+		{
+			if (vertex.m_Weights[i] < vertex.m_Weights[smallest])
+				smallest = i;
+		}
+		if (weight > vertex.m_Weights[smallest])
+		{
+			vertex.m_BoneIDs[smallest] = boneID;
+			vertex.m_Weights[smallest] = weight;
+		}
+	};
+
 	std::function<void(aiNode*, const aiScene*)> processNode =
 		[&](aiNode* node, const aiScene* scn)
 	{
@@ -374,18 +409,60 @@ inline void ResourceLoader::ExecuteModelLoad(AsyncLoadRequest& req)
 			for (unsigned int v = 0; v < mesh->mNumVertices; v++)
 			{
 				Vertex vert;
+				for (int influence = 0; influence < MAX_BONE_INFLUENCE; ++influence)
+					vert.m_BoneIDs[influence] = -1;
+
 				vert.Position = glm::vec3(mesh->mVertices[v].x, mesh->mVertices[v].y, mesh->mVertices[v].z);
 				if (mesh->HasNormals())
 					vert.Normal = glm::vec3(mesh->mNormals[v].x, mesh->mNormals[v].y, mesh->mNormals[v].z);
-				if (mesh->mTextureCoords[0])
+				if (mesh->HasTextureCoords(0))
 				{
 					vert.TexCoords = glm::vec2(mesh->mTextureCoords[0][v].x, mesh->mTextureCoords[0][v].y);
-					vert.Tangent = glm::vec3(mesh->mTangents[v].x, mesh->mTangents[v].y, mesh->mTangents[v].z);
-					vert.Bitangent = glm::vec3(mesh->mBitangents[v].x, mesh->mBitangents[v].y, mesh->mBitangents[v].z);
+					if (mesh->HasTangentsAndBitangents())
+					{
+						vert.Tangent = glm::vec3(mesh->mTangents[v].x, mesh->mTangents[v].y, mesh->mTangents[v].z);
+						vert.Bitangent = glm::vec3(mesh->mBitangents[v].x, mesh->mBitangents[v].y, mesh->mBitangents[v].z);
+					}
 				}
 				else
 					vert.TexCoords = glm::vec2(0.0f, 0.0f);
 				vertices.push_back(vert);
+			}
+
+			for (unsigned int boneIdx = 0; boneIdx < mesh->mNumBones; ++boneIdx)
+			{
+				aiBone* bone = mesh->mBones[boneIdx];
+				std::string name = bone->mName.C_Str();
+				int id = 0;
+				auto found = boneIndex.find(name);
+				if (found == boneIndex.end())
+				{
+					id = static_cast<int>(req.bones.size());
+					ModelBone info;
+					info.name = name;
+					info.offset = toGlm(bone->mOffsetMatrix);
+					req.bones.push_back(std::move(info));
+					boneIndex.emplace(name, id);
+				}
+				else
+					id = found->second;
+
+				for (unsigned int w = 0; w < bone->mNumWeights; ++w)
+				{
+					unsigned int vertexId = bone->mWeights[w].mVertexId;
+					if (vertexId >= vertices.size())
+						continue;
+					addBoneWeight(vertices[vertexId], id, bone->mWeights[w].mWeight);
+				}
+			}
+
+			for (auto& vert : vertices)
+			{
+				for (int influence = 0; influence < MAX_BONE_INFLUENCE; ++influence)
+				{
+					if (vert.m_BoneIDs[influence] < 0)
+						vert.m_BoneIDs[influence] = 0;
+				}
 			}
 
 			for (unsigned int f = 0; f < mesh->mNumFaces; f++)
@@ -394,7 +471,6 @@ inline void ResourceLoader::ExecuteModelLoad(AsyncLoadRequest& req)
 				for (unsigned int j = 0; j < face.mNumIndices; j++)
 					indices.push_back(face.mIndices[j]);
 			}
-			// Phase-1: 只存 CPU 数据（MeshAsset），不创建任何 GL 对象
 			MeshAsset cpuMesh;
 			cpuMesh.vertices = std::move(vertices);
 			cpuMesh.indices  = std::move(indices);
@@ -482,6 +558,7 @@ inline void ResourceLoader::CompleteModelLoad(AsyncLoadRequest& req)
 	model->meshes.reserve(req.loadedMeshes.size());
 	for (auto& asset : req.loadedMeshes)
 		model->meshes.push_back(Mesh::CreateFromAsset(std::move(asset)));
+	model->bones = std::move(req.bones);
 
 	{
 		std::unique_lock lock(My_map::s_Mutex);

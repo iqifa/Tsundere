@@ -1,6 +1,8 @@
 #pragma once
 #include<Pipeline/Passes/PassCommon.h>
 #include "Pipeline/RenderPassRegistry.h"
+#include "Scene/Vertex.h"
+#include <cstddef>
 
 class GbufferPass :public RenderGraphPass
 {
@@ -105,15 +107,15 @@ public:
 		if (!m_ScenePipeline)
 		{
 			VertexLayout sceneLayout;
-			sceneLayout.stride = 18 * sizeof(float) + 4 * sizeof(int);  // 14 floats + 4 ints
+			sceneLayout.stride = sizeof(Vertex);
 			sceneLayout.attributes = {
-				{ 0, VertexFormat::Float3, 0, 0 },                                     // Position
-				{ 1, VertexFormat::Float3, 3 * sizeof(float), 0 },                    // Normal
-				{ 2, VertexFormat::Float2, 6 * sizeof(float), 0 },                    // TexCoords
-				{ 3, VertexFormat::Float3, 8 * sizeof(float), 0 },                    // Tangent
-				{ 4, VertexFormat::Float3, 11 * sizeof(float), 0 },                   // Bitangent
-				{ 5, VertexFormat::Int4,   14 * sizeof(float), 0 },                   // BoneIDs
-				{ 6, VertexFormat::Float4, 18 * sizeof(float) + 4 * sizeof(int), 0 }, // Weights
+				{ 0, VertexFormat::Float3, offsetof(Vertex, Position) },
+				{ 1, VertexFormat::Float3, offsetof(Vertex, Normal) },
+				{ 2, VertexFormat::Float2, offsetof(Vertex, TexCoords) },
+				{ 3, VertexFormat::Float3, offsetof(Vertex, Tangent) },
+				{ 4, VertexFormat::Float3, offsetof(Vertex, Bitangent) },
+				{ 5, VertexFormat::Int4,   offsetof(Vertex, m_BoneIDs) },
+				{ 6, VertexFormat::Float4, offsetof(Vertex, m_Weights) },
 			};
 
 			PipelineDesc scenePipeDesc = m_CubePipelineDesc;  // Reuse base settings

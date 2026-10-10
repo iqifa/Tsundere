@@ -33,18 +33,10 @@ Ref<Model> My_map::LoadModel(const std::string& path)
 		shared_lock lock(s_Mutex);
 		auto it = m_ModleMap.find(path);
 		if (it != m_ModleMap.end())
-		{
-			Warn_Core("Model: " + path + " already loaded");
 			return it->second;
-		}
 	}
-	// Load without holding lock (heavy Assimp work)
-	auto model = CreateRef<Model>(path);
-	{
-		unique_lock lock(s_Mutex);
-		m_ModleMap[path] = model;
-	}
-	return model;
+	Engine::ResourceLoader::RequestModelLoad(path);
+	return nullptr;
 }
 
 Ref<Model> My_map::GetModel(const std::string& path)
