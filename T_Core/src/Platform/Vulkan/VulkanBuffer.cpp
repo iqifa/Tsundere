@@ -3,6 +3,7 @@
 #include "Platform/RHI/RHIContext.h"
 #include "Platform/RHI/RHIVulkanContext.h"
 #include "Platform/RenderAPIConfig.h"
+#include "Platform/Vulkan/VulkanDeletionQueue.h"
 
 #ifdef RenderAPI_Vulkan
 Ref<RHIBuffer> RHIBuffer::Create(const BufferDesc& desc)
@@ -101,15 +102,28 @@ void VulkanBuffer::Destroy()
 {
     if (m_Device == VK_NULL_HANDLE)
         return;
+    if (VulkanDeletionQueue::IsClosed())
+    {
+        m_Mapped = nullptr;
+        m_Buffer = VK_NULL_HANDLE;
+        m_Memory = VK_NULL_HANDLE;
+        m_Device = VK_NULL_HANDLE;
+        return;
+    }
     if (m_Mapped)
         vkUnmapMemory(m_Device, m_Memory);
-    if (m_Buffer)
-        vkDestroyBuffer(m_Device, m_Buffer, nullptr);
-    if (m_Memory)
-        vkFreeMemory(m_Device, m_Memory, nullptr);
+
+    const VkDevice device = m_Device;
+    const VkBuffer buffer = m_Buffer;
+    const VkDeviceMemory memory = m_Memory;
     m_Mapped = nullptr;
     m_Buffer = VK_NULL_HANDLE;
     m_Memory = VK_NULL_HANDLE;
+    m_Device = VK_NULL_HANDLE;
+
+    // The frame command buffer may already contain vkCmdBind*Buffer for this
+    // allocation (submesh delete runs after Execute, before submit).
+    VulkanDeletionQueue::EnqueueBuffer(device, buffer, memory);
 }
 
 uint32_t VulkanBuffer::FindMemoryType(uint32_t typeBits, VkMemoryPropertyFlags properties) const

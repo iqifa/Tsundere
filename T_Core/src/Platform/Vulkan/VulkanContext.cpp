@@ -1,6 +1,7 @@
 #define GLFW_INCLUDE_VULKAN
 #include "VulkanContext.h"
 #include "Platform/RenderAPI.h"
+#include "Platform/Vulkan/VulkanDeletionQueue.h"
 #include "Debug/Debug.h"
 
 #include <algorithm>
@@ -149,6 +150,7 @@ void VulkanContext::Shutdown()
         return;
 
     WaitIdle();
+    VulkanDeletionQueue::BeginImmediate();
     m_FrameActive = false;
     m_PresentPassActive = false;
     m_PresentPassRecorded = false;
@@ -174,6 +176,7 @@ void VulkanContext::Shutdown()
 
         cleanupSwapchain();
         vkDestroyDevice(m_Device, nullptr);
+        VulkanDeletionQueue::Close();
     }
 
     if (m_Surface != VK_NULL_HANDLE && m_Instance != VK_NULL_HANDLE)
@@ -231,6 +234,7 @@ void VulkanContext::BeginFrame()
     CheckVk(vkWaitForFences(m_Device, 1, &m_InFlightFence, VK_TRUE,
                             std::numeric_limits<uint64_t>::max()),
             "Failed to wait for Vulkan frame fence");
+    VulkanDeletionQueue::Flush();
 
     uint32_t imageIndex = 0;
     VkResult acquireResult = vkAcquireNextImageKHR(
