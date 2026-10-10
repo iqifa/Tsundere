@@ -2,12 +2,13 @@
 #ifndef INPUT
 #define INPUT
 #include"Widget.h"
+#include <cstdint>
 namespace Widget {
 	template<class T>
 	class  Input :public Widget
 	{
 	public:
-		Input(std::string lable, unsigned int value) :Name(lable), value(value),Lable("##"+ lable) {
+		Input(std::string lable, uintptr_t value) :Name(lable), value(value),Lable("##"+ lable) {
 			
 		}
 		virtual void _Draw() override {
@@ -23,7 +24,7 @@ namespace Widget {
 	private:
 		std::string Name;
 		std::string Lable;
-		unsigned int value;
+		uintptr_t value;
 
 
 		template<typename T2>

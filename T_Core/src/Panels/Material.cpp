@@ -2,18 +2,18 @@
 #include"Debug/Debug.h"
 using namespace std;
 template<typename T,typename... Args>
-void ValueChange(string name, unsigned int a, Ref<RHIShader> shader,Args...args)
+void ValueChange(string name, uintptr_t a, Ref<RHIShader> shader,Args...args)
 {
 
 }
 template<>
-void ValueChange<int>(string name, unsigned int a, Ref<RHIShader> shader)
+void ValueChange<int>(string name, uintptr_t a, Ref<RHIShader> shader)
 {
 	int* value = (int*)a;
 	shader->SetUniform1i(name, *value);
 }
 template<>
-void ValueChange<Ref<RHITexture2D>>(string name, unsigned int a, Ref<RHIShader> shader,int count)
+void ValueChange<Ref<RHITexture2D>>(string name, uintptr_t a, Ref<RHIShader> shader,int count)
 {
 	Ref<RHITexture2D>* value = (Ref<RHITexture2D>*)a;
 
@@ -48,41 +48,41 @@ void Material::InitVarie(Uniform uniform)
 	if (uniform.Type == "int")
 	{
 		int* value = new int;
-		varies.push_back(tuple<unsigned int, ValueType, string>((unsigned int)value, ValueType::INT, uniform.Name));
+		varies.push_back(tuple<uintptr_t, ValueType, string>((uintptr_t)value, ValueType::INT, uniform.Name));
 	}
 	else if (uniform.Type == "float")
 	{
 		float* value = new float;
-		varies.push_back(tuple<unsigned int, ValueType, string>((unsigned int)value, ValueType::FLOAT, uniform.Name));
+		varies.push_back(tuple<uintptr_t, ValueType, string>((uintptr_t)value, ValueType::FLOAT, uniform.Name));
 	}
 	else if (uniform.Type == "double")
 	{
 		double* value = new double;
-		varies.push_back(tuple<unsigned int, ValueType, string>((unsigned int)value, ValueType::DOUBLE, uniform.Name));
+		varies.push_back(tuple<uintptr_t, ValueType, string>((uintptr_t)value, ValueType::DOUBLE, uniform.Name));
 	}
 	else if (uniform.Type == "char")
 	{
 		char* value = new char;
-		varies.push_back(tuple<unsigned int, ValueType, string>((unsigned int)value, ValueType::CHAR, uniform.Name));
+		varies.push_back(tuple<uintptr_t, ValueType, string>((uintptr_t)value, ValueType::CHAR, uniform.Name));
 	}
 	else if (uniform.Type == "vec2")
 	{
 		glm::vec2* value = new glm::vec2;
-		varies.push_back(tuple<unsigned int, ValueType, string>((unsigned int)value, ValueType::VEC2, uniform.Name));
+		varies.push_back(tuple<uintptr_t, ValueType, string>((uintptr_t)value, ValueType::VEC2, uniform.Name));
 	}
 	else if (uniform.Type == "vec3")
 	{
 		glm::vec3* value = new glm::vec3;
-		varies.push_back(tuple<unsigned int, ValueType, string>((unsigned int)value, ValueType::VEC3, uniform.Name));
+		varies.push_back(tuple<uintptr_t, ValueType, string>((uintptr_t)value, ValueType::VEC3, uniform.Name));
 	}
 	else if (uniform.Type == "sampler2D")
 	{
 		Ref<RHITexture2D>* value = new Ref<RHITexture2D>;
-		varies.push_back(tuple<unsigned int, ValueType, string>((unsigned int)value, ValueType::TEXTURE, uniform.Name));
+		varies.push_back(tuple<uintptr_t, ValueType, string>((uintptr_t)value, ValueType::TEXTURE, uniform.Name));
 	}
 	else if (uniform.Type == "Head")
 	{
-		varies.push_back(tuple<unsigned int, ValueType, string>(0, ValueType::HEADER, uniform.Name));
+		varies.push_back(tuple<uintptr_t, ValueType, string>(0, ValueType::HEADER, uniform.Name));
 	}
 }
 
@@ -119,7 +119,7 @@ void Material::Save()
 	fs << shader->GetPath() << endl;
 	for (auto var : varies)
 	{
-		unsigned int value = std::get<0>(var);
+		uintptr_t value = std::get<0>(var);
 		string lable = std::get<2>(var);
 		switch (std::get<1>(var))
 		{
