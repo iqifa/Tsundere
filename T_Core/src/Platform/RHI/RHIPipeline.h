@@ -65,6 +65,7 @@ struct PipelineDesc
     Ref<RHIShader> shader;
     VertexLayout vertexLayout;
     PrimitiveTopology topology = PrimitiveTopology::Triangles;
+    PolygonMode polygonMode = PolygonMode::Fill;
     CullMode cullMode = CullMode::Back;
     CompareOp depthOp = CompareOp::Less;
     bool depthWrite = true;

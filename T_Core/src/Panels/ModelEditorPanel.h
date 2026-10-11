@@ -13,6 +13,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <vector>
 
 // Mesh list, preview camera, and bone names for one loaded model.
 // Push one instance as a layer, then call Open() from anywhere to show it.
@@ -65,6 +66,7 @@ private:
 		{
 			m_SelectedMesh = 0;
 			m_BoneFilter[0] = 0;
+			m_MeshColors.clear();
 		}
 		m_SelectedPath = path;
 		m_Open = true;
@@ -119,11 +121,13 @@ private:
 
 		ImGui::Separator();
 		ImGui::TextUnformatted("Meshes");
-		if (ImGui::BeginTable("##meshes", 4,
+		EnsureMeshColors(*model);
+		if (ImGui::BeginTable("##meshes", 5,
 			ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders | ImGuiTableFlags_ScrollY,
 			ImVec2(0, 160)))
 		{
 			ImGui::TableSetupColumn("Mesh", ImGuiTableColumnFlags_WidthFixed, 50.0f);
+			ImGui::TableSetupColumn("Color", ImGuiTableColumnFlags_WidthFixed, 36.0f);
 			ImGui::TableSetupColumn("Vertices");
 			ImGui::TableSetupColumn("Triangles");
 			ImGui::TableSetupColumn("GPU");
@@ -135,18 +139,22 @@ private:
 				ImGui::TableSetColumnIndex(0);
 				char label[32];
 				std::snprintf(label, sizeof(label), "%d", i);
-				if (ImGui::Selectable(label, m_SelectedMesh == i,
-					ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick))
+				if (ImGui::Selectable(label, m_SelectedMesh == i, ImGuiSelectableFlags_AllowDoubleClick))
 				{
 					m_SelectedMesh = i;
 					if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
 						FocusPreviewOnMesh(mesh);
 				}
 				ImGui::TableSetColumnIndex(1);
-				ImGui::Text("%zu", mesh.vertices.size());
+				ImGui::SetNextItemWidth(-FLT_MIN);
+				ImGui::PushID(i);
+				ImGui::ColorEdit3("##meshcolor", &m_MeshColors[i].x, ImGuiColorEditFlags_NoInputs);
+				ImGui::PopID();
 				ImGui::TableSetColumnIndex(2);
-				ImGui::Text("%zu", mesh.indices.size() / 3);
+				ImGui::Text("%zu", mesh.vertices.size());
 				ImGui::TableSetColumnIndex(3);
+				ImGui::Text("%zu", mesh.indices.size() / 3);
+				ImGui::TableSetColumnIndex(4);
 				ImGui::TextUnformatted(mesh.IsGPUReady() ? "ready" : "pending");
 			}
 			ImGui::EndTable();
@@ -250,6 +258,9 @@ private:
 	{
 		ImGui::TextUnformatted("Preview");
 		ImGui::SameLine();
+		ImGui::SetNextItemWidth(110.0f);
+		ImGui::Combo("##previewmode", &m_PreviewMode, "Shaded\0Wireframe\0Normals\0UV\0");
+		ImGui::SameLine();
 		ImGui::Checkbox("Selected mesh only", &m_PreviewIsolate);
 		ImGui::SameLine();
 		ImGui::TextDisabled("Left drag orbit, wheel zoom");
@@ -265,7 +276,10 @@ private:
 		HandlePreviewCamera();
 		const ImVec2 viewMin = ImGui::GetItemRectMin();
 
-		RenderModelPreview(model, boundsMin, boundsMax, width, height);
+		// Hardware line width cannot go below 1px. Draw the wireframe at 2x
+		// and show it in the same rect so the strokes land thinner on screen.
+		const uint32_t renderScale = m_PreviewMode == 1 ? 2u : 1u;
+		RenderModelPreview(model, boundsMin, boundsMax, width * renderScale, height * renderScale);
 
 		if (m_PreviewTexture != ImTextureID_Invalid)
 		{
@@ -363,11 +377,11 @@ private:
 		cmd->BeginRenderPass(m_PreviewFramebuffer, begin);
 		cmd->SetViewport({ 0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, 1.0f });
 		cmd->SetScissor({ 0, 0, width, height });
-		cmd->BindPipeline(m_PreviewPipeline);
+		Ref<RHIPipeline> pipeline = m_PreviewMode == 1 ? m_PreviewWirePipeline : m_PreviewPipeline;
+		cmd->BindPipeline(pipeline);
 		cmd->BindDescriptorSet(m_PreviewDescriptors, 0);
 
 		const glm::vec4 idleTint(0.62f, 0.66f, 0.72f, 0.0f);
-		const glm::vec4 selectedTint(0.95f, 0.55f, 0.22f, 1.0f);
 		for (int i = 0; i < (int)model.meshes.size(); ++i)
 		{
 			const bool selected = i == m_SelectedMesh;
@@ -377,13 +391,17 @@ private:
 			if (!mesh.IsGPUReady())
 				continue;
 
+			glm::vec3 color = i < (int)m_MeshColors.size() ? m_MeshColors[i] : idleTint;
 			PreviewPush pc{};
 			pc.model = glm::mat4(1.0f);
 			pc.prevModel = glm::mat4(0.0f);
-			pc.prevModel[0] = selected ? selectedTint : idleTint;
+			pc.prevModel[0] = glm::vec4(color, selected ? 1.0f : 0.0f);
+			pc.prevModel[1] = glm::vec4(static_cast<float>(m_PreviewMode), 0.0f, 0.0f, 0.0f);
 			cmd->PushConstants(&pc, sizeof(pc));
 			mesh.gpuMesh->Draw(*cmd);
 		}
+
+		pipeline->Unbind();
 
 		cmd->EndRenderPass();
 		if (RHITexture2D* color = m_PreviewFramebuffer->GetColorAttachment(0))
@@ -430,6 +448,7 @@ private:
 		layout.attributes = {
 			{ 0, VertexFormat::Float3, static_cast<uint32_t>(offsetof(Vertex, Position)) },
 			{ 1, VertexFormat::Float3, static_cast<uint32_t>(offsetof(Vertex, Normal)) },
+			{ 2, VertexFormat::Float2, static_cast<uint32_t>(offsetof(Vertex, TexCoords)) },
 		};
 
 		PipelineDesc desc;
@@ -448,13 +467,45 @@ private:
 		desc.renderingSignature.depthFormat = m_PreviewFramebuffer->GetDepthAttachmentFormat();
 		desc.renderingSignature.sampleCount = 1;
 
+		desc.polygonMode = PolygonMode::Fill;
 		m_PreviewPipeline = RHIPipeline::Create(desc);
-		if (!m_PreviewPipeline)
+		desc.polygonMode = PolygonMode::Line;
+		m_PreviewWirePipeline = RHIPipeline::Create(desc);
+		if (!m_PreviewPipeline || !m_PreviewWirePipeline)
 		{
 			m_PreviewFailed = true;
 			return false;
 		}
 		return true;
+	}
+
+	static glm::vec3 DefaultMeshColor(int index)
+	{
+		const float h = std::fmod(static_cast<float>(index) * 0.61803398875f, 1.0f);
+		const float s = 0.55f;
+		const float v = 0.86f;
+		const float c = v * s;
+		const float x = c * (1.0f - std::fabs(std::fmod(h * 6.0f, 2.0f) - 1.0f));
+		const float m = v - c;
+		glm::vec3 rgb(0.0f);
+		switch (static_cast<int>(h * 6.0f) % 6)
+		{
+		case 0: rgb = glm::vec3(c, x, 0.0f); break;
+		case 1: rgb = glm::vec3(x, c, 0.0f); break;
+		case 2: rgb = glm::vec3(0.0f, c, x); break;
+		case 3: rgb = glm::vec3(0.0f, x, c); break;
+		case 4: rgb = glm::vec3(x, 0.0f, c); break;
+		default: rgb = glm::vec3(c, 0.0f, x); break;
+		}
+		return rgb + glm::vec3(m);
+	}
+
+	void EnsureMeshColors(const Model& model)
+	{
+		if (m_MeshColors.size() > model.meshes.size())
+			m_MeshColors.resize(model.meshes.size());
+		while (m_MeshColors.size() < model.meshes.size())
+			m_MeshColors.push_back(DefaultMeshColor(static_cast<int>(m_MeshColors.size())));
 	}
 
 	void FitPreviewCamera(const glm::vec3& boundsMin, const glm::vec3& boundsMax)
@@ -498,6 +549,8 @@ private:
 		Engine::ResourceLoader::NotifyMeshRemoved(
 			My_map::GetModel(m_SelectedPath), static_cast<size_t>(removed));
 		model.meshes.erase(model.meshes.begin() + removed);
+		if (removed < (int)m_MeshColors.size())
+			m_MeshColors.erase(m_MeshColors.begin() + removed);
 
 		if (m_Scene)
 		{
@@ -530,6 +583,7 @@ private:
 	Ref<RHIFramebuffer> m_PreviewFramebuffer;
 	Ref<RHIShader> m_PreviewShader;
 	Ref<RHIPipeline> m_PreviewPipeline;
+	Ref<RHIPipeline> m_PreviewWirePipeline;
 	Ref<RHIBuffer> m_PreviewCameraUBO;
 	Ref<RHIDescriptorSet> m_PreviewDescriptors;
 	ImTextureID m_PreviewTexture = ImTextureID_Invalid;
@@ -542,4 +596,6 @@ private:
 	glm::vec3 m_PreviewTarget{ 0.0f };
 	bool m_PreviewIsolate = false;
 	bool m_PreviewFailed = false;
+	int m_PreviewMode = 0;
+	std::vector<glm::vec3> m_MeshColors;
 };

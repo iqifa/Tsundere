@@ -300,7 +300,9 @@ VulkanPipeline::VulkanPipeline(const PipelineDesc& desc) : m_Desc(desc)
 	rasterizer.depthClampEnable = VK_FALSE;
 	rasterizer.rasterizerDiscardEnable = VK_FALSE;
 
-	rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+	rasterizer.polygonMode = desc.polygonMode == PolygonMode::Line
+		? VK_POLYGON_MODE_LINE
+		: VK_POLYGON_MODE_FILL;
 	rasterizer.lineWidth = 1.0f;
 
 	rasterizer.cullMode =

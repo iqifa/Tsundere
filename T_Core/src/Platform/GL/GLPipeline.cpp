@@ -180,12 +180,17 @@ void GLPipeline::Bind()
     {
         GLCall(glDisable(GL_BLEND));
     }
+
+    GLCall(glPolygonMode(
+        GL_FRONT_AND_BACK,
+        m_Desc.polygonMode == PolygonMode::Line ? GL_LINE : GL_FILL));
 }
 
 void GLPipeline::Unbind()
 {
     GLCall(glBindVertexArray(0));
     glDisable(GL_CULL_FACE);
+    GLCall(glPolygonMode(GL_FRONT_AND_BACK, GL_FILL));
     if (m_Desc.shader)
         m_Desc.shader->UnBind();
 }

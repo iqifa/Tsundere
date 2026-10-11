@@ -54,6 +54,12 @@ enum class PrimitiveTopology : uint8_t
     Points
 };
 
+enum class PolygonMode : uint8_t
+{
+    Fill,
+    Line
+};
+
 enum class CullMode : uint8_t
 {
     None,
