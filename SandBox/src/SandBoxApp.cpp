@@ -4,7 +4,8 @@
 //#include"ExampleLayer.h"
 #include"Inspect.h"
 #include"Editor_Panel/VulkanExample.h"
-//#include"Panels/ModelImportPanel.h"
+#include"Panels/ModelImportPanel.h"
+#include"Panels/ModelEditorPanel.h"
 //#include"Panels/TextureImportPanel.h"
 #include"HeadLine.h"
 entt::entity m_SelectedContext = null;
@@ -22,7 +23,8 @@ public:
 #endif
 		//PushLayer(new ExampleLayer(m_ActivateScene, "Example"));
 		PushLayer(new Inspect(m_ActivateScene, "Inspect"));
-		//PushLayer(new ModelImportPanel("Model Import"));
+		PushLayer(new ModelEditorPanel(m_ActivateScene, "Model Editor"));
+		PushLayer(new ModelImportPanel("Model Import"));
 		//PushLayer(new TextureImportPanel("Texture Import"));
 	}
 	~SandBox() {}
