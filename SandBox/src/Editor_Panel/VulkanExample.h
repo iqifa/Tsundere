@@ -33,10 +33,13 @@ private:
 	Ref<RGFrameData> m_GraphFrameData;
 	RGTextureHandle m_GraphFinalColor;
 	RGTextureHandle m_GraphVelocity;
+	RGTextureHandle m_ShadowMap;
 
 	RHITexture2D* m_FinalColorTexture = nullptr;
 	ImTextureID m_FinalColorImGuiID = ImTextureID_Invalid;
-
+	RHITexture2D* m_ShadowMapTexture = nullptr;
+	ImTextureID m_ShadowMapImGuiID = ImTextureID_Invalid;
+	
 
 	RenderGraph m_RenderGraph;
 	RenderPassManager m_PassManager;  // Pass 管理器

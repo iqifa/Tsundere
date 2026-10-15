@@ -19,7 +19,7 @@ VulkanExampleLayer::VulkanExampleLayer(Ref<Scene> scene, std::string name)
 	}
 
 	// 初始化 Pass 管理器
-	PassCreationContext ctx; 
+	PassCreationContext ctx;
 	ctx.scene = m_Context;
 	ctx.frameData = nullptr;  // 延迟创建
 	ctx.width = 1920;
@@ -31,9 +31,6 @@ void VulkanExampleLayer::OnUpdate()
 {
 	if (m_ViewPortSize.x <= 0.0f || m_ViewPortSize.y <= 0.0f)
 		return;
-
-	if (m_ViewportFocused && m_WindowHandle && currentcamera)
-		currentcamera->ProcessKeyboard(m_WindowHandle, 0.5f);
 
 	ExecuteRenderGraph();
 }
@@ -47,15 +44,19 @@ void VulkanExampleLayer::OnImGuiRender()
 	ImGui::Begin("ViewPort");
 	m_ViewportFocused = ImGui::IsWindowFocused();
 
-	ImGuiIO& io = ImGui::GetIO();
-	if (m_ViewportFocused && ImGui::IsMouseDown(ImGuiMouseButton_Right) && currentcamera)
+	if (currentcamera && m_ViewportFocused)
 	{
-		float xoffset = io.MouseDelta.x;
-		float yoffset = -io.MouseDelta.y;
-		currentcamera->ProcessMouseLook(xoffset, yoffset);
+		ImGuiIO& io = ImGui::GetIO();
+		if (ImGui::IsMouseDown(ImGuiMouseButton_Right))
+		{
+			const float xoffset = io.MouseDelta.x;
+			const float yoffset = -io.MouseDelta.y;
+			currentcamera->ProcessMouseLook(xoffset, yoffset);
+		}
+
+		if (io.MouseWheel != 0.0f)
+			currentcamera->ProcessScroll(io.MouseWheel);
 	}
-	if (m_ViewportFocused && io.MouseWheel != 0.0f && currentcamera)
-		currentcamera->ProcessScroll(io.MouseWheel);
 
 	const ImVec2 viewportPanelSize = ImGui::GetContentRegionAvail();
 	const glm::vec2 newViewportSize = {
@@ -82,6 +83,29 @@ void VulkanExampleLayer::OnImGuiRender()
 	}
 
 	ImGui::End();
+
+	if (m_ShadowMapImGuiID != ImTextureID_Invalid)
+	{
+		ImGui::SetNextWindowSize(ImVec2(512.0f, 560.0f), ImGuiCond_FirstUseEver);
+		ImGui::Begin("Shadow Map");
+
+		const ImVec2 avail = ImGui::GetContentRegionAvail();
+		const float side = avail.x > 1.0f ? avail.x : 256.0f;
+		ImGui::Image(
+			m_ShadowMapImGuiID,
+			ImVec2(side, side),
+			ImVec2(0.0f, 1.0f),
+			ImVec2(1.0f, 0.0f));
+
+		if (m_ShadowMapTexture)
+		{
+			ImGui::Text("%u x %u  ShadowMap.ShadowVis",
+				m_ShadowMapTexture->GetWidth(),
+				m_ShadowMapTexture->GetHeight());
+		}
+
+		ImGui::End();
+	}
 
 	// 渲染 Pass 管理面板
 	if (m_ShowPassManager)
@@ -137,6 +161,9 @@ void VulkanExampleLayer::ExecuteRenderGraph()
 		BuildRenderGraph(width, height);
 	}
 
+	if (m_ViewportFocused)
+		currentcamera->ProcessKeyboard(m_WindowHandle, 0.5f);
+
 	m_RenderGraph.Execute(*context);
 
 	RHITexture2D* finalColor = m_RenderGraph.GetExportedTexture(m_GraphFinalColor);
@@ -153,6 +180,24 @@ void VulkanExampleLayer::ExecuteRenderGraph()
 
 	if (finalColor && m_FinalColorImGuiID == ImTextureID_Invalid)
 		m_FinalColorImGuiID = RHIImGUIRenderer::GetTextureID(finalColor);
+
+	RHITexture2D* shadowMap = nullptr;
+	if (m_ShadowMap.id != InvalidResourceId)
+		shadowMap = m_RenderGraph.GetExportedTexture(m_ShadowMap);
+
+	if (shadowMap != m_ShadowMapTexture)
+	{
+		if (m_ShadowMapTexture)
+			RHIImGUIRenderer::ReleaseTexture(m_ShadowMapTexture);
+
+		m_ShadowMapTexture = shadowMap;
+		m_ShadowMapImGuiID = shadowMap
+			? RHIImGUIRenderer::GetTextureID(shadowMap)
+			: ImTextureID_Invalid;
+	}
+
+	if (shadowMap && m_ShadowMapImGuiID == ImTextureID_Invalid)
+		m_ShadowMapImGuiID = RHIImGUIRenderer::GetTextureID(shadowMap);
 }
 
 void VulkanExampleLayer::BuildRenderGraph(uint32_t width, uint32_t height)
@@ -162,6 +207,13 @@ void VulkanExampleLayer::BuildRenderGraph(uint32_t width, uint32_t height)
 		RHIImGUIRenderer::ReleaseTexture(m_FinalColorTexture);
 		m_FinalColorTexture = nullptr;
 		m_FinalColorImGuiID = ImTextureID_Invalid;
+	}
+
+	if (m_ShadowMapTexture)
+	{
+		RHIImGUIRenderer::ReleaseTexture(m_ShadowMapTexture);
+		m_ShadowMapTexture = nullptr;
+		m_ShadowMapImGuiID = ImTextureID_Invalid;
 	}
 
 	m_RenderGraph.Reset();
@@ -192,6 +244,7 @@ void VulkanExampleLayer::BuildRenderGraph(uint32_t width, uint32_t height)
 		m_GraphFinalColor = m_RenderGraph.GetTextureByName("Geometry.SceneColor");
 	}
 	m_GraphVelocity = m_RenderGraph.GetTextureByName("Geometry.Velocity");
+	m_ShadowMap = m_RenderGraph.GetTextureByName("ShadowMap.ShadowVis");
 
 	m_GraphBuiltWidth = width;
 	m_GraphBuiltHeight = height;
