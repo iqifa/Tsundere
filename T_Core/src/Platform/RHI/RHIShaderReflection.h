@@ -40,6 +40,10 @@ struct ShaderReflection
     std::vector<ShaderBlock>        StorageBlocks;
     std::vector<ShaderImageBinding> SampledImages;
     std::vector<ShaderImageBinding> StorageImages;
+    // Push-constant block. Name is the GLSL instance name (the `pc` in
+    // `uniform DrawPush { ... } pc`). Members carry the SPIR-V offset, which
+    // is the same layout Vulkan copies with vkCmdPushConstants.
+    std::vector<ShaderBlock>        PushConstants;
 
     const ShaderBlock* FindUniformBlock(uint32_t binding, uint32_t set = 0) const
     {

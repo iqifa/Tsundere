@@ -51,6 +51,15 @@ public:
     // bypass SPIR-V (e.g. GL_ARB_bindless_texture).
     virtual const ShaderReflection& GetReflection() const = 0;
 
+    // OpenGL lowers push constants to plain uniforms and writes each reflected
+    // member from this blob. Vulkan uploads the bytes directly, so the default
+    // is a no-op.
+    virtual void ApplyPushConstants(const void* data, uint32_t size) const
+    {
+        (void)data;
+        (void)size;
+    }
+
     // --- Uniform setters (transitional — DescriptorSet will replace these in Chunk 4/5) ---
     virtual void SetUniform4f(const std::string& name, float v0, float v1, float v2, float v3) const = 0;
     virtual void SetUniform1f(const std::string& name, float value) const = 0;

@@ -32,6 +32,8 @@ struct CompiledShader
 //
 // OpenGL: GLSL -> SPIR-V -> GLSL 430 via SPIRV-Cross. A stage that uses
 // layout(push_constant) is compiled as Vulkan SPIR-V, then lowered to
-// `uniform <Block> <instance>`. Sources using GL_ARB_bindless_texture cannot
-// go through SPIR-V and are passed to the driver as written (no #include, no reflection).
+// `uniform <Block> <instance>`. The reflected PushConstants block carries the
+// instance name and each member's SPIR-V offset. Sources using
+// GL_ARB_bindless_texture cannot go through SPIR-V and are passed to the
+// driver as written (no #include, no reflection).
 CompiledShader CompileShaderFile(const std::string& filepath, ShaderTarget target);

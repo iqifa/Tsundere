@@ -470,6 +470,10 @@ namespace
         auto [storage, storageCount] = GetResources(module, SPVC_RESOURCE_TYPE_STORAGE_IMAGE);
         for (size_t i = 0; i < storageCount; ++i)
             AppendUnique(out.StorageImages, ReflectImage(module.Compiler, storage[i]));
+
+        auto [push, pushCount] = GetResources(module, SPVC_RESOURCE_TYPE_PUSH_CONSTANT);
+        for (size_t i = 0; i < pushCount; ++i)
+            AppendUnique(out.PushConstants, ReflectBlock(module.Compiler, push[i]));
     }
 
     // =========================================================================
@@ -571,8 +575,8 @@ namespace
         spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, kGLSLVersion);
         spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ES, SPVC_FALSE);
         spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_VULKAN_SEMANTICS, SPVC_FALSE);
-        // Keep push constants as `uniform DrawPush pc`, not a UBO. glUniform
-        // addresses the members as "pc.model" and "pc.prevModel".
+        // Keep push constants as a plain uniform block (`uniform Block instance`),
+        // not a UBO. OpenGL then writes each reflected member with glUniform.
         spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_EMIT_PUSH_CONSTANT_AS_UNIFORM_BUFFER, SPVC_FALSE);
         spvc_compiler_install_compiler_options(module.Compiler, options);
 

@@ -79,8 +79,8 @@ struct  RenderResources
 
 // Per-draw transform. 128 bytes is the Vulkan minimum maxPushConstantsSize.
 // viewProj stays in the per-frame camera UBO; MVP is viewProj * model in the shader.
-// OpenGL has no push constants. SPIRV-Cross emits `uniform DrawPush pc`, and
-// PushConstants writes "pc.model" / "pc.prevModel".
+// PushConstants copies these bytes. The shader block must use the same member
+// order and offsets; the instance and member names are whatever the shader declares.
 struct DrawPushConstants
 {
 	glm::mat4 model;

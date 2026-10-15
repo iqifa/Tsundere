@@ -35,6 +35,7 @@ public:
 	uint32_t GetID() const override { return m_RendererID; }
 	const std::vector<Uniform>& GetUniforms() const override { return uniform; }
 	const ShaderReflection& GetReflection() const override { return m_Reflection; }
+	void ApplyPushConstants(const void* data, uint32_t size) const override;
 
 	// Uniform setters
 	void SetUniform4f(const std::string& name, float v0, float v1, float v2, float v3) const override;
