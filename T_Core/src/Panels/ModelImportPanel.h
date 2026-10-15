@@ -1,5 +1,6 @@
 #pragma once
 #include "Core/Layer/Layer.h"
+#include "Panels/EditorWindows.h"
 #include "ExternalFiles.h"
 #include "Panels/MeshFilePath.h"
 #include "Panels/ModelEditorPanel.h"
@@ -17,13 +18,18 @@ public:
 
 	void OnImGuiRender() override
 	{
-		DrawImportWindow();
+		if (EditorWindows::ModelImport())
+			DrawImportWindow();
 	}
 
 private:
 	void DrawImportWindow()
 	{
-		ImGui::Begin("Model Import");
+		if (!ImGui::Begin("Model Import", &EditorWindows::ModelImport()))
+		{
+			ImGui::End();
+			return;
+		}
 
 		if (ImGui::Button("Browse..."))
 		{

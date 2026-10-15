@@ -4,6 +4,7 @@
 #include<Pipeline/Passes/DeferredLight.h>
 #include <Pipeline/RenderPassRegistry.h>
 #include <Platform/RHI/RHIImGuiRenderer.h>
+#include <Panels/EditorWindows.h>
 
 
 VulkanExampleLayer::VulkanExampleLayer(Ref<Scene> scene, std::string name)
@@ -84,26 +85,33 @@ void VulkanExampleLayer::OnImGuiRender()
 
 	ImGui::End();
 
-	if (m_ShadowMapImGuiID != ImTextureID_Invalid)
+	if (EditorWindows::ShadowMap())
 	{
 		ImGui::SetNextWindowSize(ImVec2(512.0f, 560.0f), ImGuiCond_FirstUseEver);
-		ImGui::Begin("Shadow Map");
-
-		const ImVec2 avail = ImGui::GetContentRegionAvail();
-		const float side = avail.x > 1.0f ? avail.x : 256.0f;
-		ImGui::Image(
-			m_ShadowMapImGuiID,
-			ImVec2(side, side),
-			ImVec2(0.0f, 1.0f),
-			ImVec2(1.0f, 0.0f));
-
-		if (m_ShadowMapTexture)
+		if (ImGui::Begin("Shadow Map", &EditorWindows::ShadowMap()))
 		{
-			ImGui::Text("%u x %u  ShadowMap.ShadowVis",
-				m_ShadowMapTexture->GetWidth(),
-				m_ShadowMapTexture->GetHeight());
-		}
+			if (m_ShadowMapImGuiID != ImTextureID_Invalid)
+			{
+				const ImVec2 avail = ImGui::GetContentRegionAvail();
+				const float side = avail.x > 1.0f ? avail.x : 256.0f;
+				ImGui::Image(
+					m_ShadowMapImGuiID,
+					ImVec2(side, side),
+					ImVec2(0.0f, 1.0f),
+					ImVec2(1.0f, 0.0f));
 
+				if (m_ShadowMapTexture)
+				{
+					ImGui::Text("%u x %u  ShadowMap.ShadowVis",
+						m_ShadowMapTexture->GetWidth(),
+						m_ShadowMapTexture->GetHeight());
+				}
+			}
+			else
+			{
+				ImGui::TextUnformatted("Shadow map is not ready.");
+			}
+		}
 		ImGui::End();
 	}
 

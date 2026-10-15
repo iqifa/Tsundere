@@ -1,4 +1,17 @@
 #include "ImGuiLayer.h"
+#include "Panels/EditorWindows.h"
+
+bool& EditorWindows::ShadowMap()
+{
+    static bool open = true;
+    return open;
+}
+
+bool& EditorWindows::ModelImport()
+{
+    static bool open = true;
+    return open;
+}
 
 namespace Engine
 {
@@ -37,6 +50,17 @@ namespace Engine
         ImGui::PopStyleVar();
         if (fullscreen)
             ImGui::PopStyleVar(2);
+
+        if (ImGui::BeginMenuBar())
+        {
+            if (ImGui::BeginMenu("Window"))
+            {
+                ImGui::MenuItem("Shadow Map", nullptr, &EditorWindows::ShadowMap());
+                ImGui::MenuItem("Model Import", nullptr, &EditorWindows::ModelImport());
+                ImGui::EndMenu();
+            }
+            ImGui::EndMenuBar();
+        }
 
         const ImGuiIO& io = ImGui::GetIO();
         if (io.ConfigFlags & ImGuiConfigFlags_DockingEnable)
