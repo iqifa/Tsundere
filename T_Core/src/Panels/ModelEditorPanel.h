@@ -7,6 +7,7 @@
 #include "Scene/Scene.h"
 #include "Scene/Vertex.h"
 #include "HeadLine.h"
+#include "Core/Application.h"
 #include<Platform/RenderAPI.h>
 #include <algorithm>
 #include <cfloat>
@@ -16,10 +17,15 @@
 #include <vector>
 
 // Mesh list, preview camera, and bone names for one loaded model.
-// Push one instance as a layer, then call Open() from anywhere to show it.
+// Call BindScene once, then Open() creates the layer the first time it is shown.
 class ModelEditorPanel : public Engine::Layer
 {
 public:
+	static void BindScene(Ref<Scene> scene)
+	{
+		s_Scene = std::move(scene);
+	}
+
 	ModelEditorPanel(Ref<Scene> scene, const std::string& name = "Model Editor")
 		: Layer(name), m_Scene(std::move(scene))
 	{
@@ -30,10 +36,19 @@ public:
 	{
 		if (s_Instance == this)
 			s_Instance = nullptr;
+		if (m_PreviewFramebuffer)
+		{
+			if (RHITexture2D* color = m_PreviewFramebuffer->GetColorAttachment(0))
+				RHIImGUIRenderer::ReleaseTexture(color);
+		}
 	}
 
 	static void Open(const std::string& path)
 	{
+		if (path.empty() || !s_Scene)
+			return;
+		if (!s_Instance)
+			Engine::Application::Get().PushLayer(new ModelEditorPanel(s_Scene, "Model Editor"));
 		if (s_Instance)
 			s_Instance->OpenPath(path);
 	}
@@ -54,6 +69,13 @@ public:
 
 	void OnImGuiRender() override
 	{
+		if (!m_Open)
+		{
+			// BeginFrame has already waited for the frame that recorded the
+			// preview, so the pipeline, descriptor set, and image can be freed.
+			DestroySelf();
+			return;
+		}
 		DrawEditorWindow();
 	}
 
@@ -572,7 +594,14 @@ private:
 		BVHBuilder::MarkActiveDirty();
 	}
 
+	void DestroySelf()
+	{
+		Engine::Application::Get().PopLayer(this);
+		delete this;
+	}
+
 	static inline ModelEditorPanel* s_Instance = nullptr;
+	static inline Ref<Scene> s_Scene;
 
 	Ref<Scene> m_Scene;
 	std::string m_SelectedPath;

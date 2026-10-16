@@ -37,6 +37,7 @@ public:
     // Per-frame: begin (acquire swapchain / clear), end (present / swap)
     static void BeginFrame();
     static void EndFrame();
+    static bool IsFrameActive();
 
     // Get the per-frame command buffer for recording draw calls
     static Ref<RHICommandBuffer> GetCmd();
@@ -90,6 +91,11 @@ inline void RHIRenderer::EndFrame()
 {
     if (s_Context)
         s_Context->EndFrame();
+}
+
+inline bool RHIRenderer::IsFrameActive()
+{
+    return s_Context && s_Context->IsFrameActive();
 }
 
 inline Ref<RHICommandBuffer> RHIRenderer::GetCmd()

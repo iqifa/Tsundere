@@ -33,6 +33,10 @@ public:
     virtual void BeginFrame() = 0;
     virtual void EndFrame() = 0;
 
+    // False when this iteration has no swapchain image, for example while the
+    // window is minimized. Callers must not record commands in that case.
+    virtual bool IsFrameActive() const = 0;
+
     // Called when the window/viewport resizes
     virtual void OnResize(uint32_t w, uint32_t h) = 0;
 

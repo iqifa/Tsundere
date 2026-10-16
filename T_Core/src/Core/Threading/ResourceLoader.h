@@ -148,12 +148,29 @@ inline void ResourceLoader::Init()
 
 inline void ResourceLoader::Shutdown()
 {
-	if (!s_Running.load()) return;
-	s_Running.store(false);
-	s_WorkerCondition.notify_all();
-	if (s_WorkerThread.joinable())
-		s_WorkerThread.join();
-	Info_Core("[Loader Thread] ResourceLoader: Worker thread stopped");
+	if (s_Running.load())
+	{
+		s_Running.store(false);
+		s_WorkerCondition.notify_all();
+		if (s_WorkerThread.joinable())
+			s_WorkerThread.join();
+		Info_Core("[Loader Thread] ResourceLoader: Worker thread stopped");
+	}
+
+	{
+		std::lock_guard lock(s_PendingMutex);
+		s_PendingQueue.clear();
+		s_LoadingSet.clear();
+	}
+	{
+		std::lock_guard lock(s_WorkerMutex);
+		s_WorkerQueue.clear();
+	}
+	{
+		std::lock_guard lock(s_CompletionMutex);
+		s_CompletionQueue.clear();
+	}
+	s_PendingGPUModels.clear();
 }
 
 // ---- Request methods (main thread, non-blocking) ----

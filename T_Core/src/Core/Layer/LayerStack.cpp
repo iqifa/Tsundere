@@ -11,6 +11,17 @@ namespace Engine {
 		for (Layer* layer : Layers)
 			delete layer;
 	}
+	void LayerStack::Clear()
+	{
+		std::deque<Layer*> layers;
+		{
+			std::lock_guard<std::mutex> lock(m_Mutex);
+			layers.swap(Layers);
+		}
+		for (Layer* layer : layers)
+			delete layer;
+	}
+
 	void LayerStack::PushLayer(Layer* layer)
 	{
 		std::lock_guard<std::mutex> lock(m_Mutex);

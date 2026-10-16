@@ -50,6 +50,21 @@ void VulkanShader::Build(const std::string& filepath)
 
 VulkanShader::~VulkanShader()
 {
+	auto& context = RHIContext::Get();
+	auto* vkcontext = context ? dynamic_cast<RHIVulkanContext*>(context.get()) : nullptr;
+	VkDevice device = vkcontext ? vkcontext->GetDevice() : VK_NULL_HANDLE;
+	if (device == VK_NULL_HANDLE)
+		return;
+
+	if (vertexShader != VK_NULL_HANDLE)
+		vkDestroyShaderModule(device, vertexShader, nullptr);
+	if (fragmentShader != VK_NULL_HANDLE)
+		vkDestroyShaderModule(device, fragmentShader, nullptr);
+	if (computeShader != VK_NULL_HANDLE)
+		vkDestroyShaderModule(device, computeShader, nullptr);
+	vertexShader = VK_NULL_HANDLE;
+	fragmentShader = VK_NULL_HANDLE;
+	computeShader = VK_NULL_HANDLE;
 }
 
 void VulkanShader::Bind() const

@@ -23,7 +23,7 @@ public:
 #endif
 		//PushLayer(new ExampleLayer(m_ActivateScene, "Example"));
 		PushLayer(new Inspect(m_ActivateScene, "Inspect"));
-		PushLayer(new ModelEditorPanel(m_ActivateScene, "Model Editor"));
+		ModelEditorPanel::BindScene(m_ActivateScene);
 		PushLayer(new ModelImportPanel("Model Import"));
 		//PushLayer(new TextureImportPanel("Texture Import"));
 	}

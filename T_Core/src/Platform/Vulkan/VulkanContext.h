@@ -17,6 +17,7 @@ public:
     void OnResize(uint32_t w, uint32_t h) override;
     void Shutdown() override;
     void BeginFrame() override;
+    bool IsFrameActive() const override { return m_FrameActive; }
     void WaitIdle() override;
 
     Ref<RHISwapChain> GetSwapChain() override;

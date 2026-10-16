@@ -315,8 +315,22 @@ void VulkanContext::EndPresentPass()
 
 void VulkanContext::EndFrame()
 {
-    if (!m_Initialized || !m_FrameActive)
+    if (!m_Initialized)
         return;
+
+    if (!m_FrameActive)
+    {
+        // Acquire failed or the framebuffer is zero. Still pump GLFW so the
+        // window can be restored, and don't spin while it is minimized.
+        int width = 0;
+        int height = 0;
+        glfwGetFramebufferSize(m_Window, &width, &height);
+        if (width == 0 || height == 0)
+            glfwWaitEvents();
+        else
+            glfwPollEvents();
+        return;
+    }
 
     if (m_PresentPassActive)
         EndPresentPass();

@@ -1,5 +1,6 @@
 #include"GLWindow.h"
 #include"Debug/Debug.h"
+#include"Core/Application.h"
 
 namespace Engine {
 	static bool s_GLFWInitialized = false;
@@ -72,6 +73,12 @@ namespace Engine {
 
 		glfwSetWindowUserPointer(m_Window, &m_Data);
 		SetVSync(true);
+		glfwSetWindowCloseCallback(m_Window, [](GLFWwindow* window) {
+			WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
+			Application::Get().Close();
+			Eventing::Event<> ev;
+			data.callback(ev);
+			});
 		glfwSetWindowSizeCallback(m_Window, [](GLFWwindow* window, int width, int height) {
 			WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
 

@@ -4,6 +4,7 @@
 // when the legacy Texture class was removed; the value type is now Ref<RHITexture2D>.
 
 #include "Platform/RHI/RHITexture.h"
+#include <mutex>
 #include <unordered_map>
 #include <shared_mutex>
 
@@ -33,6 +34,12 @@ public:
         auto tex = RHITexture2D::Create(desc);
         Add(tex);
         return tex;
+    }
+
+    static void Clear()
+    {
+        std::unique_lock lock(s_Mutex);
+        m_TextureMap.clear();
     }
 
     static Ref<RHITexture2D> Get(const std::string& filepath)

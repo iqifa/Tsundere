@@ -14,6 +14,7 @@ namespace Engine {
 
 		void PushLayer(Layer* layer);
 		void PopLayer(Layer* layer);
+		void Clear();
 
 		// Thread-safe snapshot for iteration.
 		// Copy is cheap (pointers only, typically 5-10 layers).

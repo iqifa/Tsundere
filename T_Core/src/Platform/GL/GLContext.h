@@ -15,6 +15,7 @@ public:
 
     void BeginFrame() override;
     void EndFrame() override;
+    bool IsFrameActive() const override { return m_Initialized; }
     void OnResize(uint32_t w, uint32_t h) override;
     void WaitIdle() override;
 

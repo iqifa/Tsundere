@@ -151,12 +151,12 @@ void VulkanExampleLayer::ExecuteRenderGraph()
 	if (currentcamera && !currentcamera->skybox)
 	{
 		std::vector<std::string> texpaths{
-			"D:/Code/C++/Tsundere/res/texture/CubeMap/Ori/right.jpg",
-			"D:/Code/C++/Tsundere/res/texture/CubeMap/Ori/left.jpg",
-			"D:/Code/C++/Tsundere/res/texture/CubeMap/Ori/top.jpg",
-			"D:/Code/C++/Tsundere/res/texture/CubeMap/Ori/bottom.jpg",
-			"D:/Code/C++/Tsundere/res/texture/CubeMap/Ori/front.jpg",
-			"D:/Code/C++/Tsundere/res/texture/CubeMap/Ori/back.jpg"
+			"F:/Tsundere/res/texture/CubeMap/Ori/right.jpg",
+			"F:/Tsundere/res/texture/CubeMap/Ori/left.jpg",
+			"F:/Tsundere/res/texture/CubeMap/Ori/top.jpg",
+			"F:/Tsundere/res/texture/CubeMap/Ori/bottom.jpg",
+			"F:/Tsundere/res/texture/CubeMap/Ori/front.jpg",
+			"F:/Tsundere/res/texture/CubeMap/Ori/back.jpg"
 		};
 		currentcamera->skybox = CreateRef<SkyBox>(std::move(texpaths));
 		m_GraphDirty = true;

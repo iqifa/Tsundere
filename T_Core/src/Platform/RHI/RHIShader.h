@@ -81,6 +81,7 @@ public:
     static Ref<RHIShader> Load(const std::string& name, const std::string& FilePath);
 
     static Ref<RHIShader> Get(const std::string& path);
+    static void Clear();
 
     static std::shared_mutex s_Mutex;
 private:
@@ -124,6 +125,12 @@ inline Ref<RHIShader> ShaderLibiray::Load(const std::string& name, const std::st
         m_Shaders[FilePath] = shader;
     }
     return shader;
+}
+
+inline void ShaderLibiray::Clear()
+{
+    std::unique_lock lock(s_Mutex);
+    m_Shaders.clear();
 }
 
 inline Ref<RHIShader> ShaderLibiray::Get(const std::string& path)

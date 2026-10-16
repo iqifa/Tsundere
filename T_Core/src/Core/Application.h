@@ -15,6 +15,7 @@ namespace Engine {
 
 
 		void Run();
+		void Close() { m_Running = false; }
 		void OnEvents(Eventing::Event<>& ev);
 		void PushLayer(Layer* layer);
 		void PopLayer(Layer* layer);

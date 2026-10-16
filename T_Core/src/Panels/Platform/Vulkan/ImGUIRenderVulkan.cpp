@@ -124,10 +124,7 @@ namespace Vulkan_ImGui
         RHIVulkanContext* context = GetContext();
         VkCommandBuffer commandBuffer = context->GetCurrentVkCommandBuffer();
         if (commandBuffer == VK_NULL_HANDLE)
-        {
-            Error_Core("ImGui Vulkan render skipped: no active command buffer");
             return;
-        }
 
         context->BeginPresentPass();
         ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffer);

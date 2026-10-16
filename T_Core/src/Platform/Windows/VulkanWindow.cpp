@@ -1,5 +1,6 @@
 #include "VulkanWindow.h"
 #include "Platform/RenderAPI.h"
+#include "Core/Application.h"
 
 namespace Engine{
 
@@ -66,6 +67,12 @@ namespace Engine{
 
 		m_Data.VSync = true;
 
+		glfwSetWindowCloseCallback(m_Window, [](GLFWwindow* window) {
+			WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
+			Application::Get().Close();
+			Eventing::Event<> ev;
+			data.callback(ev);
+			});
 
 		glfwSetWindowSizeCallback(m_Window, [](GLFWwindow* window, int width, int height) {
 			WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);

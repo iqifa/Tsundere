@@ -16,6 +16,13 @@ public:
 	static Ref<Model> LoadModel(const std::string& path);
 	static Ref<Model> GetModel(const std::string& path);
 
+	static void Clear()
+	{
+		std::unique_lock lock(s_Mutex);
+		m_ModleMap.clear();
+		m_ShaderMap.clear();
+	}
+
 	static void AddModelPath(const std::string& path);
 	static void RemoveModelPath(const std::string& path);
 
