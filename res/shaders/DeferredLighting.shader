@@ -234,7 +234,7 @@ float sampleShadowMap(vec3 worldPos, vec3 normal, vec3 lightDir)
         return 1.0;
 
     float bias = max(0.005 * (1.0 - NdotL), 0.001);
-    float fragDepth = lightNDC.z * 0.5 + 0.5 - bias;
+    float fragDepth = lightNDC.z - bias;
 
     vec2 texelSize = 1.0 / u_ShadowMapSize;
 

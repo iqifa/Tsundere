@@ -24,10 +24,27 @@ class Scene;
 // and needed by GeometryPass. Held by Ref so pass lambdas can capture it without
 // depending on the lifetime of whoever built the graph. Ordering is guaranteed by
 // the resource edges: a consumer that reads the producer's texture runs after it.
+struct RGShadowSlot
+{
+	glm::mat4 ViewProj = glm::mat4(1.0f);
+	glm::vec4 AtlasUV = glm::vec4(1.0f, 1.0f, 0.0f, 0.0f); // xy = scale, zw = offset
+};
+
 struct RGFrameData
 {
-	glm::mat4 ShadowLightViewProj = glm::mat4(1.0f);
+	static constexpr uint32_t MaxShadowSlots = 16;
+
 	bool HasShadowMap = false;
+	std::vector<RGShadowSlot> ShadowSlots;
+	// Maps light entt::entity -> starting index in ShadowSlots (-1 if no shadow).
+	// Directional / Spot consume 1 slot; Point consumes 6 consecutive slots (+X,-X,+Y,-Y,+Z,-Z).
+	std::unordered_map<uint32_t, int32_t> LightShadowSlot;
+
+	int32_t FindShadowSlot(entt::entity entity) const
+	{
+		const auto it = LightShadowSlot.find(static_cast<uint32_t>(entity));
+		return it != LightShadowSlot.end() ? it->second : -1;
+	}
 
 	// Native id of the shadow map produced this frame, so the editor's debug
 	// view can display it without the graph having to export the texture.

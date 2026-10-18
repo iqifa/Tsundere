@@ -134,7 +134,7 @@ float sampleShadowMap(vec3 worldPos, vec3 normal)
 	// Depth bias: constant + slope-scale (10x larger for light frustum depth range)
 	float bias = max(0.005 * (1.0 - NdotL_shadow), 0.001);
 
-	float fragDepth = lightNDC.z * 0.5 + 0.5 - bias;
+	float fragDepth = lightNDC.z - bias;
 	vec2 texelSize = 1.0 / u_ShadowMapSize;
 
 	// ---- 1. Blocker Search ----
