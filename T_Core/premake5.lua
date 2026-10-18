@@ -16,6 +16,12 @@ project "T_Core"
     {
         "src/Test/**.*",
         "src/GL.cpp",
+        "src/Scene/SceneRender.h",
+        "src/Pipeline/Passes/TAAPass.h",
+        "src/Pipeline/Passes/ShadowPass.h",
+        "src/Pipeline/Passes/ShadowApplyPass.h",
+        "src/Pipeline/Passes/PathTracePass.h",
+        "src/Pipeline/Passes/DDGIPass.h",
         "*.cppm",
         "vender/imgui/imgui_impl_dx10.*",
         "vender/imgui/imgui_impl_dx11.*",

@@ -154,11 +154,14 @@ void RenderGraph::Compile()
 
     // Repeated Compile() calls are idempotent for object passes: setupComplete
     // prevents Setup() from appending duplicate declarations.
-    for (size_t i = 0; i < passInstances_.size(); ++i)
+    for (size_t i = 0; i < passes_.size(); ++i)
     {
-        auto& passInstance = passInstances_[i];
+        auto& passInstance = passes_[i].instance;
         if (!passInstance)
-            continue;  // Lambda 风格的 Pass 没有实例
+        {
+            passes_[i].culled = true;
+            continue;
+        }
 
         // 跳过禁用的 Pass
         if (!passInstance->IsEnabled())
@@ -262,39 +265,15 @@ void RenderGraph::Execute(RHIContext& context)
         return;
     }
 
-    RenderGraphResources graphResources(*this);
-
     commandBuffer->Begin();
 
     for (PassId passId : executionOrder_)
     {
         auto& pass = passes_[passId];
-        if (pass.culled)
+        if (pass.culled || !pass.instance || !pass.instance->IsEnabled())
             continue;
 
-        // 检查是否有对应的 Pass 实例（新接口）
-        if (passId < passInstances_.size() && passInstances_[passId])
-        {
-            // 新接口：通过包装 Lambda 执行
-            auto& passInstance = passInstances_[passId];
-            if (!passInstance->IsEnabled())
-                continue;
-
-            // 创建 Context
-            RenderGraphContext ctx(*commandBuffer, graphResources);
-
-            // 包装成 Lambda 供 ExecutePass 调用
-            pass.execute = [&passInstance, &ctx](RHICommandBuffer&, RenderGraphResources&) {
-                passInstance->Execute(ctx);
-            };
-
-            ExecutePass(pass, *commandBuffer, graphResources);
-        }
-        else if (pass.execute)
-        {
-            // Legacy 接口：直接调用
-            ExecutePass(pass, *commandBuffer, graphResources);
-        }
+        ExecutePass(pass, *commandBuffer);
     }
 
     for (auto& resource : resources_)
@@ -313,7 +292,7 @@ void RenderGraph::Execute(RHIContext& context)
     commandBuffer->Submit();
 }
 
-void RenderGraph::ExecutePass(RGPass& pass, RHICommandBuffer& commandBuffer, RenderGraphResources& resources)
+void RenderGraph::ExecutePass(RGPass& pass, RHICommandBuffer& commandBuffer)
 {
     // Barriers derived in Compile() from this pass reads of resources an
     // earlier pass wrote incoherently (image store / SSBO). Issued here, before
@@ -347,10 +326,12 @@ void RenderGraph::ExecutePass(RGPass& pass, RHICommandBuffer& commandBuffer, Ren
 
     const bool hasDepth = pass.depthAttachment.has_value();
 
+    RenderGraphContext ctx(commandBuffer, *this);
+
     // No attachments at all: a compute or copy pass. Nothing to bind.
     if (pass.colorAttachments.empty() && !hasDepth)
     {
-        pass.execute(commandBuffer, resources);
+        pass.instance->Execute(ctx);
         return;
     }
 
@@ -457,7 +438,7 @@ void RenderGraph::ExecutePass(RGPass& pass, RHICommandBuffer& commandBuffer, Ren
     scissor.height = framebuffer->GetHeight();
     commandBuffer.SetScissor(scissor);
 
-    pass.execute(commandBuffer, resources);
+    pass.instance->Execute(ctx);
 
     commandBuffer.EndRenderPass();
 }
@@ -817,18 +798,13 @@ void RenderGraph::Reset()
     passes_.clear();
     resources_.clear();
 
-    // 清空名称映射和 Pass 实例
+    // 清空名称映射
     namedTextures_.clear();
     namedBuffers_.clear();
-    passInstances_.clear();
 
     // Invalidate handles issued before this point.
     ++generation_;
 }
-
-// ============================================================================
-// 新接口实现：RenderGraphPass 支持
-// ============================================================================
 
 void RenderGraph::AddPass(Ref<RenderGraphPass> passInstance)
 {
@@ -841,9 +817,9 @@ void RenderGraph::AddPass(Ref<RenderGraphPass> passInstance)
     // 占位：先创建空的 RGPass，稍后在 Compile() 时调用 Setup() 填充
     RGPass pass;
     pass.name = passInstance->GetName();
+    pass.instance = std::move(passInstance);
 
     passes_.push_back(std::move(pass));
-    passInstances_.push_back(passInstance);
 }
 
 RGTextureHandle RenderGraph::GetTextureByName(const std::string& name)
@@ -881,105 +857,4 @@ RHIBuffer* RenderGraph::GetExportedBufferByName(const std::string& name)
         return nullptr;
 
     return GetExportedBuffer(handle);
-}
-
-
-void RenderGraphPassBuilder::ReadTexture(RGTextureHandle texture, RGAccess access)
-{
-    pass_.reads.push_back({ texture.id ,access });
-}
-
-void RenderGraphPassBuilder::WriteTexture(RGTextureHandle texture, RGAccess access)
-{
-    // Render targets carry a slot and load/store ops that this call cannot
-    // express, and the attachment setters already register the write.
-    if (access == RGAccess::RenderTarget || access == RGAccess::DepthWrite)
-    {
-        Error_Core("RenderGraph: pass {} must declare render targets via "
-                   "SetColorAttachment/SetDepthAttachment, not WriteTexture", pass_.name);
-        return;
-    }
-
-    pass_.writes.push_back({ texture.id,access });
-}
-
-void RenderGraphPassBuilder::ReadBuffer(RGBufferHandle buffer, RGAccess access)
-{
-    pass_.reads.push_back({ buffer.id,access });
-}
-
-void RenderGraphPassBuilder::WriteBuffer(RGBufferHandle buffer, RGAccess access)
-{
-    pass_.writes.push_back({ buffer.id,access });
-}
-
-void RenderGraphPassBuilder::SetColorAttachment(
-    uint32_t slot,
-    RGTextureHandle texture,
-    RGLoadOp loadOp,
-    const std::array<float, 4>& clearColor,
-    RGStoreOp storeOp)
-{
-    for (const auto& existing : pass_.colorAttachments)
-    {
-        if (existing.slot == slot)
-        {
-            Error_Core("RenderGraph: pass {0} binds color slot {1} twice", pass_.name, slot);
-            return;
-        }
-    }
-
-    RGColorAttachment attachment;
-    attachment.texture = texture;
-    attachment.slot = slot;
-    attachment.loadOp = loadOp;
-    attachment.storeOp = storeOp;
-    attachment.clearColor = clearColor;
-
-    pass_.colorAttachments.push_back(attachment);
-
-    // An attachment is a write. Registering it here is what keeps callers from
-    // having to declare the same dependency twice.
-    pass_.writes.push_back({ texture.id, RGAccess::RenderTarget });
-}
-
-void RenderGraphPassBuilder::SetDepthAttachment(
-    RGTextureHandle texture,
-    RGLoadOp loadOp,
-    float clearDepth,
-    bool readOnly,
-    RGStoreOp storeOp)
-{
-    if (pass_.depthAttachment.has_value())
-    {
-        Error_Core("RenderGraph: pass {} binds a depth attachment twice", pass_.name);
-        return;
-    }
-    if (readOnly && loadOp == RGLoadOp::Clear)
-    {
-        Error_Core("RenderGraph: pass {} cannot clear a read-only depth attachment", pass_.name);
-        return;
-    }
-
-    RGDepthAttachment attachment;
-    attachment.texture = texture;
-    attachment.loadOp = loadOp;
-    attachment.storeOp = storeOp;
-    attachment.clearDepth = clearDepth;
-    attachment.readOnly = readOnly;
-
-    pass_.depthAttachment = attachment;
-
-    // Depth-test-only usage does not modify the buffer, so it is a read
-    // dependency; only a depth-writing pass registers a write.
-    if (readOnly)
-        pass_.reads.push_back({ texture.id, RGAccess::DepthRead });
-    else
-        pass_.writes.push_back({ texture.id, RGAccess::DepthWrite });
-}
-
-void RenderGraphPassBuilder::SetViewport(uint32_t width, uint32_t height)
-{
-    pass_.viewportWidth = width;
-    pass_.viewportHeight = height;
 }

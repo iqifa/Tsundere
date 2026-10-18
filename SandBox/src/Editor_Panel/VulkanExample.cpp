@@ -19,10 +19,12 @@ VulkanExampleLayer::VulkanExampleLayer(Ref<Scene> scene, std::string name)
 		Error_Core("ExampleLayer: �޷��� Application ��ȡ�����ھ����");
 	}
 
+	m_GraphFrameData = CreateRef<RGFrameData>();
+
 	// 初始化 Pass 管理器
 	PassCreationContext ctx;
 	ctx.scene = m_Context;
-	ctx.frameData = nullptr;  // 延迟创建
+	ctx.frameData = m_GraphFrameData;
 	ctx.width = 1920;
 	ctx.height = 1080;
 	m_PassManager.RebuildPasses(ctx);
@@ -151,12 +153,12 @@ void VulkanExampleLayer::ExecuteRenderGraph()
 	if (currentcamera && !currentcamera->skybox)
 	{
 		std::vector<std::string> texpaths{
-			"F:/Tsundere/res/texture/CubeMap/Ori/right.jpg",
-			"F:/Tsundere/res/texture/CubeMap/Ori/left.jpg",
-			"F:/Tsundere/res/texture/CubeMap/Ori/top.jpg",
-			"F:/Tsundere/res/texture/CubeMap/Ori/bottom.jpg",
-			"F:/Tsundere/res/texture/CubeMap/Ori/front.jpg",
-			"F:/Tsundere/res/texture/CubeMap/Ori/back.jpg"
+			"D:/Code/C++/Tsundere/res/texture/CubeMap/Ori/right.jpg",
+			"D:/Code/C++/Tsundere/res/texture/CubeMap/Ori/left.jpg",
+			"D:/Code/C++/Tsundere/res/texture/CubeMap/Ori/top.jpg",
+			"D:/Code/C++/Tsundere/res/texture/CubeMap/Ori/bottom.jpg",
+			"D:/Code/C++/Tsundere/res/texture/CubeMap/Ori/front.jpg",
+			"D:/Code/C++/Tsundere/res/texture/CubeMap/Ori/back.jpg"
 		};
 		currentcamera->skybox = CreateRef<SkyBox>(std::move(texpaths));
 		m_GraphDirty = true;
@@ -235,6 +237,7 @@ void VulkanExampleLayer::BuildRenderGraph(uint32_t width, uint32_t height)
 	ctx.frameData = m_GraphFrameData;
 	ctx.width = width;
 	ctx.height = height;
+	m_PassManager.UpdateContext(ctx);
 
 	// 从 Pass 管理器获取启用的 Pass
 	auto passes = m_PassManager.GetEnabledPasses();

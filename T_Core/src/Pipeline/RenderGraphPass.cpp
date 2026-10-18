@@ -178,6 +178,29 @@ void RenderGraphBuilder::SetDepthResolve(RGTextureHandle target)
     m_Pass.writes.push_back({ target.id, RGAccess::DepthWrite });
 }
 
+void RenderGraphBuilder::WriteTexture(RGTextureHandle texture, RGAccess access)
+{
+    if (access == RGAccess::RenderTarget || access == RGAccess::DepthWrite)
+    {
+        Error_Core("RenderGraph: pass {} must declare render targets via "
+                   "SetColorOutput/SetDepthOutput, not WriteTexture", m_PassName);
+        return;
+    }
+
+    m_Pass.writes.push_back({ texture.id, access });
+}
+
+void RenderGraphBuilder::WriteBuffer(RGBufferHandle buffer, RGAccess access)
+{
+    m_Pass.writes.push_back({ buffer.id, access });
+}
+
+void RenderGraphBuilder::SetViewport(uint32_t width, uint32_t height)
+{
+    m_Pass.viewportWidth = width;
+    m_Pass.viewportHeight = height;
+}
+
 void RenderGraphBuilder::Export(RGTextureHandle texture)
 {
     m_Graph.ExportTexture(texture);
@@ -217,12 +240,12 @@ Ref<RHIPipeline> RenderGraphBuilder::CreatePipeline(
 
 RHITexture2D* RenderGraphContext::GetTexture(RGTextureHandle handle)
 {
-    return m_Resources.GetTexture(handle);
+    return m_Graph.GetTexture(handle);
 }
 
 RHIBuffer* RenderGraphContext::GetBuffer(RGBufferHandle handle)
 {
-    return m_Resources.GetBuffer(handle);
+    return m_Graph.GetBuffer(handle);
 }
 
 void RenderGraphContext::BindTexture(uint32_t slot, RGTextureHandle handle)

@@ -50,7 +50,7 @@ public:
 		depthDesc.height = m_ShadowSize;
 		depthDesc.format = Format::D24_UNORM_S8_UINT;
 		depthDesc.usage = TextureUsage::DepthStencil | TextureUsage::Sampled;
-		m_ShadowMapDepth = builder.CreateTexture("ShadowMapDepth", depthDesc);
+		m_ShadowMapDepth = builder.CreateTexture("Depth", depthDesc);
 
 		RDGTextureDesc visDesc;
 		visDesc.width = m_ShadowSize;
@@ -131,17 +131,7 @@ public:
 				continue;
 			}
 
-			if (light.type == Light::LightType::Directional)
-			{
-				if (m_FrameData)
-					m_FrameData->LightShadowSlot[entityKey] = static_cast<int32_t>(lightViewProjs.size());
-
-				const glm::vec3 dir = glm::length(light.Direction) > 0.0001f
-					? glm::normalize(light.Direction)
-					: glm::vec3(0.0f, -1.0f, 0.0f);
-				lightViewProjs.push_back(BuildDirectionalViewProj(dir));
-			}
-			else if (light.type == Light::LightType::Spot)
+			if (light.type == Light::LightType::Spot)
 			{
 				if (m_FrameData)
 					m_FrameData->LightShadowSlot[entityKey] = static_cast<int32_t>(lightViewProjs.size());
@@ -174,7 +164,7 @@ public:
 			}
 			else
 			{
-				// LightType::Area is skipped for now.
+				// Directional (handled by CSM) and Area are skipped here.
 				if (m_FrameData)
 					m_FrameData->LightShadowSlot[entityKey] = -1;
 			}
@@ -182,8 +172,11 @@ public:
 
 		if (lightViewProjs.empty())
 		{
-			const glm::vec3 fallbackDir = glm::normalize(glm::vec3(-0.5f, -1.0f, -0.5f));
-			lightViewProjs.push_back(BuildDirectionalViewProj(fallbackDir));
+#ifdef RenderAPI_OpenGL
+			glDisable(GL_SCISSOR_TEST);
+			glClipControl(GL_LOWER_LEFT, GL_NEGATIVE_ONE_TO_ONE);
+#endif
+			return;
 		}
 
 		const uint32_t slotCount = static_cast<uint32_t>(lightViewProjs.size());
@@ -296,9 +289,10 @@ public:
 	}
 
 private:
+	/*
 	// Ortho box around the camera view, out to m_ShadowDistance. The box is the
 	// frustum's bounding sphere, snapped to texels so the map follows the camera
-	// without shimmering.
+	// without shimmering. (Kept for upcoming CSM pass)
 	glm::mat4 BuildDirectionalViewProj(const glm::vec3& direction) const
 	{
 		const glm::vec3 up = (glm::abs(direction.y) > 0.99f)
@@ -372,6 +366,7 @@ private:
 		lightProj[3][2] = lightProj[3][2] * 0.5f + 0.5f;
 		return lightProj * lightView;
 	}
+	*/
 
 	glm::mat4 BuildSpotViewProj(
 		const glm::vec3& position,
