@@ -20,8 +20,18 @@
 #define Warn_Core(...)		::Engine::Log::GetCoreLogger()->warn(__VA_ARGS__);
 #define Info_Core(...)		::Engine::Log::GetCoreLogger()->info(__VA_ARGS__);
 
+#define Error_Client(...)	::Engine::Log::GetClientLogger()->error(__VA_ARGS__);
+#define Warn_Client(...)	::Engine::Log::GetClientLogger()->warn(__VA_ARGS__);
+#define Info_Client(...)	::Engine::Log::GetClientLogger()->info(__VA_ARGS__);
+
 
 namespace Engine {
+	struct ConsoleLine
+	{
+		int level = 0;
+		std::string text;
+	};
+
 	class T_API Log
 	{
 	public:
@@ -29,6 +39,9 @@ namespace Engine {
 
 		static Ref<spdlog::logger>& GetCoreLogger() { return s_CoreLogger; }
 		static Ref<spdlog::logger>& GetClientLogger() { return s_ClientLogger; }
+
+		static void CopyClientConsole(std::vector<ConsoleLine>& out);
+		static void ClearClientConsole();
 	private:
 		static Ref<spdlog::logger> s_CoreLogger;
 		static Ref<spdlog::logger> s_ClientLogger;

@@ -5,6 +5,7 @@
 #include"Inspect.h"
 #include"Editor_Panel/VulkanExample.h"
 #include"Panels/ModelImportPanel.h"
+#include"Panels/ConsolePanel.h"
 #include"Panels/ModelEditorPanel.h"
 //#include"Panels/TextureImportPanel.h"
 #include"HeadLine.h"
@@ -25,6 +26,7 @@ public:
 		PushLayer(new Inspect(m_ActivateScene, "Inspect"));
 		ModelEditorPanel::BindScene(m_ActivateScene);
 		PushLayer(new ModelImportPanel("Model Import"));
+		PushLayer(new ConsolePanel("Console"));
 		//PushLayer(new TextureImportPanel("Texture Import"));
 	}
 	~SandBox() {}
@@ -32,6 +34,6 @@ public:
 };
 Engine::Application* Engine::CreateApplication()
 {
-	std::cout << "Create Sandbox" << std::endl;
+	Info_Client("Create Sandbox");
 	return new SandBox();
 }

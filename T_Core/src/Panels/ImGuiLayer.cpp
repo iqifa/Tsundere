@@ -13,6 +13,12 @@ bool& EditorWindows::ModelImport()
     return open;
 }
 
+bool& EditorWindows::Console()
+{
+    static bool open = true;
+    return open;
+}
+
 namespace Engine
 {
     void ShowDockSpace()
@@ -55,6 +61,7 @@ namespace Engine
         {
             if (ImGui::BeginMenu("Window"))
             {
+                ImGui::MenuItem("Console", nullptr, &EditorWindows::Console());
                 ImGui::MenuItem("Shadow Map", nullptr, &EditorWindows::ShadowMap());
                 ImGui::MenuItem("Model Import", nullptr, &EditorWindows::ModelImport());
                 ImGui::EndMenu();
