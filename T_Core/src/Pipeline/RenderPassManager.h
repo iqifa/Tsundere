@@ -44,6 +44,17 @@ public:
         }
     }
 
+    // 更新上下文与视口尺寸（用于 Resize 时同步给已创建的 Pass 实例）
+    void UpdateContext(const PassCreationContext& ctx)
+    {
+        m_Context = ctx;
+        for (auto& state : m_ActivePasses)
+        {
+            if (state.instance)
+                state.instance->SetViewportSize(ctx.width, ctx.height);
+        }
+    }
+
     // 获取当前启用的 Pass 实例列表（用于添加到 RenderGraph）
     std::vector<Ref<RenderGraphPass>> GetEnabledPasses()
     {

@@ -188,8 +188,8 @@ public:
 		fubo.lightColor = glm::vec4(lightColor, 0.0f);
 		fubo.ambientStrength = ambientStrength;
 		fubo.viewPos = glm::vec4(viewPos, 0.0f);
-		fubo.u_LightViewProj = shadowTex && m_FrameData
-			? m_FrameData->ShadowLightViewProj
+		fubo.u_LightViewProj = (shadowTex && m_FrameData && !m_FrameData->ShadowSlots.empty())
+			? m_FrameData->ShadowSlots[0].ViewProj
 			: glm::mat4(1.0f);
 		fubo.u_ShadowMapEnabled = shadowTex ? 1 : 0;
 		fubo.u_ShadowMapSize = glm::vec2(2048.0f, 2048.0f);

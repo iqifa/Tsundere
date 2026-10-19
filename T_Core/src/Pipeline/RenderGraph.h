@@ -12,9 +12,9 @@ constexpr ResourceId InvalidResourceId = UINT32_MAX;
 constexpr PassId InvalidPassId = UINT32_MAX;
 
 class T_API RenderGraph;
-class T_API RenderGraphResources;
-class T_API RenderGraphPassBuilder;
-class T_API RenderGraphPass;  // 新增：前向声明统一的 Pass 基类
+class T_API RenderGraphBuilder;
+class T_API RenderGraphContext;
+class T_API RenderGraphPass;
 struct RGPass;
 
 namespace RenderGraphPipelineHelper
@@ -185,6 +185,7 @@ struct T_API RGDepthAttachment
 struct T_API RGPass
 {
 	std::string name;
+	Ref<RenderGraphPass> instance;
 
 	std::vector<RGResourceAccess> reads;
 	std::vector<RGResourceAccess> writes;
@@ -198,11 +199,9 @@ struct T_API RGPass
 	uint32_t viewportWidth = 0;
 	uint32_t viewportHeight = 0;
 
-	std::function<void(RHICommandBuffer&, RenderGraphResources&)> execute;
-
 	// Derived by Compile(), issued by Execute() immediately before this pass
 	// runs. Covers only cross-pass hazards the graph can see from declared
-	// reads/writes; a hazard entirely inside one pass's lambda (a compute
+	// reads/writes; a hazard entirely inside one pass's body (a compute
 	// dispatch feeding a draw in the same pass) is invisible here and must
 	// still be handled by that pass.
 	BarrierFlags barriers = BarrierFlags::None;
@@ -213,49 +212,10 @@ struct T_API RGPass
 
 #pragma endregion
 
-class T_API RenderGraphPassBuilder
-{
-public:
-	RenderGraphPassBuilder(RenderGraph& graph, RGPass& pass)
-		: graph_(graph), pass_(pass) {
-	}
-
-	void ReadTexture(RGTextureHandle texture, RGAccess access = RGAccess::ReadSRV);
-	void WriteTexture(RGTextureHandle texture, RGAccess access = RGAccess::WriteUAV);
-
-	void ReadBuffer(RGBufferHandle buffer, RGAccess access = RGAccess::ReadSRV);
-	void WriteBuffer(RGBufferHandle buffer, RGAccess access = RGAccess::WriteUAV);
-
-	// Declares a render target. This IS a write — the builder registers the
-	// dependency itself, so callers must not also call WriteTexture() for the
-	// same resource. Beyond the dependency, an attachment also carries the slot
-	// and load/store ops, which WriteTexture() cannot express.
-	void SetColorAttachment(
-		uint32_t slot,
-		RGTextureHandle texture,
-		RGLoadOp loadOp = RGLoadOp::Clear,
-		const std::array<float, 4>& clearColor = { 0.0f, 0.0f, 0.0f, 1.0f },
-		RGStoreOp storeOp = RGStoreOp::Store);
-
-	void SetDepthAttachment(
-		RGTextureHandle texture,
-		RGLoadOp loadOp = RGLoadOp::Clear,
-		float clearDepth = 1.0f,
-		bool readOnly = false,
-		RGStoreOp storeOp = RGStoreOp::Store);
-
-	// Overrides the viewport. By default the graph uses the first attachment's
-	// texture size, which is what a full-resolution pass wants.
-	void SetViewport(uint32_t width, uint32_t height);
-
-private:
-	RenderGraph& graph_;
-	RGPass& pass_;
-};
 class T_API RenderGraph
 {
-	friend class RenderGraphResources;
-	friend class RenderGraphBuilder;  // 新增：允许 Builder 访问私有方法
+	friend class RenderGraphBuilder;
+	friend class RenderGraphContext;
 	friend bool RenderGraphPipelineHelper::ExtractRenderingSignature(
 		const RGPass&,
 		const RenderGraph&,
@@ -285,33 +245,9 @@ public:
 
 	void ExportBuffer(RGBufferHandle handle);
 
-	// ========================================
-	// 新接口：注册 RenderGraphPass 实例
-	// ========================================
-	// 注册一个 Pass 实例。Pass 的 Setup() 会在 Compile() 时调用，
+	// 注册一个 RenderGraphPass 实例。Pass 的 Setup() 会在 Compile() 时调用，
 	// Execute() 会在 Execute() 时调用。
 	void AddPass(Ref<RenderGraphPass> pass);
-
-	// ========================================
-	// Legacy 接口：Lambda 风格的 Pass（保留兼容性）
-	// ========================================
-	template<typename SetupFunc, typename ExecuteFunc>
-	void AddPass(
-		std::string_view name,
-		SetupFunc&& setup,
-		ExecuteFunc&& execute)
-	{
-		RGPass pass;
-		pass.name = std::string(name);
-
-		RenderGraphPassBuilder builder(*this, pass);
-		setup(builder);
-
-		pass.execute = std::forward<ExecuteFunc>(execute);
-
-		passes_.push_back(std::move(pass));
-	}
-
 
 	void Compile();
 	void Execute(RHIContext& context);
@@ -329,9 +265,6 @@ public:
 	RHITexture2D* GetExportedTexture(RGTextureHandle handle);
 	RHIBuffer* GetExportedBuffer(RGBufferHandle handle);
 
-	// ========================================
-	// 新接口：按名字查找资源
-	// ========================================
 	// 按名字查找已注册的纹理/缓冲资源。如果不存在，返回 invalid handle。
 	RGTextureHandle GetTextureByName(const std::string& name);
 	RGBufferHandle GetBufferByName(const std::string& name);
@@ -354,57 +287,23 @@ private:
 
 	uint32_t generation_ = 1;
 
-	// ========================================
-	// 新增：资源名称映射
-	// ========================================
 	// 资源名称 -> Handle 的映射，用于按名字查找资源
 	std::unordered_map<std::string, RGTextureHandle> namedTextures_;
 	std::unordered_map<std::string, RGBufferHandle> namedBuffers_;
-
-	// 注册的 Pass 实例（与 passes_ 对应，索引一致）
-	std::vector<Ref<RenderGraphPass>> passInstances_;
 
 	void AllocateTransientResources();
 
 	// Fills in firstPass/lastPass using positions in executionOrder_.
 	void ComputeResourceLifetimes();
 
-	// Binds the pass's attachments and drives the render pass around its lambda.
-	void ExecutePass(RGPass& pass, RHICommandBuffer& commandBuffer, RenderGraphResources& resources);
+	// Binds the pass's attachments and drives the render pass around its Execute().
+	void ExecutePass(RGPass& pass, RHICommandBuffer& commandBuffer);
 
 	RHITexture2D* GetTexture(RGTextureHandle handle);
-
-
-
 	RHIBuffer* GetBuffer(RGBufferHandle handle);
 
 	// Resolves (and caches) a framebuffer over graph-owned textures.
-	// Not exposed to pass lambdas: binding render targets is the graph's job,
-	// driven by the attachments declared during setup.
 	Ref<RHIFramebuffer> GetFramebuffer(
 		const std::vector<RGTextureHandle>& colors,
 		RGTextureHandle depth = {});
-};
-
-// Resource view handed to a pass's execute lambda.
-//
-// This is deliberately narrower than RenderGraph: a pass may resolve handles it
-// declared, and nothing else. It cannot create resources, add passes, or
-// recompile mid-execution. It also guarantees handles resolve against the graph
-// that is actually executing, rather than whichever graph a lambda captured.
-class T_API RenderGraphResources
-{
-public:
-	RHITexture2D* GetTexture(RGTextureHandle handle) { return graph_.GetTexture(handle); }
-	RHIBuffer* GetBuffer(RGBufferHandle handle) { return graph_.GetBuffer(handle); }
-
-private:
-	friend class RenderGraph;
-
-	explicit RenderGraphResources(RenderGraph& graph)
-		: graph_(graph)
-	{
-	}
-
-	RenderGraph& graph_;
 };

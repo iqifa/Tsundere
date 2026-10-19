@@ -5,7 +5,6 @@
 // Forward declarations
 class RenderGraphBuilder;
 class RenderGraphContext;
-class RenderGraphResources;
 
 // ============================================================================
 // RenderGraphPass - 统一的 Pass 基类
@@ -30,6 +29,9 @@ public:
 
 	// 可选：动态启用/禁用 Pass
 	virtual bool IsEnabled() const { return true; }
+
+	// 可选：视口尺寸更新回调
+	virtual void SetViewportSize(uint32_t width, uint32_t height) { (void)width; (void)height; }
 };
 
 // ============================================================================
@@ -76,6 +78,11 @@ public:
 	// MSAA resolve：在对应的 Set*Output 之后调用，target 必须是同尺寸同格式的单采样纹理。
 	void SetColorResolve(uint32_t slot, RGTextureHandle target);
 	void SetDepthResolve(RGTextureHandle target);
+
+	// 非附件写入（如 Compute UAV / CopyDst）与自定义视口
+	void WriteTexture(RGTextureHandle texture, RGAccess access = RGAccess::WriteUAV);
+	void WriteBuffer(RGBufferHandle buffer, RGAccess access = RGAccess::WriteUAV);
+	void SetViewport(uint32_t width, uint32_t height);
 
 	// ========================================
 	// 资源导出
@@ -130,9 +137,9 @@ public:
 private:
 	friend class RenderGraph;
 
-	RenderGraphContext(RHICommandBuffer& cmd, RenderGraphResources& resources)
-		: m_Cmd(cmd), m_Resources(resources) {}
+	RenderGraphContext(RHICommandBuffer& cmd, RenderGraph& graph)
+		: m_Cmd(cmd), m_Graph(graph) {}
 
 	RHICommandBuffer& m_Cmd;
-	RenderGraphResources& m_Resources;
+	RenderGraph& m_Graph;
 };

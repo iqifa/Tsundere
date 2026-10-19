@@ -1,6 +1,7 @@
 #include<Pipeline/Passes/PassCommon.h>
 #include<Pipeline/RenderPassRegistry.h>
 #include<Platform/RenderAPIConfig.h>
+#include<array>
 #ifdef RenderAPI_OpenGL
 #include<GL/glew.h>
 #endif
@@ -9,11 +10,16 @@
 
 class ShadowMapPass :public RenderGraphPass {
 public:
+	static constexpr uint32_t kMaxShadowSlots = RGFrameData::MaxShadowSlots;
+	// 256-byte stride satisfies both Vulkan minUniformBufferOffsetAlignment and
+	// OpenGL GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT for dynamic UBO bindings.
+	static constexpr uint32_t kViewUBOStride = 256;
+
 	ShadowMapPass(Ref<Scene> scene, Ref<RGFrameData> frameData)
 		: m_Scene(scene), m_FrameData(frameData) {
 
 
-		m_LightViewProjUBO = RHIBuffer::Create(BufferDesc{ sizeof(ViewUBO),BufferUsage::Uniform ,true,nullptr });
+		m_LightViewProjUBO = RHIBuffer::Create(BufferDesc{ kMaxShadowSlots * kViewUBOStride, BufferUsage::Uniform, true, nullptr });
 		m_FrameUBO = RHIBuffer::Create(BufferDesc{ sizeof(FramData), BufferUsage::Uniform, true, nullptr });
 
 		m_ShadowMapDepthShader = RHIShader::Create("D:/Code/C++/Tsundere/res/shaders/ShadowMapDepth.shader");
@@ -27,7 +33,8 @@ public:
 		m_ShdowPassDescriptSet = RHIDescriptorSet::Create();
 
 		if (m_ShdowPassDescriptSet){
-			m_ShdowPassDescriptSet->BindUniformBuffer(0, m_LightViewProjUBO);
+			m_ShdowPassDescriptSet->BindUniformBuffer(0, m_LightViewProjUBO, sizeof(ViewUBO));
+			m_ShdowPassDescriptSet->MarkBindingAsDynamic(0);
 			//m_ShdowPassDescriptSet->BindTexture(10, m_DefaultTex, 10);
 		}
 		else {
@@ -43,7 +50,7 @@ public:
 		depthDesc.height = m_ShadowSize;
 		depthDesc.format = Format::D24_UNORM_S8_UINT;
 		depthDesc.usage = TextureUsage::DepthStencil | TextureUsage::Sampled;
-		m_ShadowMapDepth = builder.CreateTexture("ShadowMapDepth", depthDesc);
+		m_ShadowMapDepth = builder.CreateTexture("Depth", depthDesc);
 
 		RDGTextureDesc visDesc;
 		visDesc.width = m_ShadowSize;
@@ -96,7 +103,11 @@ public:
 		auto& cmd = context.GetCmd();
 
 		if (m_FrameData)
+		{
 			m_FrameData->HasShadowMap = false;
+			m_FrameData->ShadowSlots.clear();
+			m_FrameData->LightShadowSlot.clear();
+		}
 
 		cmd.SetDepthTest(true);
 		cmd.SetDepthFunc(CompareOp::Less);
@@ -104,84 +115,168 @@ public:
 #ifdef RenderAPI_OpenGL
 		// Match Vulkan: shadow depth is 0 at the near plane and 1 at the far plane.
 		glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE);
+		glEnable(GL_SCISSOR_TEST);
 #endif
 
-		glm::vec3 direction(-0.5f, -1.0f, -0.5f);
+		std::vector<glm::mat4> lightViewProjs;
+		lightViewProjs.reserve(kMaxShadowSlots);
+
 		for (auto [lightID, transform, light] : m_Scene->m_Registry.view<Component::Transform, Component::Light>().each())
 		{
-			if (light.type == Light::LightType::Directional)
+			const uint32_t entityKey = static_cast<uint32_t>(lightID);
+			if (lightViewProjs.size() >= kMaxShadowSlots)
 			{
-				direction = light.Direction;
-				break;
+				if (m_FrameData)
+					m_FrameData->LightShadowSlot[entityKey] = -1;
+				continue;
+			}
+
+			if (light.type == Light::LightType::Spot)
+			{
+				if (m_FrameData)
+					m_FrameData->LightShadowSlot[entityKey] = static_cast<int32_t>(lightViewProjs.size());
+
+				lightViewProjs.push_back(BuildSpotViewProj(
+					transform.Position,
+					light.Direction,
+					light.Params.Spot.OuterAngle,
+					light.Params.Spot.Radius));
+			}
+			else if (light.type == Light::LightType::Point)
+			{
+				if (lightViewProjs.size() + 6 > kMaxShadowSlots)
+				{
+					if (m_FrameData)
+						m_FrameData->LightShadowSlot[entityKey] = -1;
+					continue;
+				}
+
+				if (m_FrameData)
+					m_FrameData->LightShadowSlot[entityKey] = static_cast<int32_t>(lightViewProjs.size());
+
+				std::array<glm::mat4, 6> pointVPs{};
+				BuildPointViewProjs(
+					transform.Position,
+					light.Params.Attenuation.Radius,
+					pointVPs);
+				for (const glm::mat4& vp : pointVPs)
+					lightViewProjs.push_back(vp);
+			}
+			else
+			{
+				// Directional (handled by CSM) and Area are skipped here.
+				if (m_FrameData)
+					m_FrameData->LightShadowSlot[entityKey] = -1;
 			}
 		}
-		direction = glm::normalize(direction);
 
-		const glm::mat4 lightViewProj = BuildDirectionalViewProj(direction);
-		if (m_FrameData)
+		if (lightViewProjs.empty())
 		{
-			m_FrameData->ShadowLightViewProj = lightViewProj;
-			m_FrameData->HasShadowMap = true;
+#ifdef RenderAPI_OpenGL
+			glDisable(GL_SCISSOR_TEST);
+			glClipControl(GL_LOWER_LEFT, GL_NEGATIVE_ONE_TO_ONE);
+#endif
+			return;
 		}
 
-		ViewUBO vbo = { lightViewProj };
+		const uint32_t slotCount = static_cast<uint32_t>(lightViewProjs.size());
+		uint32_t tilesPerRow = 1;
+		while (tilesPerRow * tilesPerRow < slotCount && tilesPerRow < 4)
+			++tilesPerRow;
+		const uint32_t tileSize = m_ShadowSize / tilesPerRow;
+		const float invAtlasSize = 1.0f / static_cast<float>(m_ShadowSize);
 
-				m_LightViewProjUBO->Upload(&vbo, sizeof(ViewUBO));
-				m_ShadowMapDepthShader->Bind();
+		for (uint32_t slot = 0; slot < slotCount; ++slot)
+		{
+			ViewUBO vbo{ lightViewProjs[slot] };
+			m_LightViewProjUBO->Upload(&vbo, sizeof(ViewUBO), slot * kViewUBOStride);
+		}
 
-				m_ShdowPassDescriptSet->Apply(0);
+		m_ShadowMapDepthShader->Bind();
+		if (m_ShdowPassDescriptSet)
+		{
+			m_ShdowPassDescriptSet->Reset();
+			m_ShdowPassDescriptSet->BindUniformBuffer(0, m_LightViewProjUBO, sizeof(ViewUBO));
+			m_ShdowPassDescriptSet->Apply(0);
+		}
 
+		if (m_ScenePipeline)
+		{
+			cmd.BindPipeline(m_ScenePipeline);
+		}
 
+		for (uint32_t slot = 0; slot < slotCount; ++slot)
+		{
+			const uint32_t tileX = (slot % tilesPerRow) * tileSize;
+			const uint32_t tileY = (slot / tilesPerRow) * tileSize;
+
+			Viewport vp{};
+			vp.x = static_cast<float>(tileX);
+			vp.y = static_cast<float>(tileY);
+			vp.width = static_cast<float>(tileSize);
+			vp.height = static_cast<float>(tileSize);
+			vp.minDepth = 0.0f;
+			vp.maxDepth = 1.0f;
+			cmd.SetViewport(vp);
+
+			Scissor sc{};
+			sc.x = static_cast<int32_t>(tileX);
+			sc.y = static_cast<int32_t>(tileY);
+			sc.width = tileSize;
+			sc.height = tileSize;
+			cmd.SetScissor(sc);
+
+			if (m_FrameData)
+			{
+				RGShadowSlot slotInfo;
+				slotInfo.ViewProj = lightViewProjs[slot];
+				slotInfo.AtlasUV = glm::vec4(
+					static_cast<float>(tileSize) * invAtlasSize,
+					static_cast<float>(tileSize) * invAtlasSize,
+					static_cast<float>(tileX) * invAtlasSize,
+					static_cast<float>(tileY) * invAtlasSize);
+				m_FrameData->ShadowSlots.push_back(slotInfo);
+				m_FrameData->HasShadowMap = true;
+			}
+
+			const uint32_t dynamicOffset = slot * kViewUBOStride;
+
+			for (auto [entityID, transform, meshrender] : m_Scene->m_Registry.view<Component::Transform, Component::MeshRender>().each())
+			{
+				if (meshrender.ModelPath.empty() || meshrender.materials.empty())
+					continue;
+
+				Ref<Model> model = My_map::GetModel(meshrender.ModelPath);
+				if (!model || model->meshes.empty())
+					continue;
+
+				glm::mat4 modelMat = transform.GetTransform();
+
+				for (size_t i = 0; i < model->meshes.size(); i++)
 				{
-					m_ShdowPassDescriptSet->Reset();
-					m_ShdowPassDescriptSet->BindUniformBuffer(0, m_LightViewProjUBO);
-				}
-
-
-
-				if (m_ScenePipeline)
-				{
-					cmd.BindPipeline(m_ScenePipeline);
-				}
-				for (auto [entityID, transform, meshrender] : m_Scene->m_Registry.view<Component::Transform, Component::MeshRender>().each())
-				{
-
-					if (meshrender.ModelPath.empty() || meshrender.materials.empty())
+					auto& mesh = model->meshes[i];
+					if (!mesh.IsGPUReady())
 						continue;
 
-					Ref<Model> model = My_map::GetModel(meshrender.ModelPath);
-					if (!model || model->meshes.empty())
-						continue;
+					Ref<Material> mat = i < meshrender.materials.size()
+						? meshrender.materials[i]
+						: meshrender.materials[0];
 
-					glm::mat4 modelMat = transform.GetTransform();
+					mat->Render(m_ShadowMapDepthShader);
 
+					cmd.BindDescriptorSet(m_ShdowPassDescriptSet, 0, &dynamicOffset, 1);
+					PushDrawModel(cmd, modelMat, modelMat);
 
-					for (size_t i = 0; i < model->meshes.size(); i++)
-					{
-						auto& mesh = model->meshes[i];
-						if (!mesh.IsGPUReady())
-							continue;
-
-						Ref<Material> mat = i < meshrender.materials.size()
-							? meshrender.materials[i]
-							: meshrender.materials[0];
-
-							mat->Render(m_ShadowMapDepthShader);
-
-
-
-							{
-								m_ShdowPassDescriptSet->Reset();
-								m_ShdowPassDescriptSet->BindUniformBuffer(0, m_LightViewProjUBO);
-							}
-							m_ShdowPassDescriptSet->Apply(0);
-							cmd.BindDescriptorSet(m_ShdowPassDescriptSet, 0);
-							PushDrawModel(cmd, modelMat, modelMat);
-
-							mesh.gpuMesh->Draw(cmd);
-					}
+					mesh.gpuMesh->Draw(cmd);
 				}
+			}
+		}
+
+		cmd.SetViewport({ 0.0f, 0.0f, static_cast<float>(m_ShadowSize), static_cast<float>(m_ShadowSize), 0.0f, 1.0f });
+		cmd.SetScissor({ 0, 0, m_ShadowSize, m_ShadowSize });
+
 #ifdef RenderAPI_OpenGL
+		glDisable(GL_SCISSOR_TEST);
 		glClipControl(GL_LOWER_LEFT, GL_NEGATIVE_ONE_TO_ONE);
 #endif
 	}
@@ -194,9 +289,10 @@ public:
 	}
 
 private:
+	/*
 	// Ortho box around the camera view, out to m_ShadowDistance. The box is the
 	// frustum's bounding sphere, snapped to texels so the map follows the camera
-	// without shimmering.
+	// without shimmering. (Kept for upcoming CSM pass)
 	glm::mat4 BuildDirectionalViewProj(const glm::vec3& direction) const
 	{
 		const glm::vec3 up = (glm::abs(direction.y) > 0.99f)
@@ -269,6 +365,63 @@ private:
 		lightProj[2][2] *= 0.5f;
 		lightProj[3][2] = lightProj[3][2] * 0.5f + 0.5f;
 		return lightProj * lightView;
+	}
+	*/
+
+	glm::mat4 BuildSpotViewProj(
+		const glm::vec3& position,
+		const glm::vec3& direction,
+		float outerAngleDeg,
+		float radius) const
+	{
+		const glm::vec3 dir = glm::length(direction) > 0.0001f
+			? glm::normalize(direction)
+			: glm::vec3(0.0f, -1.0f, 0.0f);
+		const glm::vec3 up = (glm::abs(dir.y) > 0.99f)
+			? glm::vec3(0.0f, 0.0f, 1.0f)
+			: glm::vec3(0.0f, 1.0f, 0.0f);
+
+		const float fovDeg = glm::clamp(outerAngleDeg * 2.0f, 1.0f, 175.0f);
+		const float zNear = 0.1f;
+		const float zFar = glm::max(radius, zNear + 0.1f);
+
+		const glm::mat4 lightView = glm::lookAt(position, position + dir, up);
+		const glm::mat4 lightProj = glm::perspectiveRH_ZO(glm::radians(fovDeg), 1.0f, zNear, zFar);
+		return lightProj * lightView;
+	}
+
+	void BuildPointViewProjs(
+		const glm::vec3& position,
+		float radius,
+		std::array<glm::mat4, 6>& outViewProjs) const
+	{
+		struct FaceBasis
+		{
+			glm::vec3 targetOffset;
+			glm::vec3 up;
+		};
+		// +X, -X, +Y, -Y, +Z, -Z
+		static constexpr FaceBasis kFaces[6] = {
+			{ glm::vec3( 1.0f,  0.0f,  0.0f), glm::vec3(0.0f, 1.0f,  0.0f) },
+			{ glm::vec3(-1.0f,  0.0f,  0.0f), glm::vec3(0.0f, 1.0f,  0.0f) },
+			{ glm::vec3( 0.0f,  1.0f,  0.0f), glm::vec3(0.0f, 0.0f, -1.0f) },
+			{ glm::vec3( 0.0f, -1.0f,  0.0f), glm::vec3(0.0f, 0.0f,  1.0f) },
+			{ glm::vec3( 0.0f,  0.0f,  1.0f), glm::vec3(0.0f, 1.0f,  0.0f) },
+			{ glm::vec3( 0.0f,  0.0f, -1.0f), glm::vec3(0.0f, 1.0f,  0.0f) },
+		};
+
+		const float zNear = 0.1f;
+		const float zFar = glm::max(radius, zNear + 0.1f);
+		const glm::mat4 lightProj = glm::perspectiveRH_ZO(glm::radians(90.0f), 1.0f, zNear, zFar);
+
+		for (size_t face = 0; face < 6; ++face)
+		{
+			const glm::mat4 lightView = glm::lookAt(
+				position,
+				position + kFaces[face].targetOffset,
+				kFaces[face].up);
+			outViewProjs[face] = lightProj * lightView;
+		}
 	}
 
 public:
