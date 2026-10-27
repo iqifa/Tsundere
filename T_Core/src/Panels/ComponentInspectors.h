@@ -1,0 +1,641 @@
+#pragma once
+
+#include "ExternalFiles.h"
+#include "GLHead.h"
+#include "Platform/RHI/RHITextureLibrary.h"
+#include "Panels/MaterialInspectorPanel.h"
+#include "Panels/MeshFilePath.h"
+#include "Platform/FileDialog.h"
+#include "Input/Input.h"
+#include "Widget.h"
+#include "Scene/Scene.h"
+#include "Scene/BVHBuilder.h"
+#include "Core/Threading/ResourceLoader.h"
+
+// ============================================================================
+// Inspector free functions
+// ============================================================================
+
+inline void RenderTagInspector(Entity& entity)
+{
+	if (ImGui::CollapsingHeader("Tag", ImGuiTreeNodeFlags_AllowItemOverlap))
+	{
+		auto& tag = entity.GetComponent<Tag>();
+		char buffer[256];
+		memset(buffer, 0, sizeof(buffer));
+		strcpy_s(buffer, sizeof(buffer), tag.tag.c_str());
+		if (ImGui::InputText("##Tag", buffer, sizeof(buffer)))
+			tag.tag = std::string(buffer);
+	}
+}
+
+inline void RenderTransformInspector(Entity& entity)
+{
+	if (ImGui::CollapsingHeader("Transform", ImGuiTreeNodeFlags_AllowItemOverlap))
+	{
+		auto& t = entity.GetComponent<Transform>();
+		ImGui::PushID("##Transform");
+
+		ImGui::Columns(2);
+		ImGui::SetColumnWidth(0, 100.0f);
+		ImGui::Text("Position");
+		ImGui::NextColumn();
+		ImGui::DragFloat3("##Pos", &t.Position[0], 0.05f);
+		ImGui::NextColumn();
+
+		ImGui::Text("Rotation");
+		ImGui::NextColumn();
+		ImGui::DragFloat3("##Rot", &t.Rotation[0], 0.05f);
+		ImGui::NextColumn();
+
+		ImGui::Text("Scale");
+		ImGui::NextColumn();
+		ImGui::DragFloat3("##Scale", &t.Scale[0], 0.05f);
+		ImGui::Columns(1);
+		ImGui::PopID();
+	}
+}
+
+inline void RenderLightInspector(Entity& entity)
+{
+	ImGui::PushID("##Light");
+
+	bool open = ImGui::CollapsingHeader("Light",
+		ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_AllowItemOverlap);
+
+	float btnW = ImGui::CalcTextSize("-").x + ImGui::GetStyle().FramePadding.x * 2;
+	ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - btnW);
+	if (ImGui::SmallButton("-"))
+	{
+		entity.RemoveComponent<Light>();
+		ImGui::PopID();
+		return;
+	}
+
+	if (open)
+	{
+		using LightType = Light::LightType;
+		auto& light = entity.GetComponent<Light>();
+
+		ImGui::Columns(2);
+		ImGui::SetColumnWidth(0, 100.0f);
+
+		static const char* s_TypeNames[] = { "Directional", "Point", "Spot", "Area" };
+		int typeIdx = static_cast<int>(light.type);
+		ImGui::Text("Type");
+		ImGui::NextColumn();
+		if (ImGui::Combo("##lType", &typeIdx, s_TypeNames, IM_ARRAYSIZE(s_TypeNames)))
+		{
+			light.type = static_cast<LightType>(typeIdx);
+			light.ResetParams();
+		}
+		ImGui::NextColumn();
+
+		ImGui::Text("Color");
+		ImGui::NextColumn();
+		ImGui::ColorEdit3("##lColor", &light.Color[0]);
+		ImGui::NextColumn();
+
+		ImGui::Text("Intensity");
+		ImGui::NextColumn();
+		ImGui::DragFloat("##lIntensity", &light.Intensity, 0.05f, 0.0f, 200.0f);
+		ImGui::NextColumn();
+
+		if (light.type != LightType::Point)
+		{
+			ImGui::Text("Direction");
+			ImGui::NextColumn();
+			ImGui::DragFloat3("##lDirection", &light.Direction[0], 0.05f);
+			ImGui::NextColumn();
+		}
+
+		switch (light.type)
+		{
+		case LightType::Directional:
+			ImGui::Text("Ambient");
+			ImGui::NextColumn();
+			ImGui::DragFloat("##lAmbient", &light.Ambient, 0.01f, 0.0f, 1.0f);
+			ImGui::NextColumn();
+			break;
+
+		case LightType::Point:
+			ImGui::Text("Radius");
+			ImGui::NextColumn();
+			ImGui::DragFloat("##lRadius", &light.Params.Attenuation.Radius, 0.05f, 0.0f, 100.0f);
+			ImGui::NextColumn();
+
+			ImGui::Text("Falloff");
+			ImGui::NextColumn();
+			ImGui::DragFloat("##lFalloff", &light.Params.Attenuation.Falloff, 0.05f, 0.1f, 8.0f);
+			ImGui::NextColumn();
+			break;
+
+		case LightType::Spot:
+		{
+			auto& spot = light.Params.Spot;
+			ImGui::Text("Radius");
+			ImGui::NextColumn();
+			ImGui::DragFloat("##lRadius", &spot.Radius, 0.05f, 0.0f, 100.0f);
+			ImGui::NextColumn();
+
+			ImGui::Text("Falloff");
+			ImGui::NextColumn();
+			ImGui::DragFloat("##lFalloff", &spot.Falloff, 0.05f, 0.1f, 8.0f);
+			ImGui::NextColumn();
+
+			ImGui::Text("Inner Angle");
+			ImGui::NextColumn();
+			ImGui::DragFloat("##lInner", &spot.InnerAngle, 0.1f, 0.0f, spot.OuterAngle);
+			ImGui::NextColumn();
+
+			ImGui::Text("Outer Angle");
+			ImGui::NextColumn();
+			ImGui::DragFloat("##lOuter", &spot.OuterAngle, 0.1f, spot.InnerAngle, 89.0f);
+			ImGui::NextColumn();
+			break;
+		}
+
+		case LightType::Area:
+		{
+			auto& area = light.Params.Area;
+			static const char* s_ShapeNames[] = { "Rectangle", "Disk" };
+			int shape = static_cast<int>(area.Shape);
+			ImGui::Text("Shape");
+			ImGui::NextColumn();
+			if (ImGui::Combo("##lShape", &shape, s_ShapeNames, IM_ARRAYSIZE(s_ShapeNames)))
+				area.Shape = static_cast<uint32_t>(shape);
+			ImGui::NextColumn();
+
+			const bool isDisk = area.Shape == 1;
+			ImGui::Text(isDisk ? "Diameter" : "Width");
+			ImGui::NextColumn();
+			ImGui::DragFloat("##lWidth", &area.Width, 0.05f, 0.01f, 100.0f);
+			ImGui::NextColumn();
+
+			if (!isDisk)
+			{
+				ImGui::Text("Height");
+				ImGui::NextColumn();
+				ImGui::DragFloat("##lHeight", &area.Height, 0.05f, 0.01f, 100.0f);
+				ImGui::NextColumn();
+			}
+			break;
+		}
+		}
+
+		ImGui::Columns(1);
+	}
+
+	ImGui::PopID();
+}
+
+// --- Persistent state shared by MeshRender & Material inspectors -------------
+
+namespace {
+	struct MeshRenderInspectorState
+	{
+		std::vector<Widget::Widget*> MaterialWidgets;
+		bool NeedRebuild = false;
+		Entity LastEntity;
+		int SelectedMaterialIdx = 0;
+		std::string SyncedModelPath;
+		size_t SyncedMeshCount = 0;
+	};
+	inline MeshRenderInspectorState s_MeshRenderState;
+
+	void ClearMaterialWidgets()
+	{
+		for (auto* widget : s_MeshRenderState.MaterialWidgets)
+			delete widget;
+		s_MeshRenderState.MaterialWidgets.clear();
+	}
+
+	void BuildMaterialWidgets(Ref<Material> mat)
+	{
+		ClearMaterialWidgets();
+
+		for (auto& var : mat->varies)
+		{
+			uintptr_t value = std::get<0>(var);
+			std::string label = std::get<2>(var);
+
+			switch (std::get<1>(var))
+			{
+			case ValueType::INT:
+				s_MeshRenderState.MaterialWidgets.push_back(new Widget::Input<int>(label, value));
+				break;
+			case ValueType::FLOAT:
+				s_MeshRenderState.MaterialWidgets.push_back(new Widget::Input<float>(label, value));
+				break;
+			case ValueType::DOUBLE:
+				s_MeshRenderState.MaterialWidgets.push_back(new Widget::Input<double>(label, value));
+				break;
+			case ValueType::VEC2:
+				s_MeshRenderState.MaterialWidgets.push_back(new Widget::Input<glm::vec2>(label, value));
+				break;
+			case ValueType::VEC3:
+				s_MeshRenderState.MaterialWidgets.push_back(new Widget::Input<glm::vec3>(label, value));
+				break;
+			case ValueType::TEXTURE:
+				s_MeshRenderState.MaterialWidgets.push_back(new Widget::DiyWidget([label, value]() {
+					Ref<RHITexture2D>* tex = (Ref<RHITexture2D>*)value;
+					ImGui::Columns(2);
+					ImGui::SetColumnWidth(0, 100.0f);
+					ImGui::Text(label.c_str());
+					ImGui::NextColumn();
+
+					GLuint texID = (*tex) ? (GLuint)(*tex)->GetNativeID() : 0;
+					if (texID)
+						ImGui::Image((ImTextureID)(uintptr_t)texID, { 50, 50 }, { 0, 1 }, { 1, 0 });
+					else
+						ImGui::Text("No Texture");
+
+					ImGui::SameLine();
+					if (ImGui::Button("+", { 20, 20 }))
+						ImGui::OpenPopup("TextureSelectPopup");
+
+					ImGui::Columns(1);
+
+					if (ImGui::BeginPopup("TextureSelectPopup"))
+					{
+						for (auto& [path, texture] : TextureLibiary::m_TextureMap)
+						{
+							if (ImGui::Selectable(path.c_str()))
+							{
+								*tex = texture;
+								BVHBuilder::MarkActiveDirty();
+							}
+						}
+						ImGui::Separator();
+						if (ImGui::Button("Browse..."))
+						{
+							std::string importPath = OpenTextureFileDialog();
+							if (!importPath.empty())
+							{
+								*tex = TextureLibiary::Load(importPath);
+								BVHBuilder::MarkActiveDirty();
+								ImGui::CloseCurrentPopup();
+							}
+						}
+						ImGui::SameLine();
+						if (ImGui::Button("Close"))
+							ImGui::CloseCurrentPopup();
+						ImGui::EndPopup();
+					}
+					}));
+				break;
+			case ValueType::HEADER:
+				s_MeshRenderState.MaterialWidgets.push_back(new Widget::Separator(label));
+				break;
+			default:
+				break;
+			}
+		}
+	}
+}
+
+// ============================================================================
+// MeshRender inspector — model selection + material list (add/remove)
+// ============================================================================
+
+inline void RenderMeshRenderInspector(Entity& entity)
+{
+	auto& state = s_MeshRenderState;
+
+	if (!(state.LastEntity == entity))
+	{
+		ClearMaterialWidgets();
+		state.SelectedMaterialIdx = 0;
+		state.SyncedModelPath.clear();
+		state.SyncedMeshCount = 0;
+		state.LastEntity = entity;
+	}
+
+	if (!entity.HasComponent<MeshRender>())
+		return;
+
+	auto& meshrender = entity.GetComponent<MeshRender>();
+
+	ImGui::PushID("##MeshRender");
+
+	bool open = ImGui::CollapsingHeader("MeshRender",
+		ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_AllowItemOverlap);
+
+	float btnW_minus = ImGui::CalcTextSize("-").x + ImGui::GetStyle().FramePadding.x * 2;
+	float btnW_plus = ImGui::CalcTextSize("+").x + ImGui::GetStyle().FramePadding.x * 2;
+	ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - btnW_minus - btnW_plus - 4);
+	if (ImGui::SmallButton("+"))
+	{
+		meshrender.materials.push_back(CreateRef<Material>(
+			"D:/Code/C++/Tsundere/res/shaders/Lamber.shader"));
+		BVHBuilder::MarkActiveDirty();
+	}
+	ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - btnW_minus);
+	if (ImGui::SmallButton("-"))
+	{
+		entity.RemoveComponent<MeshRender>();
+		BVHBuilder::MarkActiveDirty();
+		ImGui::PopID();
+		return;
+	}
+
+	if (open)
+	{
+		// --- Model file selector ---
+		ImGui::Columns(2);
+		ImGui::SetColumnWidth(0, 100.0f);
+
+		ImGui::Text("Model");
+		ImGui::NextColumn();
+
+		std::string preview = meshrender.ModelPath.empty()
+			? "<none>"
+			: meshrender.ModelPath.substr(meshrender.ModelPath.find_last_of("/\\") + 1);
+
+		if (ImGui::BeginCombo("##ModelPath", preview.c_str()))
+		{
+			for (const auto& path : My_map::GetModelPaths())
+			{
+				bool selected = (path == meshrender.ModelPath);
+				std::string display = path.substr(path.find_last_of("/\\") + 1);
+				if (ImGui::Selectable(display.c_str(), selected))
+				{
+					meshrender.ModelPath = path;
+					state.SelectedMaterialIdx = 0;
+					ClearMaterialWidgets();
+					BVHBuilder::MarkActiveDirty();
+				}
+				if (selected)
+					ImGui::SetItemDefaultFocus();
+			}
+			ImGui::EndCombo();
+		}
+		ImGui::SameLine();
+		if (ImGui::SmallButton("..."))
+		{
+			std::string importPath = OpenModelFileDialog();
+			if (!importPath.empty())
+			{
+				My_map::AddModelPath(importPath);
+				Engine::ResourceLoader::RequestModelLoad(importPath);
+				meshrender.ModelPath = importPath;
+				state.SelectedMaterialIdx = 0;
+				ClearMaterialWidgets();
+				BVHBuilder::MarkActiveDirty();
+			}
+		}
+		ImGui::Columns(1);
+
+		// --- Material list per mesh slot ---
+		Ref<Model> model = meshrender.ModelPath.empty()
+			? nullptr
+			: My_map::GetModel(meshrender.ModelPath);
+
+		if (model && (state.SyncedModelPath != meshrender.ModelPath
+			|| state.SyncedMeshCount != model->meshes.size()))
+		{
+			size_t meshCount = model->meshes.size();
+			meshrender.materials.resize(meshCount);
+			for (size_t i = 0; i < meshCount; i++)
+			{
+				if (!meshrender.materials[i])
+					meshrender.materials[i] = CreateRef<Material>(
+						"D:/Code/C++/Tsundere/res/shaders/Lamber.shader");
+			}
+			state.SyncedModelPath = meshrender.ModelPath;
+			state.SyncedMeshCount = meshCount;
+		}
+
+		if (!meshrender.materials.empty())
+		{
+			ImGui::Spacing();
+			ImGui::Separator();
+			ImGui::Text("Materials:");
+
+			size_t count = model
+				? std::min(model->meshes.size(), meshrender.materials.size())
+				: meshrender.materials.size();
+			for (size_t i = 0; i < count; i++)
+			{
+				std::string shaderName = "none";
+				if (meshrender.materials[i]
+					&& meshrender.materials[i]->shaderindex >= 0
+					&& meshrender.materials[i]->shaderindex < (int)My_map::GetShaderPaths().size())
+				{
+					shaderName = My_map::GetShaderPaths()[meshrender.materials[i]->shaderindex];
+					shaderName = shaderName.substr(shaderName.find_last_of("/\\") + 1);
+				}
+
+				std::string label = "Mesh[" + std::to_string(i) + "]: " + shaderName;
+				bool selected = (state.SelectedMaterialIdx == (int)i);
+				if (ImGui::Selectable(label.c_str(), selected))
+					state.SelectedMaterialIdx = (int)i;
+			}
+
+			if (meshrender.materials.size() > 1)
+			{
+				ImGui::Spacing();
+				if (ImGui::Button("Remove Selected"))
+				{
+					int idx = state.SelectedMaterialIdx;
+					if (idx >= 0 && idx < (int)meshrender.materials.size())
+					{
+						meshrender.materials.erase(meshrender.materials.begin() + idx);
+						if (state.SelectedMaterialIdx >= (int)meshrender.materials.size())
+							state.SelectedMaterialIdx = (int)meshrender.materials.size() - 1;
+						ClearMaterialWidgets();
+						BVHBuilder::MarkActiveDirty();
+					}
+				}
+			}
+		}
+	}
+
+	ImGui::PopID();
+}
+
+// ============================================================================
+// Material inspector — standalone component panel for editing materials
+// ============================================================================
+
+inline void RenderMaterialInspector(Entity& entity)
+{
+	if (!entity.HasComponent<MeshRender>())
+		return;
+
+	auto& meshrender = entity.GetComponent<MeshRender>();
+	if (meshrender.materials.empty())
+		return;
+
+	auto& state = s_MeshRenderState;
+
+	ImGui::PushID("##Material");
+
+	bool open = ImGui::CollapsingHeader("Material",
+		ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_AllowItemOverlap);
+
+	if (open)
+	{
+		int idx = state.SelectedMaterialIdx;
+		if (idx < 0 || idx >= (int)meshrender.materials.size())
+			idx = 0;
+
+		Ref<Material> mat = meshrender.materials[idx];
+
+		if (state.NeedRebuild)
+		{
+			mat->InitVaires();
+			state.NeedRebuild = false;
+		}
+
+		// --- Shader selector ---
+		if (ImGui::BeginCombo("Shader", My_map::GetShaderPaths()[mat->shaderindex].c_str()))
+		{
+			for (int i = 0; i < (int)My_map::GetShaderPaths().size(); i++)
+			{
+				bool selected = (i == mat->shaderindex);
+				if (ImGui::Selectable(My_map::GetShaderPaths()[i].c_str(), selected))
+				{
+					mat->shaderindex = i;
+					mat->shader = ShaderLibiray::Get(My_map::GetShaderPaths()[i]);
+					state.NeedRebuild = true;
+					BVHBuilder::MarkActiveDirty();
+				}
+				if (selected)
+					ImGui::SetItemDefaultFocus();
+			}
+			ImGui::EndCombo();
+		}
+
+		// --- Uniform widgets ---
+		BuildMaterialWidgets(mat);
+		for (auto* widget : state.MaterialWidgets)
+			widget->_Draw();
+	}
+
+	ImGui::PopID();
+}
+
+// ============================================================================
+// Add component functions
+// ============================================================================
+
+inline void AddLightComponent(Entity& entity)
+{
+	if (!entity.HasComponent<Light>())
+		entity.AddComponent<Light>();
+	else
+		Warn_Core("Component Light already exists");
+}
+
+inline void AddMeshRenderComponent(Entity& entity)
+{
+	if (!entity.HasComponent<MeshRender>())
+	{
+		auto& mr = entity.AddComponent<MeshRender>();
+		mr.materials.push_back(CreateRef<Material>("D:/Code/C++/Tsundere/res/shaders/Lamber.shader"));
+		Info_Core("AddComponent: MeshRender with default material");
+		BVHBuilder::MarkActiveDirty();
+	}
+}
+
+inline void AddMaterialToMeshRender(Entity& entity)
+{
+	if (entity.HasComponent<MeshRender>())
+	{
+		auto& mr = entity.GetComponent<MeshRender>();
+		mr.materials.push_back(CreateRef<Material>("res/shaders/Lamber.shader"));
+		Info_Core("AddComponent: Material added to MeshRender");
+		BVHBuilder::MarkActiveDirty();
+	}
+	else
+	{
+		Warn_Core("Add MeshRender first before adding Material");
+	}
+}
+
+// ============================================================================
+// Registry — maps keyed by type_hash, populated by static initializers
+// ============================================================================
+
+inline std::unordered_map<entt::id_type, std::function<void(Entity&)>> s_RenderFns;
+inline std::unordered_map<entt::id_type, std::function<void(Entity&)>> s_AddFns;
+inline std::vector<std::string> s_AddableNames;
+
+struct ComponentRegistrar
+{
+	template<typename T>
+	static void Register(const char* name,
+		std::function<void(Entity&)> renderFn = nullptr,
+		std::function<void(Entity&)> addFn = nullptr)
+	{
+		auto typeId = entt::type_hash<T>::value();
+		entt::meta<T>().type(entt::hashed_string{ name });
+
+		if (renderFn)
+			s_RenderFns[typeId] = std::move(renderFn);
+
+		if (addFn)
+		{
+			s_AddFns[entt::hashed_string{ name }] = std::move(addFn);
+			s_AddableNames.push_back(name);
+		}
+	}
+};
+
+inline const auto s_RegMeta_Tag = []() {
+	ComponentRegistrar::Register<Tag>("Tag", RenderTagInspector);
+	return 0;
+}();
+
+inline const auto s_RegMeta_Transform = []() {
+	ComponentRegistrar::Register<Transform>("Transform", RenderTransformInspector);
+	return 0;
+}();
+
+inline const auto s_RegMeta_Light = []() {
+	ComponentRegistrar::Register<Light>("Light",
+		RenderLightInspector, AddLightComponent);
+	return 0;
+}();
+
+inline const auto s_RegMeta_MeshRender = []() {
+	ComponentRegistrar::Register<MeshRender>("MeshRender",
+		RenderMeshRenderInspector, AddMeshRenderComponent);
+	s_AddableNames.push_back("Material");
+	return 0;
+}();
+
+// ============================================================================
+// Runtime discovery helpers — called from Inspect panel
+// ============================================================================
+
+inline void DiscoverAndRenderComponents(Entity& entity)
+{
+	auto h = entt::handle{ entity.m_Scene->m_Registry, static_cast<entt::entity>(entity) };
+	for (auto&& [type_id, storage] : h.storage())
+	{
+		auto it = s_RenderFns.find(type_id);
+		if (it != s_RenderFns.end())
+			it->second(entity);
+	}
+}
+
+inline std::vector<std::string> GetAddableComponentNames()
+{
+	return s_AddableNames;
+}
+
+inline void DispatchAddComponent(const std::string& name, Entity& entity)
+{
+	if (name == "Material")
+	{
+		AddMaterialToMeshRender(entity);
+		return;
+	}
+
+	auto id = entt::hashed_string{ name.c_str() };
+	auto it = s_AddFns.find(id);
+	if (it != s_AddFns.end())
+		it->second(entity);
+}
