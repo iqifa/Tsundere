@@ -23,7 +23,7 @@ struct CompiledShader
     std::unordered_map<ShaderStage, std::string> Glsl;
 
     ShaderReflection     Reflection;
-    std::vector<Uniform> Uniforms;
+    // DEPRECATED: std::vector<Uniform> Uniforms; removed
 };
 
 // Compiles a multi-stage .shader file (`#shader vertex|fragment|compute` sections)

@@ -17,7 +17,6 @@ private:
 	mutable std::unordered_map<std::string, int> m_UniformLocationCache;
 	ShaderReflection m_Reflection;
 public:
-	std::vector<Uniform> uniform;   // kept public for backward compat; GetUniforms() returns this
 public:
 	GLShader(const std::string& filepath, const std::string& name );
 	GLShader(const std::string& filepath);
@@ -33,7 +32,6 @@ public:
 	const std::string& GetName() const override { return m_Name; }
 	const std::string& GetPath() const override { return m_FilePath; }
 	uint32_t GetID() const override { return m_RendererID; }
-	const std::vector<Uniform>& GetUniforms() const override { return uniform; }
 	const ShaderReflection& GetReflection() const override { return m_Reflection; }
 	void ApplyPushConstants(const void* data, uint32_t size) const override;
 

@@ -12,7 +12,6 @@ private:
 
 	std::string m_Name;
 	std::string m_FilePath;
-	std::vector<Uniform> uniform;
 	ShaderReflection m_Reflection;
 
 	unsigned int m_HandleID;
@@ -30,7 +29,6 @@ public:
 	void DispatchCompute(uint32_t groupsX, uint32_t groupsY = 1, uint32_t groupsZ = 1) const override;
 
 	uint32_t GetID() const override { return m_HandleID; }
-	const std::vector<Uniform>& GetUniforms() const override { return uniform; }
 	const ShaderReflection& GetReflection() const override { return m_Reflection; }
 
 	void SetUniform4f(const std::string& name, float v0, float v1, float v2, float v3) const override;

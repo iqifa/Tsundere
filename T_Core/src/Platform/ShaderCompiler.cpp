@@ -598,131 +598,131 @@ namespace
         bool        Opaque  = false;
     };
 
-    std::vector<Uniform> BuildEditorUniforms(const ShaderSourceFile& file,
-                                             const std::vector<StageModule>& modules)
-    {
-        std::unordered_map<std::string, ReflectedUniform> reflected;
-        for (const auto& module : modules)
-        {
-            auto [plain, plainCount] = GetResources(module, SPVC_RESOURCE_TYPE_GL_PLAIN_UNIFORM);
-            for (size_t i = 0; i < plainCount; ++i)
-                reflected.emplace(plain[i].name, ReflectedUniform{ TypeName(module.Compiler, plain[i].base_type_id), 0, false });
-
-            for (auto type : { SPVC_RESOURCE_TYPE_SAMPLED_IMAGE, SPVC_RESOURCE_TYPE_STORAGE_IMAGE })
-            {
-                auto [list, count] = GetResources(module, type);
-                for (size_t i = 0; i < count; ++i)
-                    reflected.emplace(list[i].name, ReflectedUniform{
-                        TypeName(module.Compiler, list[i].base_type_id),
-                        spvc_compiler_get_decoration(module.Compiler, list[i].id, SpvDecorationBinding),
-                        true });
-            }
-        }
-
-        std::vector<Uniform> uniforms;
-        for (const auto& d : file.Declared)
-        {
-            if (d.IsHeader)
-            {
-                uniforms.push_back({ d.Name, "Head", 0, true });
-                continue;
-            }
-            if (d.System)
-                continue;
-
-            if (auto it = reflected.find(d.Name); it != reflected.end())
-                uniforms.push_back({ d.Name, it->second.Type, it->second.Binding, !it->second.Opaque });
-            else if (modules.empty())
-                uniforms.push_back({ d.Name, d.Type, 0, !IsOpaqueType(d.Type) });
-        }
-        return uniforms;
-    }
-}
-
-CompiledShader CompileShaderFile(const std::string& filepath, ShaderTarget target)
-{
-    CompiledShader result;
-
-    ShaderSourceFile file;
-    if (!LoadShaderSource(filepath, file))
-        return result;
-
-    bool bypassSpirv = false;
-    if (target == ShaderTarget::OpenGL)
-    {
-        for (const auto& [stage, source] : file.Sections)
-            if (source.find("GL_ARB_bindless_texture") != std::string::npos)
-                bypassSpirv = true;
-    }
-
-    if (bypassSpirv)
-    {
-        result.Glsl     = file.Sections;
-        result.Uniforms = BuildEditorUniforms(file, {});
-        result.Success  = true;
-        return result;
-    }
-
-    shaderc_compiler_t compiler = shaderc_compiler_initialize();
-    bool ok = true;
-    for (ShaderStage stage : file.Stages)
-    {
-        std::vector<uint32_t> spirv;
-        if (CompileToSpirv(compiler, stage, file.Sections[stage], filepath, target, spirv))
-            result.Spirv[stage] = std::move(spirv);
-        else
-            ok = false;
-    }
-    shaderc_compiler_release(compiler);
-    if (!ok)
-        return result;
-
-    spvc_context rawContext = nullptr;
-    if (spvc_context_create(&rawContext) != SPVC_SUCCESS)
-    {
-        Error_Core("SPIRV-Cross: failed to create context for {}", filepath);
-        return result;
-    }
-    SpvcContextPtr context(rawContext);
-    spvc_context_set_error_callback(rawContext, OnSpvcError, nullptr);
-
-    const spvc_backend backend = target == ShaderTarget::OpenGL ? SPVC_BACKEND_GLSL : SPVC_BACKEND_NONE;
-
-    std::vector<StageModule> modules;
-    for (ShaderStage stage : file.Stages)
-    {
-        const auto& spirv = result.Spirv[stage];
-
-        StageModule module{ stage };
-        spvc_parsed_ir ir = nullptr;
-        if (spvc_context_parse_spirv(rawContext, spirv.data(), spirv.size(), &ir) != SPVC_SUCCESS
-            || spvc_context_create_compiler(rawContext, backend, ir, SPVC_CAPTURE_MODE_TAKE_OWNERSHIP, &module.Compiler) != SPVC_SUCCESS
-            || spvc_compiler_create_shader_resources(module.Compiler, &module.Resources) != SPVC_SUCCESS)
-        {
-            Error_Core("SPIRV-Cross: failed to reflect {} ({} stage)", filepath, StageName(stage));
-            return result;
-        }
-        modules.push_back(module);
-    }
-
-    if (target == ShaderTarget::OpenGL)
-    {
-        FixupForOpenGL(modules, file);
-        for (const auto& module : modules)
-        {
-            std::string glsl;
-            if (!EmitGLSL(module, glsl))
-            {
-                Error_Core("SPIRV-Cross: failed to emit GLSL for {} ({} stage)", filepath, StageName(module.Stage));
-                return result;
-            }
-            result.Glsl[module.Stage] = std::move(glsl);
-        }
-    }
-
-    for (const auto& module : modules)
-        ReflectModule(module, result.Reflection);
-    result.Uniforms = BuildEditorUniforms(file, modules);
-    result.Success  = true;
-    return result;
-}
+// DEPRECATED:     std::vector<Uniform> BuildEditorUniforms(const ShaderSourceFile& file,
+// DEPRECATED:                                              const std::vector<StageModule>& modules)
+// DEPRECATED:     {
+// DEPRECATED:         std::unordered_map<std::string, ReflectedUniform> reflected;
+// DEPRECATED:         for (const auto& module : modules)
+// DEPRECATED:         {
+// DEPRECATED:             auto [plain, plainCount] = GetResources(module, SPVC_RESOURCE_TYPE_GL_PLAIN_UNIFORM);
+// DEPRECATED:             for (size_t i = 0; i < plainCount; ++i)
+// DEPRECATED:                 reflected.emplace(plain[i].name, ReflectedUniform{ TypeName(module.Compiler, plain[i].base_type_id), 0, false });
+// DEPRECATED: 
+// DEPRECATED:             for (auto type : { SPVC_RESOURCE_TYPE_SAMPLED_IMAGE, SPVC_RESOURCE_TYPE_STORAGE_IMAGE })
+// DEPRECATED:             {
+// DEPRECATED:                 auto [list, count] = GetResources(module, type);
+// DEPRECATED:                 for (size_t i = 0; i < count; ++i)
+// DEPRECATED:                     reflected.emplace(list[i].name, ReflectedUniform{
+// DEPRECATED:                         TypeName(module.Compiler, list[i].base_type_id),
+// DEPRECATED:                         spvc_compiler_get_decoration(module.Compiler, list[i].id, SpvDecorationBinding),
+// DEPRECATED:                         true });
+// DEPRECATED:             }
+// DEPRECATED:         }
+// DEPRECATED: 
+// DEPRECATED:         std::vector<Uniform> uniforms;
+// DEPRECATED:         for (const auto& d : file.Declared)
+// DEPRECATED:         {
+// DEPRECATED:             if (d.IsHeader)
+// DEPRECATED:             {
+// DEPRECATED:                 uniforms.push_back({ d.Name, "Head", 0, true });
+// DEPRECATED:                 continue;
+// DEPRECATED:             }
+// DEPRECATED:             if (d.System)
+// DEPRECATED:                 continue;
+// DEPRECATED: 
+// DEPRECATED:             if (auto it = reflected.find(d.Name); it != reflected.end())
+// DEPRECATED:                 uniforms.push_back({ d.Name, it->second.Type, it->second.Binding, !it->second.Opaque });
+// DEPRECATED:             else if (modules.empty())
+// DEPRECATED:                 uniforms.push_back({ d.Name, d.Type, 0, !IsOpaqueType(d.Type) });
+// DEPRECATED:         }
+// DEPRECATED:         return uniforms;
+// DEPRECATED:     }
+// DEPRECATED: }
+// DEPRECATED: 
+// DEPRECATED: CompiledShader CompileShaderFile(const std::string& filepath, ShaderTarget target)
+// DEPRECATED: {
+// DEPRECATED:     CompiledShader result;
+// DEPRECATED: 
+// DEPRECATED:     ShaderSourceFile file;
+// DEPRECATED:     if (!LoadShaderSource(filepath, file))
+// DEPRECATED:         return result;
+// DEPRECATED: 
+// DEPRECATED:     bool bypassSpirv = false;
+// DEPRECATED:     if (target == ShaderTarget::OpenGL)
+// DEPRECATED:     {
+// DEPRECATED:         for (const auto& [stage, source] : file.Sections)
+// DEPRECATED:             if (source.find("GL_ARB_bindless_texture") != std::string::npos)
+// DEPRECATED:                 bypassSpirv = true;
+// DEPRECATED:     }
+// DEPRECATED: 
+// DEPRECATED:     if (bypassSpirv)
+// DEPRECATED:     {
+// DEPRECATED:         result.Glsl     = file.Sections;
+// DEPRECATED:         // result.Uniforms = BuildEditorUniforms(file, {}); // DEPRECATED
+// DEPRECATED:         result.Success  = true;
+// DEPRECATED:         return result;
+// DEPRECATED:     }
+// DEPRECATED: 
+// DEPRECATED:     shaderc_compiler_t compiler = shaderc_compiler_initialize();
+// DEPRECATED:     bool ok = true;
+// DEPRECATED:     for (ShaderStage stage : file.Stages)
+// DEPRECATED:     {
+// DEPRECATED:         std::vector<uint32_t> spirv;
+// DEPRECATED:         if (CompileToSpirv(compiler, stage, file.Sections[stage], filepath, target, spirv))
+// DEPRECATED:             result.Spirv[stage] = std::move(spirv);
+// DEPRECATED:         else
+// DEPRECATED:             ok = false;
+// DEPRECATED:     }
+// DEPRECATED:     shaderc_compiler_release(compiler);
+// DEPRECATED:     if (!ok)
+// DEPRECATED:         return result;
+// DEPRECATED: 
+// DEPRECATED:     spvc_context rawContext = nullptr;
+// DEPRECATED:     if (spvc_context_create(&rawContext) != SPVC_SUCCESS)
+// DEPRECATED:     {
+// DEPRECATED:         Error_Core("SPIRV-Cross: failed to create context for {}", filepath);
+// DEPRECATED:         return result;
+// DEPRECATED:     }
+// DEPRECATED:     SpvcContextPtr context(rawContext);
+// DEPRECATED:     spvc_context_set_error_callback(rawContext, OnSpvcError, nullptr);
+// DEPRECATED: 
+// DEPRECATED:     const spvc_backend backend = target == ShaderTarget::OpenGL ? SPVC_BACKEND_GLSL : SPVC_BACKEND_NONE;
+// DEPRECATED: 
+// DEPRECATED:     std::vector<StageModule> modules;
+// DEPRECATED:     for (ShaderStage stage : file.Stages)
+// DEPRECATED:     {
+// DEPRECATED:         const auto& spirv = result.Spirv[stage];
+// DEPRECATED: 
+// DEPRECATED:         StageModule module{ stage };
+// DEPRECATED:         spvc_parsed_ir ir = nullptr;
+// DEPRECATED:         if (spvc_context_parse_spirv(rawContext, spirv.data(), spirv.size(), &ir) != SPVC_SUCCESS
+// DEPRECATED:             || spvc_context_create_compiler(rawContext, backend, ir, SPVC_CAPTURE_MODE_TAKE_OWNERSHIP, &module.Compiler) != SPVC_SUCCESS
+// DEPRECATED:             || spvc_compiler_create_shader_resources(module.Compiler, &module.Resources) != SPVC_SUCCESS)
+// DEPRECATED:         {
+// DEPRECATED:             Error_Core("SPIRV-Cross: failed to reflect {} ({} stage)", filepath, StageName(stage));
+// DEPRECATED:             return result;
+// DEPRECATED:         }
+// DEPRECATED:         modules.push_back(module);
+// DEPRECATED:     }
+// DEPRECATED: 
+// DEPRECATED:     if (target == ShaderTarget::OpenGL)
+// DEPRECATED:     {
+// DEPRECATED:         FixupForOpenGL(modules, file);
+// DEPRECATED:         for (const auto& module : modules)
+// DEPRECATED:         {
+// DEPRECATED:             std::string glsl;
+// DEPRECATED:             if (!EmitGLSL(module, glsl))
+// DEPRECATED:             {
+// DEPRECATED:                 Error_Core("SPIRV-Cross: failed to emit GLSL for {} ({} stage)", filepath, StageName(module.Stage));
+// DEPRECATED:                 return result;
+// DEPRECATED:             }
+// DEPRECATED:             result.Glsl[module.Stage] = std::move(glsl);
+// DEPRECATED:         }
+// DEPRECATED:     }
+// DEPRECATED: 
+// DEPRECATED:     for (const auto& module : modules)
+// DEPRECATED:         ReflectModule(module, result.Reflection);
+// DEPRECATED:     // result.Uniforms = BuildEditorUniforms(file, modules); // DEPRECATED
+// DEPRECATED:     result.Success  = true;
+// DEPRECATED:     return result;
+// DEPRECATED: }
