@@ -4,7 +4,7 @@
 
 #include"Trans/SceneCamera.h"
 #include"GLHead.h"
-#include"Panels/Material.h"
+#include"Core/Material.h"
 #include<random>
 #include "Modle.h"
 #include <entt/entt.hpp>

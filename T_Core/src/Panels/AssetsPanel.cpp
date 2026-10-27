@@ -1,7 +1,7 @@
 #include "AssetsPanel.h"
 #include "Core/Application.h"
 #include "Core/Threading/ResourceLoader.h"
-#include "Debug/Log.h"
+#include "Core/Log.h"
 #include "Panels/MeshFilePath.h"
 #include <algorithm>
 
