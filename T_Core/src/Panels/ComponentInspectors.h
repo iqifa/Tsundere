@@ -3,7 +3,7 @@
 #include "ExternalFiles.h"
 #include "GLHead.h"
 #include "Platform/RHI/RHITextureLibrary.h"
-#include "Panels/Material.h"
+#include "Panels/MaterialInspectorPanel.h"
 #include "Panels/MeshFilePath.h"
 #include "Platform/FileDialog.h"
 #include "Input/Input.h"

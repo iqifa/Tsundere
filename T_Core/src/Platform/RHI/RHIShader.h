@@ -9,20 +9,7 @@
 #include <vector>
 #include <shared_mutex>
 
-// Editor-facing uniform list that drives the Material inspector, built by
-// ShaderCompiler from SPIR-V reflection in source declaration order.
-//   - Loose `uniform <type> <name>;` values (OpenGL only): inUBO = true, binding = 0.
-//   - Samplers / storage images: inUBO = false, binding = resolved binding.
-//     Samplers without an explicit `layout(binding = N)` get 10, 11, ... on OpenGL.
-//   - `[Header <label>]` lines become Type == "Head" entries.
-//   - Uniforms between `[System]` markers are engine-driven and omitted.
-struct Uniform
-{
-    std::string Name;
-    std::string Type;
-    uint32_t    binding = 0;
-    bool        inUBO   = true;
-};
+// DEPRECATED: Uniform struct removed. Use ShaderReflection instead (GetReflection()).
 
 // Shader module interface.
 // GL backend: wraps glCreateShader/glLinkProgram, stores GLSL source.
@@ -44,8 +31,8 @@ public:
     virtual const std::string& GetPath() const = 0;
     virtual uint32_t GetID() const = 0;
 
-    // Parsed uniforms (for Material editor UI)
-    virtual const std::vector<Uniform>& GetUniforms() const = 0;
+    // DEPRECATED: Replaced by GetReflection().
+    // virtual const std::vector<Uniform>& GetUniforms() const = 0;
 
     // Resource layout reflected from SPIR-V. Empty for OpenGL shaders that
     // bypass SPIR-V (e.g. GL_ARB_bindless_texture).
