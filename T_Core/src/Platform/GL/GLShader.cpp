@@ -36,7 +36,6 @@ void GLShader::Build(const string& filepath)
 		return;
 	}
 
-	uniform = std::move(compiled.Uniforms);
 	m_Reflection = std::move(compiled.Reflection);
 
 	auto& sources = compiled.Glsl;

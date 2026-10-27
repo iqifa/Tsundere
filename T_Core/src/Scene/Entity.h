@@ -1,7 +1,7 @@
 #pragma once
 #include"entt/entt.hpp"
 #include"Scene/Component.h"
-#include"Panels/Material.h"
+#include"Core/Material.h"
 using namespace Component;
 using namespace entt;
 

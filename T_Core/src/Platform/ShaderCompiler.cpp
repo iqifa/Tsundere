@@ -726,3 +726,5 @@ namespace
 // DEPRECATED:     result.Success  = true;
 // DEPRECATED:     return result;
 // DEPRECATED: }
+
+} // anonymous namespace
