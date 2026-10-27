@@ -1,6 +1,6 @@
 #include "Material.h"
 #include "Platform/RHI/RHITextureLibrary.h"
-#include "Core/Log.h"
+#include "Debug/Debug.h"
 #include <fstream>
 #include <sstream>
 #include <algorithm>

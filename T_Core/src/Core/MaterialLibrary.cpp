@@ -1,5 +1,5 @@
 #include "MaterialLibrary.h"
-#include "Core/Log.h"
+#include "Debug/Debug.h"
 
 namespace Engine {
 
