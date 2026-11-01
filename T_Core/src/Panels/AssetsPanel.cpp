@@ -340,7 +340,13 @@ void AssetsPanel::NavigateToDirectory(const fs::path& directory)
 
 void AssetsPanel::ImportAsset()
 {
-	std::string path = OpenModelFileDialog();
+	// One dialog accepting all supported asset types
+	std::string path = OpenFileDialog(
+		"Supported Assets\0*.obj;*.fbx;*.gltf;*.glb;*.png;*.jpg;*.jpeg;*.tga;*.bmp;*.hdr;*.tmat\0"
+		"Model Files\0*.obj;*.fbx;*.gltf;*.glb\0"
+		"Image Files\0*.png;*.jpg;*.jpeg;*.tga;*.bmp;*.hdr\0"
+		"Material Files\0*.tmat\0"
+		"All Files\0*.*\0");
 	if (path.empty())
 		return;
 
@@ -358,7 +364,16 @@ void AssetsPanel::ImportAsset()
 		if (type == AssetEntry::Type::Texture)
 			Engine::ResourceLoader::RequestTextureLoad(destPath.string());
 		else if (type == AssetEntry::Type::Model)
+		{
+			My_map::AddModelPath(destPath.string());
 			Engine::ResourceLoader::RequestModelLoad(destPath.string());
+		}
+		else if (type == AssetEntry::Type::Material)
+		{
+			// Preload into the material library so it is ready to assign
+			if (Engine::MaterialLibrary::Load(destPath.string()))
+				Info_Core("Loaded material asset: {0}", destPath.string());
+		}
 
 		RefreshCurrentDirectory();
 	}
@@ -417,14 +432,24 @@ void AssetsPanel::OpenAsset(const AssetEntry& entry)
 		break;
 
 	case AssetEntry::Type::Texture:
-		// Texture preview (could open a separate panel in the future)
-		Info_Core("Opened texture: {0}", entry.path);
+		// Load into the texture library so it is ready to assign
+		{
+			Ref<RHITexture2D> tex = TextureLibiary::Load(entry.path);
+			if (tex)
+				Info_Core("Opened texture: {0}", entry.path);
+		}
 		break;
 
 	case AssetEntry::Type::Material:
-		// TODO: Open MaterialEditorPanel when implemented
-		Info_Core("Opened material: {0}", entry.path);
+	{
+		// Load into the material library (deserialize .tmat)
+		Ref<Engine::Material> mat = Engine::MaterialLibrary::Load(entry.path);
+		if (mat)
+			Info_Core("Opened material: {0}", entry.path);
+		if (!mat)
+			Error_Core("Failed to load material: {0}", entry.path);
 		break;
+	}
 
 	case AssetEntry::Type::Shader:
 		// Open shader in external editor
