@@ -14,14 +14,13 @@ static vector<string> ModlePaths = {
 static vector<string> ShaderPaths
 {
 	"res/shaders/Lit.shader",
-	"res/shaders/default.shader",
+	"res/shaders/Lamber.shader",
+	"res/shaders/MaterialTest.shader",
 	"res/shaders/Basic.shader",
 	"res/shaders/Modle.shader",
 	"res/shaders/SkyBox.shader",
 	"res/shaders/Test.shader",
 	"res/shaders/StoneShader.shader",
-	"res/shaders/MaterialTest.shader",
-	"D:/Code/C++/Tsundere/res/shaders/Lamber.shader",
 };
 
 unordered_map<string, Ref<Model>> My_map::m_ModleMap;
