@@ -22,7 +22,7 @@ inline std::string OpenModelFileDialog()
 	char szFile[512] = "";
 	ofn.lStructSize = sizeof(ofn);
 	ofn.hwndOwner = glfwGetWin32Window(glfwGetCurrentContext());
-	ofn.lpstrFilter = "Model Files\0*.obj;*.fbx;*.gltf;*.glb\0All Files\0*.*\0";
+	ofn.lpstrFilter = "Model Files\0*.obj;*.fbx;*.gltf;*.glb;*.pmx;*.pmd\0All Files\0*.*\0";
 	ofn.lpstrFile = szFile;
 	ofn.nMaxFile = sizeof(szFile);
 	ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;

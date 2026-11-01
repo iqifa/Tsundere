@@ -20,6 +20,7 @@ static vector<string> ShaderPaths
 	"res/shaders/SkyBox.shader",
 	"res/shaders/Test.shader",
 	"res/shaders/StoneShader.shader",
+	"res/shaders/MaterialTest.shader",
 	"D:/Code/C++/Tsundere/res/shaders/Lamber.shader",
 };
 
