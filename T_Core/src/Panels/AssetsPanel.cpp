@@ -5,10 +5,29 @@
 #include "Panels/MeshFilePath.h"
 #include <algorithm>
 
+// Resolve the project root (the directory containing res/) as an absolute path.
+// The working directory varies between VS launch, double-click launch and
+// working-tree layouts, so relative asset paths break; anchoring on res/ is
+// stable because every shader/material path in the engine is res/-relative.
+static fs::path FindProjectRoot()
+{
+	fs::path dir = fs::current_path();
+	for (int depth = 0; depth < 6; ++depth)
+	{
+		if (fs::exists(dir / "res"))
+			return dir;
+		fs::path parent = dir.parent_path();
+		if (parent == dir)
+			break;
+		dir = parent;
+	}
+	return fs::current_path();
+}
+
 AssetsPanel::AssetsPanel(const std::string& name)
 	: Layer(name)
-	, m_RootDirectory("Assets")
-	, m_CurrentDirectory("Assets")
+	, m_RootDirectory(FindProjectRoot() / "Assets")
+	, m_CurrentDirectory(m_RootDirectory)
 {
 	// Create the asset workspace if it does not exist yet, with standard
 	// subfolders so imports have an obvious home.
@@ -24,7 +43,7 @@ AssetsPanel::AssetsPanel(const std::string& name)
 	if (!fs::exists(m_RootDirectory))
 	{
 		Warn_Core("Root directory does not exist: {0}", m_RootDirectory.string());
-		m_RootDirectory = fs::current_path();
+		m_RootDirectory = FindProjectRoot();
 		m_CurrentDirectory = m_RootDirectory;
 	}
 	RefreshCurrentDirectory();
@@ -416,6 +435,9 @@ void AssetsPanel::ImportAsset()
 
 	try
 	{
+		// Destination folder may have been deleted while browsing
+		std::error_code ec;
+		fs::create_directories(m_CurrentDirectory, ec);
 		fs::copy_file(sourcePath, destPath, fs::copy_options::overwrite_existing);
 		Info_Core("Imported asset: {0}", destPath.string());
 
@@ -445,6 +467,10 @@ void AssetsPanel::ImportAsset()
 
 void AssetsPanel::CreateMaterialAsset()
 {
+	// Make sure the target directory exists before writing into it
+	std::error_code ec;
+	fs::create_directories(m_CurrentDirectory, ec);
+
 	// Find a non-clashing name: NewMaterial.tmat, NewMaterial_1.tmat, ...
 	fs::path base = m_CurrentDirectory / "NewMaterial";
 	fs::path target = base.string() + ".tmat";
@@ -452,8 +478,9 @@ void AssetsPanel::CreateMaterialAsset()
 	while (fs::exists(target))
 		target = base.string() + "_" + std::to_string(++suffix) + ".tmat";
 
-	// Create with the default shader so the inspector has parameters to show
-	Ref<RHIShader> shader = ShaderLibiray::Get("res/shaders/default.shader");
+	// Create with a shader that actually exists so the inspector has
+	// parameters to show (Lamber.shader ships with the engine)
+	Ref<RHIShader> shader = ShaderLibiray::Get("res/shaders/Lamber.shader");
 	Ref<Engine::Material> mat = Engine::MaterialLibrary::CreateDefault(
 		target.filename().string(), shader);
 
