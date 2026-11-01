@@ -60,6 +60,7 @@ private:
 	void NavigateToDirectory(const fs::path& directory);
 
 	void ImportAsset();
+	void CreateMaterialAsset();
 	void DeleteAsset(const std::string& path);
 	void RenameAsset(const std::string& oldPath, const std::string& newName);
 	void OpenAsset(const AssetEntry& entry);

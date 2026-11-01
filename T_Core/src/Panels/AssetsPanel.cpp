@@ -7,9 +7,20 @@
 
 AssetsPanel::AssetsPanel(const std::string& name)
 	: Layer(name)
-	, m_RootDirectory("res")
-	, m_CurrentDirectory("res")
+	, m_RootDirectory("Assets")
+	, m_CurrentDirectory("Assets")
 {
+	// Create the asset workspace if it does not exist yet, with standard
+	// subfolders so imports have an obvious home.
+	if (!fs::exists(m_RootDirectory))
+	{
+		std::error_code ec;
+		fs::create_directories(m_RootDirectory, ec);
+		for (const char* sub : { "Models", "Textures", "Materials" })
+			fs::create_directories(m_RootDirectory / sub, ec);
+		if (ec)
+			Warn_Core("Could not create Assets directory: {0}", ec.message());
+	}
 	if (!fs::exists(m_RootDirectory))
 	{
 		Warn_Core("Root directory does not exist: {0}", m_RootDirectory.string());
@@ -33,6 +44,10 @@ void AssetsPanel::OnImGuiRender()
 	// Toolbar
 	if (ImGui::Button("Import"))
 		ImportAsset();
+
+	ImGui::SameLine();
+	if (ImGui::Button("New Material"))
+		CreateMaterialAsset();
 
 	ImGui::SameLine();
 	if (ImGui::Button("Refresh"))
@@ -74,6 +89,16 @@ void AssetsPanel::OnImGuiRender()
 
 		ImGui::Separator();
 		DrawAssetGrid();
+
+		// Blank-area context menu: create new assets here
+		if (ImGui::BeginPopupContextWindow("##assetsBlankCtx", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems))
+		{
+			if (ImGui::MenuItem("New Material"))
+				CreateMaterialAsset();
+			if (ImGui::MenuItem("Import Asset..."))
+				ImportAsset();
+			ImGui::EndPopup();
+		}
 	}
 	ImGui::EndChild();
 
@@ -140,96 +165,131 @@ void AssetsPanel::DrawAssetGrid()
 {
 	const float cellSize = m_ThumbnailSize + 20.0f;
 	const float panelWidth = ImGui::GetContentRegionAvail().x;
-	int columnCount = std::max(1, (int)(panelWidth / cellSize));
+	int columnCount = (int)(panelWidth / cellSize);
+	if (columnCount < 1)
+		columnCount = 1;
 
-	ImGui::Columns(columnCount, nullptr, false);
+	const float nameHeight = ImGui::GetTextLineHeight();
+	const float cellHeight = m_ThumbnailSize + nameHeight + 12.0f;
+	const ImVec2 cellSize2(cellSize, cellHeight);
+	const ImVec4 highlight = ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive);
 
+	int column = 0;
 	for (size_t i = 0; i < m_CurrentAssets.size(); ++i)
 	{
 		const auto& asset = m_CurrentAssets[i];
 		ImGui::PushID((int)i);
 
+		// Start the cell at the left edge of this grid row slot
+		ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(0.0f, 0.0f));
+		ImGui::BeginGroup();
+
+		ImVec2 cellTopLeft = ImGui::GetCursorScreenPos();
+		ImVec2 thumbTopLeft(cellTopLeft.x + 10.0f, cellTopLeft.y + 4.0f);
+
 		bool isSelected = (m_SelectedIndex == (int)i);
 
-		// Icon + label
-		ImVec2 cursorPos = ImGui::GetCursorPos();
-
-		if (ImGui::Selectable("##assetbg", isSelected, 0, ImVec2(m_ThumbnailSize, m_ThumbnailSize + 30)))
+		// Reserve the whole cell; the button reports clicked/hovered
+		ImGui::SetCursorScreenPos(thumbTopLeft);
+		ImGui::InvisibleButton("##assetbg", ImVec2(m_ThumbnailSize, m_ThumbnailSize));
+		bool hovered = ImGui::IsItemHovered();
+		if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
 		{
 			m_SelectedIndex = (int)i;
-		}
-
-		if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-		{
 			OpenAsset(asset);
 		}
+		if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+			m_SelectedIndex = (int)i;
 
 		DrawAssetContextMenu(asset);
 
-		ImGui::SetCursorPos(cursorPos);
-
-		// Draw icon placeholder
-		ImGui::BeginGroup();
+		// Selection highlight behind the thumbnail
+		if (isSelected || hovered)
 		{
-			std::string icon = GetAssetTypeIcon(asset.type);
+			ImDrawList* dl = ImGui::GetWindowDrawList();
+			ImU32 bg = ImGui::GetColorU32(
+				isSelected ? ImGuiCol_HeaderActive : ImGuiCol_HeaderHovered);
+			dl->AddRectFilled(cellTopLeft,
+				ImVec2(cellTopLeft.x + cellSize2.x, cellTopLeft.y + cellSize2.y),
+				bg, 4.0f);
+		}
 
-			// Center icon text
-			ImVec2 iconSize = ImGui::CalcTextSize(icon.c_str());
-			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (m_ThumbnailSize - iconSize.x) * 0.5f);
-			ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (m_ThumbnailSize - iconSize.y) * 0.5f);
+		// Thumbnail area (texture preview or icon text), centered
+		{
+			ImDrawList* dl = ImGui::GetWindowDrawList();
+			bool drewThumb = false;
 
 			if (asset.type == AssetEntry::Type::Texture)
 			{
-				// Try to display texture
 				Ref<RHITexture2D> tex = TextureLibiary::Get(asset.path);
 				if (tex)
 				{
 					ImTextureID texID = RHIImGUIRenderer::GetTextureID(tex.get());
 					if (texID != ImTextureID_Invalid)
 					{
-						ImGui::SetCursorPos(cursorPos);
-						ImGui::Image(texID, ImVec2(m_ThumbnailSize, m_ThumbnailSize), ImVec2(0, 1), ImVec2(1, 0));
-					}
-					else
-					{
-						ImGui::Text("%s", icon.c_str());
+						dl->AddImageRounded(texID, thumbTopLeft,
+							ImVec2(thumbTopLeft.x + m_ThumbnailSize, thumbTopLeft.y + m_ThumbnailSize),
+							ImVec2(0, 1), ImVec2(1, 0), IM_COL32_WHITE, 4.0f);
+						drewThumb = true;
 					}
 				}
-				else
+			}
+
+			if (!drewThumb)
+			{
+				// Flat tile with type-tinted background + centered icon
+				ImU32 tile = IM_COL32(60, 60, 68, 200);
+				ImU32 fg = IM_COL32(220, 220, 225, 255);
+				switch (asset.type)
 				{
-					ImGui::Text("%s", icon.c_str());
+				case AssetEntry::Type::Directory: tile = IM_COL32(70, 100, 150, 200); break;
+				case AssetEntry::Type::Model:     tile = IM_COL32(150, 110, 60, 200); break;
+				case AssetEntry::Type::Texture:   tile = IM_COL32(90, 130, 90, 200); break;
+				case AssetEntry::Type::Material:  tile = IM_COL32(140, 80, 140, 200); break;
+				case AssetEntry::Type::Shader:    tile = IM_COL32(80, 120, 130, 200); break;
+				default: break;
 				}
-			}
-			else
-			{
-				ImGui::Text("%s", icon.c_str());
-			}
+				dl->AddRectFilled(thumbTopLeft,
+					ImVec2(thumbTopLeft.x + m_ThumbnailSize, thumbTopLeft.y + m_ThumbnailSize),
+					tile, 4.0f);
 
-			// Asset name (truncated if too long)
-			ImGui::SetCursorPosX(cursorPos.x);
-			std::string displayName = asset.name;
-			if (displayName.length() > 12)
-				displayName = displayName.substr(0, 9) + "...";
-
-			ImVec2 nameSize = ImGui::CalcTextSize(displayName.c_str());
-			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (m_ThumbnailSize - nameSize.x) * 0.5f);
-			ImGui::TextUnformatted(displayName.c_str());
-
-			if (ImGui::IsItemHovered())
-			{
-				ImGui::BeginTooltip();
-				ImGui::TextUnformatted(asset.name.c_str());
-				ImGui::TextUnformatted(asset.path.c_str());
-				ImGui::EndTooltip();
+				std::string icon = GetAssetTypeIcon(asset.type);
+				ImVec2 iconSize = ImGui::CalcTextSize(icon.c_str());
+				dl->AddText(ImVec2(thumbTopLeft.x + (m_ThumbnailSize - iconSize.x) * 0.5f,
+					thumbTopLeft.y + (m_ThumbnailSize - iconSize.y) * 0.5f),
+					fg, icon.c_str());
 			}
 		}
+
+		// Asset name below the thumbnail, centered, single line
+		ImGui::SetCursorScreenPos(ImVec2(cellTopLeft.x + 4.0f, thumbTopLeft.y + m_ThumbnailSize + 4.0f));
+		ImGui::PushItemWidth(cellSize2.x - 8.0f);
+		std::string displayName = asset.name;
+		if (displayName.size() > 12)
+			displayName = displayName.substr(0, 9) + "...";
+		ImGui::TextUnformatted(displayName.c_str());
+		ImGui::PopItemWidth();
+
+		if (ImGui::IsItemHovered())
+		{
+			ImGui::BeginTooltip();
+			ImGui::TextUnformatted(asset.name.c_str());
+			ImGui::TextUnformatted(asset.path.c_str());
+			ImGui::EndTooltip();
+		}
+
 		ImGui::EndGroup();
+		ImGui::PopStyleVar();
+
+		// Advance to the next grid slot
+		column++;
+		if (column < columnCount)
+			ImGui::SameLine();
+		else
+			column = 0;
 
 		ImGui::PopID();
-		ImGui::NextColumn();
 	}
-
-	ImGui::Columns(1);
 }
 
 void AssetsPanel::DrawAssetContextMenu(const AssetEntry& entry)
@@ -268,7 +328,7 @@ AssetsPanel::AssetEntry::Type AssetsPanel::GetAssetType(const fs::path& path)
 	std::string ext = path.extension().string();
 	std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
 
-	if (ext == ".obj" || ext == ".fbx" || ext == ".gltf" || ext == ".glb")
+	if (ext == ".obj" || ext == ".fbx" || ext == ".gltf" || ext == ".glb" || ext == ".pmx" || ext == ".pmd")
 		return AssetEntry::Type::Model;
 	if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga" || ext == ".bmp" || ext == ".hdr")
 		return AssetEntry::Type::Texture;
@@ -342,8 +402,8 @@ void AssetsPanel::ImportAsset()
 {
 	// One dialog accepting all supported asset types
 	std::string path = OpenFileDialog(
-		"Supported Assets\0*.obj;*.fbx;*.gltf;*.glb;*.png;*.jpg;*.jpeg;*.tga;*.bmp;*.hdr;*.tmat\0"
-		"Model Files\0*.obj;*.fbx;*.gltf;*.glb\0"
+		"Supported Assets\0*.obj;*.fbx;*.gltf;*.glb;*.pmx;*.pmd;*.png;*.jpg;*.jpeg;*.tga;*.bmp;*.hdr;*.tmat\0"
+		"Model Files\0*.obj;*.fbx;*.gltf;*.glb;*.pmx;*.pmd\0"
 		"Image Files\0*.png;*.jpg;*.jpeg;*.tga;*.bmp;*.hdr\0"
 		"Material Files\0*.tmat\0"
 		"All Files\0*.*\0");
@@ -381,6 +441,30 @@ void AssetsPanel::ImportAsset()
 	{
 		Error_Core("Failed to import asset: {0}", e.what());
 	}
+}
+
+void AssetsPanel::CreateMaterialAsset()
+{
+	// Find a non-clashing name: NewMaterial.tmat, NewMaterial_1.tmat, ...
+	fs::path base = m_CurrentDirectory / "NewMaterial";
+	fs::path target = base.string() + ".tmat";
+	int suffix = 0;
+	while (fs::exists(target))
+		target = base.string() + "_" + std::to_string(++suffix) + ".tmat";
+
+	// Create with the default shader so the inspector has parameters to show
+	Ref<RHIShader> shader = ShaderLibiray::Get("res/shaders/default.shader");
+	Ref<Engine::Material> mat = Engine::MaterialLibrary::CreateDefault(
+		target.filename().string(), shader);
+
+	if (!Engine::MaterialLibrary::Save(mat, target.string()))
+	{
+		Error_Core("Failed to create material: {0}", target.string());
+		return;
+	}
+
+	Info_Core("Created material: {0}", target.string());
+	RefreshCurrentDirectory();
 }
 
 void AssetsPanel::DeleteAsset(const std::string& path)
