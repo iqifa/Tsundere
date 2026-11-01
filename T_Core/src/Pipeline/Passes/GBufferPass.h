@@ -192,11 +192,11 @@ public:
 				if (!mesh.IsGPUReady())
 					continue;
 
-				Ref<Material> mat = i < meshrender.materials.size()
+				Ref<Engine::Material> mat = i < meshrender.materials.size()
 					? meshrender.materials[i]
 					: meshrender.materials[0];
 
-					mat->Render(m_GbufferShader);
+					if (mat) mat->ApplyToShader(m_GbufferShader);
 
 					BindGeometryDescriptors(shadowTex);
 					m_GbufferDescriptSet->Apply(0);

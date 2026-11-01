@@ -12,7 +12,7 @@ AssetsPanel::AssetsPanel(const std::string& name)
 {
 	if (!fs::exists(m_RootDirectory))
 	{
-		LOG_WARN("AssetsPanel", "Root directory does not exist: {0}", m_RootDirectory.string());
+		Warn_Core("Root directory does not exist: {0}", m_RootDirectory.string());
 		m_RootDirectory = fs::current_path();
 		m_CurrentDirectory = m_RootDirectory;
 	}
@@ -247,7 +247,7 @@ void AssetsPanel::DrawAssetContextMenu(const AssetEntry& entry)
 		if (ImGui::MenuItem("Rename"))
 		{
 			// TODO: Implement rename dialog
-			LOG_INFO("AssetsPanel", "Rename not yet implemented");
+			Info_Core("Rename not yet implemented");
 		}
 
 		if (ImGui::MenuItem("Show in Explorer"))
@@ -340,7 +340,13 @@ void AssetsPanel::NavigateToDirectory(const fs::path& directory)
 
 void AssetsPanel::ImportAsset()
 {
-	std::string path = OpenFileDialog("");
+	// One dialog accepting all supported asset types
+	std::string path = OpenFileDialog(
+		"Supported Assets\0*.obj;*.fbx;*.gltf;*.glb;*.png;*.jpg;*.jpeg;*.tga;*.bmp;*.hdr;*.tmat\0"
+		"Model Files\0*.obj;*.fbx;*.gltf;*.glb\0"
+		"Image Files\0*.png;*.jpg;*.jpeg;*.tga;*.bmp;*.hdr\0"
+		"Material Files\0*.tmat\0"
+		"All Files\0*.*\0");
 	if (path.empty())
 		return;
 
@@ -351,20 +357,29 @@ void AssetsPanel::ImportAsset()
 	try
 	{
 		fs::copy_file(sourcePath, destPath, fs::copy_options::overwrite_existing);
-		LOG_INFO("AssetsPanel", "Imported asset: {0}", destPath.string());
+		Info_Core("Imported asset: {0}", destPath.string());
 
 		// Load asset based on type
 		AssetEntry::Type type = GetAssetType(destPath);
 		if (type == AssetEntry::Type::Texture)
 			Engine::ResourceLoader::RequestTextureLoad(destPath.string());
 		else if (type == AssetEntry::Type::Model)
+		{
+			My_map::AddModelPath(destPath.string());
 			Engine::ResourceLoader::RequestModelLoad(destPath.string());
+		}
+		else if (type == AssetEntry::Type::Material)
+		{
+			// Preload into the material library so it is ready to assign
+			if (Engine::MaterialLibrary::Load(destPath.string()))
+				Info_Core("Loaded material asset: {0}", destPath.string());
+		}
 
 		RefreshCurrentDirectory();
 	}
 	catch (const std::exception& e)
 	{
-		LOG_ERROR("AssetsPanel", "Failed to import asset: {0}", e.what());
+		Error_Core("Failed to import asset: {0}", e.what());
 	}
 }
 
@@ -377,12 +392,12 @@ void AssetsPanel::DeleteAsset(const std::string& path)
 		else
 			fs::remove(path);
 
-		LOG_INFO("AssetsPanel", "Deleted asset: {0}", path);
+		Info_Core("Deleted asset: {0}", path);
 		RefreshCurrentDirectory();
 	}
 	catch (const std::exception& e)
 	{
-		LOG_ERROR("AssetsPanel", "Failed to delete asset: {0}", e.what());
+		Error_Core("Failed to delete asset: {0}", e.what());
 	}
 }
 
@@ -394,12 +409,12 @@ void AssetsPanel::RenameAsset(const std::string& oldPath, const std::string& new
 		fs::path newPath = old.parent_path() / newName;
 		fs::rename(old, newPath);
 
-		LOG_INFO("AssetsPanel", "Renamed asset: {0} -> {1}", oldPath, newPath.string());
+		Info_Core("Renamed asset: {0} -> {1}", oldPath, newPath.string());
 		RefreshCurrentDirectory();
 	}
 	catch (const std::exception& e)
 	{
-		LOG_ERROR("AssetsPanel", "Failed to rename asset: {0}", e.what());
+		Error_Core("Failed to rename asset: {0}", e.what());
 	}
 }
 
@@ -417,14 +432,24 @@ void AssetsPanel::OpenAsset(const AssetEntry& entry)
 		break;
 
 	case AssetEntry::Type::Texture:
-		// Texture preview (could open a separate panel in the future)
-		LOG_INFO("AssetsPanel", "Opened texture: {0}", entry.path);
+		// Load into the texture library so it is ready to assign
+		{
+			Ref<RHITexture2D> tex = TextureLibiary::Load(entry.path);
+			if (tex)
+				Info_Core("Opened texture: {0}", entry.path);
+		}
 		break;
 
 	case AssetEntry::Type::Material:
-		// TODO: Open MaterialEditorPanel when implemented
-		LOG_INFO("AssetsPanel", "Opened material: {0}", entry.path);
+	{
+		// Load into the material library (deserialize .tmat)
+		Ref<Engine::Material> mat = Engine::MaterialLibrary::Load(entry.path);
+		if (mat)
+			Info_Core("Opened material: {0}", entry.path);
+		if (!mat)
+			Error_Core("Failed to load material: {0}", entry.path);
 		break;
+	}
 
 	case AssetEntry::Type::Shader:
 		// Open shader in external editor
@@ -435,7 +460,7 @@ void AssetsPanel::OpenAsset(const AssetEntry& entry)
 		break;
 
 	default:
-		LOG_WARN("AssetsPanel", "Unknown asset type: {0}", entry.path);
+		Warn_Core("Unknown asset type: {0}", entry.path);
 		break;
 	}
 }

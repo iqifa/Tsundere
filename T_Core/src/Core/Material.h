@@ -97,6 +97,10 @@ public:
 	// Initialize parameters from shader reflection
 	void InitializeParametersFromShader();
 
+	// Upload all scalar/vector parameters to the shader's uniforms by name.
+	// Texture parameters are skipped — passes bind those through descriptor sets.
+	void ApplyToShader(Ref<RHIShader> shader) const;
+
 private:
 	std::string m_Name;
 	std::string m_AssetPath; // .tmat file path

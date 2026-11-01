@@ -6,7 +6,9 @@
 #include "Scene/Modle.h"
 #include "Panels/MeshFilePath.h"
 #include "Platform/RHI/RHIBuffer.h"
+#include "Core/Material.h"
 #include<atomic>
+#include<unordered_map>
 
 struct BVHBuildTriangle
 {
@@ -50,8 +52,8 @@ public:
 	void MarkClean() { m_Dirty.store(false, std::memory_order_release); }
 
 	// Material-index mapping: provided by PathTracePass before GatherTriangles.
-	// Maps CPU Material* → global GPUMaterial index for the Material SSBO.
-	void SetMaterialMap(const std::unordered_map<Material*, unsigned int>* map) { m_MaterialMap = map; }
+	// Maps CPU Engine::Material* → global GPUMaterial index for the Material SSBO.
+	void SetMaterialMap(const std::unordered_map<Engine::Material*, unsigned int>* map) { m_MaterialMap = map; }
 
 	// For worker thread: set CPU build results, then main thread calls UploadToGPU
 	void SetBuildResults(std::vector<GPUTriangle>&& tris, std::vector<GPUBVHNode>&& nodes)
@@ -71,7 +73,7 @@ private:
 	Ref<RHIBuffer> m_BVHSSBO;
 
 	std::atomic<bool> m_Dirty{true};  // starts dirty so first frame builds
-	const std::unordered_map<Material*, unsigned int>* m_MaterialMap = nullptr;
+	const std::unordered_map<Engine::Material*, unsigned int>* m_MaterialMap = nullptr;
 
 	static BVHBuilder* s_ActiveInstance;
 };

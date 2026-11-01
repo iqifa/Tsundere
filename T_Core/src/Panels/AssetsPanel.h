@@ -13,7 +13,7 @@
 
 namespace fs = std::filesystem;
 
-class AssetsPanel : public Engine::Layer
+class T_API AssetsPanel : public Engine::Layer
 {
 public:
 	AssetsPanel(const std::string& name = "Assets");
