@@ -9,7 +9,7 @@
 #include<Scene/Mesh.h>
 #include<Scene/BVHBuilder.h>
 #include<Panels/MeshFilePath.h>
-#include<Panels/Material.h>
+#include<Core/Material.h>
 #include<DDGI/DDGI.h>
 #include<set>
 #include<algorithm>

@@ -289,7 +289,7 @@ private:
 
 		const float previewHeight = 300.0f;
 		const ImVec2 avail = ImGui::GetContentRegionAvail();
-		const uint32_t width = static_cast<uint32_t>(std::max(avail.x, 64.0f));
+		const uint32_t width = static_cast<uint32_t>((::std::max)(avail.x, 64.0f));
 		const uint32_t height = static_cast<uint32_t>(previewHeight);
 		const ImVec2 viewSize(static_cast<float>(width), static_cast<float>(height));
 
@@ -329,8 +329,8 @@ private:
 		if (ImGui::IsItemHovered() && io.MouseWheel != 0.0f)
 		{
 			const float step = io.MouseWheel > 0.0f ? 0.9f : 1.1f;
-			const float minDist = std::max(0.05f, m_PreviewFocusRadius * 0.2f);
-			const float maxDist = std::max(1.0f, m_PreviewRadius * 8.0f);
+			const float minDist = (::std::max)(0.05f, m_PreviewFocusRadius * 0.2f);
+			const float maxDist = (::std::max)(1.0f, m_PreviewRadius * 8.0f);
 			m_PreviewDistance = std::clamp(m_PreviewDistance * step, minDist, maxDist);
 		}
 	}
@@ -359,7 +359,7 @@ private:
 		else
 		{
 			const glm::vec3 extent = boundsMax - boundsMin;
-			m_PreviewRadius = std::max(0.5f, glm::length(extent) * 0.5f);
+			m_PreviewRadius = (::std::max)(0.5f, glm::length(extent) * 0.5f);
 		}
 
 		const glm::vec3 modelCenter = (boundsMin + boundsMax) * 0.5f;
@@ -370,7 +370,7 @@ private:
 			m_PreviewDistance * std::sin(pitch),
 			m_PreviewDistance * std::cos(pitch) * std::cos(yaw));
 		const float aspect = static_cast<float>(width) / static_cast<float>(height);
-		const float nearPlane = std::max(0.01f, m_PreviewFocusRadius * 0.01f);
+		const float nearPlane = (::std::max)(0.01f, m_PreviewFocusRadius * 0.01f);
 		const float farPlane = glm::length(eye - modelCenter) + m_PreviewRadius * 4.0f;
 		const glm::mat4 view = glm::lookAt(eye, m_PreviewTarget, glm::vec3(0.0f, 1.0f, 0.0f));
 		const glm::mat4 proj = glm::perspective(glm::radians(35.0f), aspect, nearPlane, farPlane);
@@ -533,7 +533,7 @@ private:
 	void FitPreviewCamera(const glm::vec3& boundsMin, const glm::vec3& boundsMax)
 	{
 		const glm::vec3 extent = boundsMax - boundsMin;
-		m_PreviewRadius = std::max(0.5f, glm::length(extent) * 0.5f);
+		m_PreviewRadius = (::std::max)(0.5f, glm::length(extent) * 0.5f);
 		m_PreviewFocusRadius = m_PreviewRadius;
 		m_PreviewTarget = (boundsMin + boundsMax) * 0.5f;
 		m_PreviewDistance = m_PreviewRadius * 2.6f;
@@ -556,7 +556,7 @@ private:
 		if (!any)
 			return;
 
-		const float radius = std::max(0.05f, glm::length(bmax - bmin) * 0.5f);
+		const float radius = (::std::max)(0.05f, glm::length(bmax - bmin) * 0.5f);
 		m_PreviewTarget = (bmin + bmax) * 0.5f;
 		m_PreviewFocusRadius = radius;
 		m_PreviewDistance = radius * 2.6f;

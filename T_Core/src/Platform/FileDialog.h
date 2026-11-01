@@ -1,7 +1,20 @@
 #pragma once
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <Windows.h>
+#include <string>
+#define GLFW_INCLUDE_NONE
+#include <GLFW/glfw3.h>
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3native.h>
+
+#ifdef min
+#undef min
+#endif
+#ifdef max
+#undef max
+#endif
 
 inline std::string OpenModelFileDialog()
 {
@@ -29,6 +42,40 @@ inline std::string OpenTextureFileDialog()
 	ofn.nMaxFile = sizeof(szFile);
 	ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
 	if (GetOpenFileNameA(&ofn))
+		return szFile;
+	return "";
+}
+
+// Generic open dialog: filter like "Shader Files\0*.shader\0All Files\0*.*\0"
+// or nullptr for "All Files". Returns "" when cancelled.
+inline std::string OpenFileDialog(const char* filter = nullptr)
+{
+	OPENFILENAMEA ofn = {};
+	char szFile[512] = "";
+	ofn.lStructSize = sizeof(ofn);
+	ofn.hwndOwner = glfwGetWin32Window(glfwGetCurrentContext());
+	ofn.lpstrFilter = filter ? filter : "All Files\0*.*\0";
+	ofn.lpstrFile = szFile;
+	ofn.nMaxFile = sizeof(szFile);
+	ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+	if (GetOpenFileNameA(&ofn))
+		return szFile;
+	return "";
+}
+
+// Generic save dialog. Returns "" when cancelled.
+inline std::string SaveFileDialog(const char* filter = nullptr)
+{
+	OPENFILENAMEA ofn = {};
+	char szFile[512] = "";
+	ofn.lStructSize = sizeof(ofn);
+	ofn.hwndOwner = glfwGetWin32Window(glfwGetCurrentContext());
+	ofn.lpstrFilter = filter ? filter : "All Files\0*.*\0";
+	ofn.lpstrFile = szFile;
+	ofn.nMaxFile = sizeof(szFile);
+	ofn.lpstrDefExt = "";
+	ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST;
+	if (GetSaveFileNameA(&ofn))
 		return szFile;
 	return "";
 }

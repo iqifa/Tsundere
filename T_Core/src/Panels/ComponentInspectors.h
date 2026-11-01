@@ -189,128 +189,10 @@ inline void RenderLightInspector(Entity& entity)
 	ImGui::PopID();
 }
 
-// --- Persistent state shared by MeshRender & Material inspectors -------------
-
-namespace {
-	struct MeshRenderInspectorState
-	{
-		std::vector<Widget::Widget*> MaterialWidgets;
-		bool NeedRebuild = false;
-		Entity LastEntity;
-		int SelectedMaterialIdx = 0;
-		std::string SyncedModelPath;
-		size_t SyncedMeshCount = 0;
-	};
-	inline MeshRenderInspectorState s_MeshRenderState;
-
-	void ClearMaterialWidgets()
-	{
-		for (auto* widget : s_MeshRenderState.MaterialWidgets)
-			delete widget;
-		s_MeshRenderState.MaterialWidgets.clear();
-	}
-
-	void BuildMaterialWidgets(Ref<Material> mat)
-	{
-		ClearMaterialWidgets();
-
-		for (auto& var : mat->varies)
-		{
-			uintptr_t value = std::get<0>(var);
-			std::string label = std::get<2>(var);
-
-			switch (std::get<1>(var))
-			{
-			case ValueType::INT:
-				s_MeshRenderState.MaterialWidgets.push_back(new Widget::Input<int>(label, value));
-				break;
-			case ValueType::FLOAT:
-				s_MeshRenderState.MaterialWidgets.push_back(new Widget::Input<float>(label, value));
-				break;
-			case ValueType::DOUBLE:
-				s_MeshRenderState.MaterialWidgets.push_back(new Widget::Input<double>(label, value));
-				break;
-			case ValueType::VEC2:
-				s_MeshRenderState.MaterialWidgets.push_back(new Widget::Input<glm::vec2>(label, value));
-				break;
-			case ValueType::VEC3:
-				s_MeshRenderState.MaterialWidgets.push_back(new Widget::Input<glm::vec3>(label, value));
-				break;
-			case ValueType::TEXTURE:
-				s_MeshRenderState.MaterialWidgets.push_back(new Widget::DiyWidget([label, value]() {
-					Ref<RHITexture2D>* tex = (Ref<RHITexture2D>*)value;
-					ImGui::Columns(2);
-					ImGui::SetColumnWidth(0, 100.0f);
-					ImGui::Text(label.c_str());
-					ImGui::NextColumn();
-
-					GLuint texID = (*tex) ? (GLuint)(*tex)->GetNativeID() : 0;
-					if (texID)
-						ImGui::Image((ImTextureID)(uintptr_t)texID, { 50, 50 }, { 0, 1 }, { 1, 0 });
-					else
-						ImGui::Text("No Texture");
-
-					ImGui::SameLine();
-					if (ImGui::Button("+", { 20, 20 }))
-						ImGui::OpenPopup("TextureSelectPopup");
-
-					ImGui::Columns(1);
-
-					if (ImGui::BeginPopup("TextureSelectPopup"))
-					{
-						for (auto& [path, texture] : TextureLibiary::m_TextureMap)
-						{
-							if (ImGui::Selectable(path.c_str()))
-							{
-								*tex = texture;
-								BVHBuilder::MarkActiveDirty();
-							}
-						}
-						ImGui::Separator();
-						if (ImGui::Button("Browse..."))
-						{
-							std::string importPath = OpenTextureFileDialog();
-							if (!importPath.empty())
-							{
-								*tex = TextureLibiary::Load(importPath);
-								BVHBuilder::MarkActiveDirty();
-								ImGui::CloseCurrentPopup();
-							}
-						}
-						ImGui::SameLine();
-						if (ImGui::Button("Close"))
-							ImGui::CloseCurrentPopup();
-						ImGui::EndPopup();
-					}
-					}));
-				break;
-			case ValueType::HEADER:
-				s_MeshRenderState.MaterialWidgets.push_back(new Widget::Separator(label));
-				break;
-			default:
-				break;
-			}
-		}
-	}
-}
-
-// ============================================================================
-// MeshRender inspector — model selection + material list (add/remove)
-// ============================================================================
+// --- MeshRender inspector: model selection + material list -------------------
 
 inline void RenderMeshRenderInspector(Entity& entity)
 {
-	auto& state = s_MeshRenderState;
-
-	if (!(state.LastEntity == entity))
-	{
-		ClearMaterialWidgets();
-		state.SelectedMaterialIdx = 0;
-		state.SyncedModelPath.clear();
-		state.SyncedMeshCount = 0;
-		state.LastEntity = entity;
-	}
-
 	if (!entity.HasComponent<MeshRender>())
 		return;
 
@@ -326,8 +208,8 @@ inline void RenderMeshRenderInspector(Entity& entity)
 	ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - btnW_minus - btnW_plus - 4);
 	if (ImGui::SmallButton("+"))
 	{
-		meshrender.materials.push_back(CreateRef<Material>(
-			"D:/Code/C++/Tsundere/res/shaders/Lamber.shader"));
+		meshrender.materials.push_back(Engine::MaterialLibrary::CreateDefault(
+			"Material", ShaderLibiray::Get("res/shaders/Lamber.shader")));
 		BVHBuilder::MarkActiveDirty();
 	}
 	ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - btnW_minus);
@@ -361,8 +243,6 @@ inline void RenderMeshRenderInspector(Entity& entity)
 				if (ImGui::Selectable(display.c_str(), selected))
 				{
 					meshrender.ModelPath = path;
-					state.SelectedMaterialIdx = 0;
-					ClearMaterialWidgets();
 					BVHBuilder::MarkActiveDirty();
 				}
 				if (selected)
@@ -379,31 +259,26 @@ inline void RenderMeshRenderInspector(Entity& entity)
 				My_map::AddModelPath(importPath);
 				Engine::ResourceLoader::RequestModelLoad(importPath);
 				meshrender.ModelPath = importPath;
-				state.SelectedMaterialIdx = 0;
-				ClearMaterialWidgets();
 				BVHBuilder::MarkActiveDirty();
 			}
 		}
 		ImGui::Columns(1);
 
-		// --- Material list per mesh slot ---
+		// --- Material slots per mesh ---
 		Ref<Model> model = meshrender.ModelPath.empty()
 			? nullptr
 			: My_map::GetModel(meshrender.ModelPath);
 
-		if (model && (state.SyncedModelPath != meshrender.ModelPath
-			|| state.SyncedMeshCount != model->meshes.size()))
+		if (model && meshrender.materials.size() != model->meshes.size())
 		{
 			size_t meshCount = model->meshes.size();
 			meshrender.materials.resize(meshCount);
 			for (size_t i = 0; i < meshCount; i++)
 			{
 				if (!meshrender.materials[i])
-					meshrender.materials[i] = CreateRef<Material>(
-						"D:/Code/C++/Tsundere/res/shaders/Lamber.shader");
+					meshrender.materials[i] = Engine::MaterialLibrary::CreateDefault(
+						"Material", ShaderLibiray::Get("res/shaders/Lamber.shader"));
 			}
-			state.SyncedModelPath = meshrender.ModelPath;
-			state.SyncedMeshCount = meshCount;
 		}
 
 		if (!meshrender.materials.empty())
@@ -413,40 +288,20 @@ inline void RenderMeshRenderInspector(Entity& entity)
 			ImGui::Text("Materials:");
 
 			size_t count = model
-				? std::min(model->meshes.size(), meshrender.materials.size())
+				? (::std::min)(model->meshes.size(), meshrender.materials.size())
 				: meshrender.materials.size();
 			for (size_t i = 0; i < count; i++)
 			{
 				std::string shaderName = "none";
-				if (meshrender.materials[i]
-					&& meshrender.materials[i]->shaderindex >= 0
-					&& meshrender.materials[i]->shaderindex < (int)My_map::GetShaderPaths().size())
+				if (meshrender.materials[i] && meshrender.materials[i]->GetShader())
 				{
-					shaderName = My_map::GetShaderPaths()[meshrender.materials[i]->shaderindex];
+					shaderName = meshrender.materials[i]->GetShader()->GetPath();
 					shaderName = shaderName.substr(shaderName.find_last_of("/\\") + 1);
 				}
 
-				std::string label = "Mesh[" + std::to_string(i) + "]: " + shaderName;
-				bool selected = (state.SelectedMaterialIdx == (int)i);
-				if (ImGui::Selectable(label.c_str(), selected))
-					state.SelectedMaterialIdx = (int)i;
-			}
-
-			if (meshrender.materials.size() > 1)
-			{
-				ImGui::Spacing();
-				if (ImGui::Button("Remove Selected"))
-				{
-					int idx = state.SelectedMaterialIdx;
-					if (idx >= 0 && idx < (int)meshrender.materials.size())
-					{
-						meshrender.materials.erase(meshrender.materials.begin() + idx);
-						if (state.SelectedMaterialIdx >= (int)meshrender.materials.size())
-							state.SelectedMaterialIdx = (int)meshrender.materials.size() - 1;
-						ClearMaterialWidgets();
-						BVHBuilder::MarkActiveDirty();
-					}
-				}
+				std::string matName = meshrender.materials[i] ? meshrender.materials[i]->GetName() : "<null>";
+				std::string label = "Mesh[" + std::to_string(i) + "]: " + matName + " (" + shaderName + ")";
+				ImGui::TextUnformatted(label.c_str());
 			}
 		}
 	}
@@ -454,67 +309,8 @@ inline void RenderMeshRenderInspector(Entity& entity)
 	ImGui::PopID();
 }
 
-// ============================================================================
-// Material inspector — standalone component panel for editing materials
-// ============================================================================
-
-inline void RenderMaterialInspector(Entity& entity)
-{
-	if (!entity.HasComponent<MeshRender>())
-		return;
-
-	auto& meshrender = entity.GetComponent<MeshRender>();
-	if (meshrender.materials.empty())
-		return;
-
-	auto& state = s_MeshRenderState;
-
-	ImGui::PushID("##Material");
-
-	bool open = ImGui::CollapsingHeader("Material",
-		ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_AllowItemOverlap);
-
-	if (open)
-	{
-		int idx = state.SelectedMaterialIdx;
-		if (idx < 0 || idx >= (int)meshrender.materials.size())
-			idx = 0;
-
-		Ref<Material> mat = meshrender.materials[idx];
-
-		if (state.NeedRebuild)
-		{
-			mat->InitVaires();
-			state.NeedRebuild = false;
-		}
-
-		// --- Shader selector ---
-		if (ImGui::BeginCombo("Shader", My_map::GetShaderPaths()[mat->shaderindex].c_str()))
-		{
-			for (int i = 0; i < (int)My_map::GetShaderPaths().size(); i++)
-			{
-				bool selected = (i == mat->shaderindex);
-				if (ImGui::Selectable(My_map::GetShaderPaths()[i].c_str(), selected))
-				{
-					mat->shaderindex = i;
-					mat->shader = ShaderLibiray::Get(My_map::GetShaderPaths()[i]);
-					state.NeedRebuild = true;
-					BVHBuilder::MarkActiveDirty();
-				}
-				if (selected)
-					ImGui::SetItemDefaultFocus();
-			}
-			ImGui::EndCombo();
-		}
-
-		// --- Uniform widgets ---
-		BuildMaterialWidgets(mat);
-		for (auto* widget : state.MaterialWidgets)
-			widget->_Draw();
-	}
-
-	ImGui::PopID();
-}
+// Material parameter editing lives in MaterialInspectorPanel.h
+// (RenderMaterialInspector), driven by shader reflection.
 
 // ============================================================================
 // Add component functions
@@ -533,7 +329,8 @@ inline void AddMeshRenderComponent(Entity& entity)
 	if (!entity.HasComponent<MeshRender>())
 	{
 		auto& mr = entity.AddComponent<MeshRender>();
-		mr.materials.push_back(CreateRef<Material>("D:/Code/C++/Tsundere/res/shaders/Lamber.shader"));
+		mr.materials.push_back(Engine::MaterialLibrary::CreateDefault(
+			"Material", ShaderLibiray::Get("res/shaders/Lamber.shader")));
 		Info_Core("AddComponent: MeshRender with default material");
 		BVHBuilder::MarkActiveDirty();
 	}
@@ -544,7 +341,8 @@ inline void AddMaterialToMeshRender(Entity& entity)
 	if (entity.HasComponent<MeshRender>())
 	{
 		auto& mr = entity.GetComponent<MeshRender>();
-		mr.materials.push_back(CreateRef<Material>("res/shaders/Lamber.shader"));
+		mr.materials.push_back(Engine::MaterialLibrary::CreateDefault(
+			"Material", ShaderLibiray::Get("res/shaders/Lamber.shader")));
 		Info_Core("AddComponent: Material added to MeshRender");
 		BVHBuilder::MarkActiveDirty();
 	}

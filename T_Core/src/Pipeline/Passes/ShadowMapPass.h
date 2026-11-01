@@ -258,11 +258,11 @@ public:
 					if (!mesh.IsGPUReady())
 						continue;
 
-					Ref<Material> mat = i < meshrender.materials.size()
+					Ref<Engine::Material> mat = i < meshrender.materials.size()
 						? meshrender.materials[i]
 						: meshrender.materials[0];
 
-					mat->Render(m_ShadowMapDepthShader);
+					if (mat) mat->ApplyToShader(m_ShadowMapDepthShader);
 
 					cmd.BindDescriptorSet(m_ShdowPassDescriptSet, 0, &dynamicOffset, 1);
 					PushDrawModel(cmd, modelMat, modelMat);

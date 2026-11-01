@@ -154,6 +154,41 @@ Ref<RHITexture2D> Material::GetTexture(const std::string& name) const
 	return nullptr;
 }
 
+void Material::ApplyToShader(Ref<RHIShader> shader) const
+{
+	if (!shader)
+		return;
+
+	for (const auto& [name, param] : m_Parameters)
+	{
+		switch (param.type)
+		{
+		case MaterialParameter::Type::Float:
+			if (const float* val = param.Get<float>())
+				shader->SetUniform1f(name, *val);
+			break;
+		case MaterialParameter::Type::Int:
+			if (const int* val = param.Get<int>())
+				shader->SetUniform1i(name, *val);
+			break;
+		case MaterialParameter::Type::Vec2:
+			if (const glm::vec2* val = param.Get<glm::vec2>())
+				shader->SetUniformVec2(name, *val);
+			break;
+		case MaterialParameter::Type::Vec3:
+			if (const glm::vec3* val = param.Get<glm::vec3>())
+				shader->SetUniformVec3(name, *val);
+			break;
+		case MaterialParameter::Type::Vec4:
+			if (const glm::vec4* val = param.Get<glm::vec4>())
+				shader->SetUniform4f(name, val->x, val->y, val->z, val->w);
+			break;
+		default:
+			break;
+		}
+	}
+}
+
 void Material::InitializeParametersFromShader()
 {
 	if (!m_Shader)
@@ -209,7 +244,7 @@ bool Material::Serialize(const std::string& filepath)
 	std::ofstream file(filepath);
 	if (!file.is_open())
 	{
-		LOG_ERROR("Material", "Failed to open file for writing: {0}", filepath);
+		Error_Core("Failed to open file for writing: {0}", filepath);
 		return false;
 	}
 
@@ -278,7 +313,7 @@ bool Material::Serialize(const std::string& filepath)
 
 	file.close();
 	m_AssetPath = filepath;
-	LOG_INFO("Material", "Saved material to: {0}", filepath);
+	Info_Core("Saved material to: {0}", filepath);
 	return true;
 }
 
@@ -287,7 +322,7 @@ bool Material::Deserialize(const std::string& filepath)
 	std::ifstream file(filepath);
 	if (!file.is_open())
 	{
-		LOG_ERROR("Material", "Failed to open file for reading: {0}", filepath);
+		Error_Core("Failed to open file for reading: {0}", filepath);
 		return false;
 	}
 
@@ -385,7 +420,7 @@ bool Material::Deserialize(const std::string& filepath)
 
 	file.close();
 	m_AssetPath = filepath;
-	LOG_INFO("Material", "Loaded material from: {0}", filepath);
+	Info_Core("Loaded material from: {0}", filepath);
 	return true;
 }
 

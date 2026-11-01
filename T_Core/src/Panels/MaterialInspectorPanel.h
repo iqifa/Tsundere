@@ -4,11 +4,17 @@
 #include "Core/Material.h"
 #include "Core/MaterialLibrary.h"
 #include "Platform/RHI/RHIShader.h"
+#include "Platform/RHI/RHITextureLibrary.h"
+#include "Platform/RHI/RHIImGuiRenderer.h"
 #include "Platform/FileDialog.h"
+#include "Panels/MeshFilePath.h"
+#include "Debug/Debug.h"
 #include "HeadLine.h"
 
-// Inline inspector function for MeshRender materials
-// Call this from your main Inspector panel when rendering a MeshRender component
+// Inline inspector for MeshRender materials.
+// Parameter UI is driven entirely by shader reflection: each uniform declared
+// by the material's shader becomes an editor widget of the reflected type.
+// Materials persist as .tmat files via MaterialLibrary (Save/Load).
 inline void RenderMaterialInspector(Entity& entity)
 {
 	if (!entity.HasComponent<Component::MeshRender>())
@@ -26,19 +32,17 @@ inline void RenderMaterialInspector(Entity& entity)
 		ImGui::Indent();
 
 		// Ensure materials vector matches model mesh count
-		Ref<Model> model = My_map::GetModel(meshRender.ModelPath);
+		Ref<Model> model = meshRender.ModelPath.empty() ? nullptr : My_map::GetModel(meshRender.ModelPath);
 		if (model)
 		{
 			size_t meshCount = model->meshes.size();
 			if (meshRender.materials.size() != meshCount)
 			{
 				meshRender.materials.resize(meshCount);
-				// Fill with default materials if null
 				for (size_t i = 0; i < meshCount; ++i)
 				{
 					if (!meshRender.materials[i])
 					{
-						// Create default material
 						Ref<RHIShader> defaultShader = ShaderLibiray::Get("res/shaders/default.shader");
 						meshRender.materials[i] = Engine::MaterialLibrary::CreateDefault("DefaultMaterial", defaultShader);
 					}
@@ -74,17 +78,36 @@ inline void RenderMaterialInspector(Entity& entity)
 					if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf)))
 						mat->SetName(nameBuf);
 
-					// Shader selection
-					ImGui::Text("Shader: %s", mat->GetShader() ? mat->GetShader()->GetName().c_str() : "None");
-					ImGui::SameLine();
-					if (ImGui::Button("Browse##Shader"))
+					// Asset path ("" = not yet saved)
+					if (!mat->GetAssetPath().empty())
+						ImGui::TextDisabled("Asset: %s", mat->GetAssetPath().c_str());
+
+					// Shader selection by path combo
 					{
-						std::string shaderPath = OpenFileDialog(".shader");
-						if (!shaderPath.empty())
+						std::string shaderPath = mat->GetShader() ? mat->GetShader()->GetPath() : "";
+						std::string shaderLabel = shaderPath.empty()
+							? "<none>"
+							: shaderPath.substr(shaderPath.find_last_of("/\\") + 1);
+						if (ImGui::BeginCombo("Shader", shaderLabel.c_str()))
 						{
-							Ref<RHIShader> shader = ShaderLibiray::Get(shaderPath);
-							if (shader)
-								mat->SetShader(shader);
+							for (const auto& path : My_map::GetShaderPaths())
+							{
+								bool selected = (path == shaderPath);
+								std::string display = path.substr(path.find_last_of("/\\") + 1);
+								if (ImGui::Selectable(display.c_str(), selected))
+									mat->SetShader(ShaderLibiray::Get(path));
+								if (selected)
+									ImGui::SetItemDefaultFocus();
+							}
+							ImGui::EndCombo();
+						}
+						ImGui::SameLine();
+						if (ImGui::Button("...##ShaderBrowse"))
+						{
+							std::string picked = OpenFileDialog(
+								"Shader Files\0*.shader;*.glsl;*.vert;*.frag\0All Files\0*.*\0");
+							if (!picked.empty())
+								mat->SetShader(ShaderLibiray::Get(picked));
 						}
 					}
 
@@ -92,8 +115,7 @@ inline void RenderMaterialInspector(Entity& entity)
 					ImGui::Text("Parameters");
 
 					// Dynamic parameter UI based on shader reflection
-					const auto& params = mat->GetParameters();
-					for (auto& [name, param] : params)
+					for (auto& [name, param] : mat->GetParameters())
 					{
 						ImGui::PushID(name.c_str());
 
@@ -117,7 +139,7 @@ inline void RenderMaterialInspector(Entity& entity)
 						{
 							glm::vec3 val = mat->GetVec3(name);
 
-							// Check if this is a color parameter (heuristic: name contains "color" or "albedo")
+							// Color heuristic: name suggests a color parameter
 							std::string lowerName = name;
 							std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(), ::tolower);
 							bool isColor = (lowerName.find("color") != std::string::npos ||
@@ -140,7 +162,6 @@ inline void RenderMaterialInspector(Entity& entity)
 						{
 							glm::vec4 val = mat->GetVec4(name);
 
-							// Check if color
 							std::string lowerName = name;
 							std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(), ::tolower);
 							bool isColor = (lowerName.find("color") != std::string::npos ||
@@ -176,34 +197,41 @@ inline void RenderMaterialInspector(Entity& entity)
 							{
 								ImTextureID texID = RHIImGUIRenderer::GetTextureID(tex.get());
 								if (texID != ImTextureID_Invalid)
-								{
 									ImGui::Image(texID, ImVec2(64, 64), ImVec2(0, 1), ImVec2(1, 0));
-								}
 								else
-								{
 									ImGui::Button("[TEX]", ImVec2(64, 64));
-								}
-
-								ImGui::SameLine();
-								if (ImGui::Button("X"))
-									mat->SetTexture(name, nullptr);
 							}
 							else
 							{
 								ImGui::Button("[Empty]", ImVec2(64, 64));
 							}
 
+							// Texture picker from the texture library
 							ImGui::SameLine();
-							if (ImGui::Button("Browse##Tex"))
+							ImGui::BeginGroup();
+							if (ImGui::BeginCombo("##TexCombo", tex ? "(assigned)" : "(none)"))
+							{
+								for (auto& [path, texture] : TextureLibiary::m_TextureMap)
+								{
+									if (ImGui::Selectable(path.c_str(), tex == texture))
+										mat->SetTexture(name, texture);
+								}
+								ImGui::EndCombo();
+							}
+							ImGui::SameLine();
+							if (ImGui::Button("Browse"))
 							{
 								std::string texPath = OpenTextureFileDialog();
 								if (!texPath.empty())
-								{
-									Ref<RHITexture2D> newTex = TextureLibiary::Get(texPath);
-									if (newTex)
-										mat->SetTexture(name, newTex);
-								}
+									mat->SetTexture(name, TextureLibiary::Load(texPath));
 							}
+							if (tex)
+							{
+								ImGui::SameLine();
+								if (ImGui::Button("X"))
+									mat->SetTexture(name, nullptr);
+							}
+							ImGui::EndGroup();
 							break;
 						}
 						default:
@@ -216,28 +244,27 @@ inline void RenderMaterialInspector(Entity& entity)
 
 					ImGui::Separator();
 
-					// Save/Load buttons
+					// Persistence: save / load .tmat
 					if (ImGui::Button("Save Material"))
 					{
-						std::string savePath = SaveFileDialog(".tmat");
-						if (!savePath.empty())
-						{
-							Engine::MaterialLibrary::Save(mat, savePath);
-							LOG_INFO("MaterialInspector", "Saved material to: {0}", savePath);
-						}
+						std::string savePath = mat->GetAssetPath().empty()
+							? SaveFileDialog("Tsundere Material\0*.tmat\0All Files\0*.*\0")
+							: mat->GetAssetPath();
+						if (!savePath.empty() && Engine::MaterialLibrary::Save(mat, savePath))
+							Info_Core("Saved material to: {}", savePath);
 					}
 
 					ImGui::SameLine();
 					if (ImGui::Button("Load Material"))
 					{
-						std::string loadPath = OpenFileDialog(".tmat");
+						std::string loadPath = OpenFileDialog("Tsundere Material\0*.tmat\0All Files\0*.*\0");
 						if (!loadPath.empty())
 						{
 							Ref<Engine::Material> loadedMat = Engine::MaterialLibrary::Load(loadPath);
 							if (loadedMat)
 							{
 								meshRender.materials[i] = loadedMat;
-								LOG_INFO("MaterialInspector", "Loaded material from: {0}", loadPath);
+								Info_Core("Loaded material from: {}", loadPath);
 							}
 						}
 					}
