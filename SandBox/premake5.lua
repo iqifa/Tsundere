@@ -25,7 +25,7 @@ project "SandBox"
         "../T_Core/src/Platform/GL",
         "../T_Tool/include",
         "../T_UI/include",
-        "C:/VulkanSDK/1.4.357.0/Include",
+        VULKAN_SDK_ROOT and (VULKAN_SDK_ROOT .. "/Include") or "",
         -- "../T_Core/vender/spdlog/include",
         "../Dependence/include",
     }
@@ -34,7 +34,7 @@ project "SandBox"
         "../Dependence/lib/GLFW/",
         "../Dependence/lib/GLEW/",
         "../Dependence/lib/assimp/",
-        "C:/VulkanSDK/1.4.357.0/Lib",
+        VULKAN_SDK_ROOT and (VULKAN_SDK_ROOT .. "/Lib") or "",
         "../bin"
     }
 
@@ -42,11 +42,11 @@ project "SandBox"
     filter "system:windows" --对特定的系统(windows、OS..)、配置(Debug/Release)、平台(x64、x86)的项目属性
     cppdialect "C++17"  --C++特性版本
     staticruntime "On"  
-    systemversion "10.0.22621.0"    -- windows SKD版本
+    systemversion (WINSDK_VERSION or "10.0.22621.0")    -- windows SDK版本,由 premake5-defs.lua 探测
 
 
     linkoptions{
-        "glfw3.lib","opengl32.lib","glew32.lib","assimp-vc143-mtd.lib","T_Core.lib","vulkan-1.lib","shaderc_shared.lib"
+        "glfw3.lib","opengl32.lib","glew32.lib", (ASSIMP_LIB or "assimp-vc143-mtd") .. ".lib","T_Core.lib","vulkan-1.lib","shaderc_shared.lib"
     }
 
     filter{ "system:windows", "action:vs2022" }

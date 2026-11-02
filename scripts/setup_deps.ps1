@@ -14,10 +14,15 @@
 .EXAMPLE
     # re-download even if files already exist
     .\scripts\setup_deps.ps1 -Force -SkipAssimp
+
+.EXAMPLE
+    # delete the download / assimp-build cache in %TEMP% (frees ~1-2 GB),
+    # then exit. Nothing in the repo is touched; the next run re-downloads.
+    .\scripts\setup_deps.ps1 -CleanCache
 #>
 [CmdletBinding()]
 param(
-    [string]$ProjectRoot = (Split-Path $PSScriptRoot -Parent),
+    [string]$ProjectRoot = '',
     [string]$WorkDir = (Join-Path $env:TEMP 'tsundere_deps'),
     # Existing assimp checkout that has already been built (Debug, x64, shared) with CMake.
     [string]$AssimpSource = '',
@@ -29,11 +34,43 @@ param(
     # Download and silently install the Vulkan SDK (needs admin, shows a UAC prompt).
     [switch]$InstallVulkanSDK,
     # Overwrite libraries that are already present.
-    [switch]$Force
+    [switch]$Force,
+    # Delete the $WorkDir cache (downloads + assimp clone/build) and exit.
+    [switch]$CleanCache
 )
+
+# $PSScriptRoot is empty in some launch paths (e.g. bare -File from certain
+# hosts); fall back to the working directory's parent heuristics.
+if (-not $ProjectRoot) {
+    if ($PSScriptRoot) {
+        $ProjectRoot = Split-Path $PSScriptRoot -Parent
+    } else {
+        $ProjectRoot = (Get-Location).Path
+    }
+}
+if (-not $ProjectRoot -or -not (Test-Path (Join-Path $ProjectRoot 'setup_deps.bat'))) {
+    throw "Cannot locate the project root (got '$ProjectRoot'). Pass it explicitly: -ProjectRoot <repo root>"
+}
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+
+# ---------------------------------------------------------------------------
+# -CleanCache : delete the download/assimp-build cache, then exit.
+# Only touches $WorkDir; the repo's Dependence/ and vender/ stay intact.
+# ---------------------------------------------------------------------------
+if ($CleanCache) {
+    if (Test-Path $WorkDir) {
+        $sizeGB = [math]::Round(((Get-ChildItem $WorkDir -Recurse -File -ErrorAction SilentlyContinue |
+            Measure-Object Length -Sum).Sum) / 1GB, 2)
+        Write-Host "Removing cache $WorkDir ($sizeGB GB)..."
+        Remove-Item -Recurse -Force $WorkDir
+        Write-Host '[ OK ] cache removed. Re-running setup_deps.bat will re-download as needed.'
+    } else {
+        Write-Host "Nothing to clean: $WorkDir does not exist."
+    }
+    return
+}
 
 # ---------------------------------------------------------------------------
 # Pinned versions. Read DEPENDENCIES.md before bumping any of these.
@@ -175,11 +212,19 @@ if (-not (Test-Present "$Dep\lib\GLFW\glfw3.lib" 'GLFW')) {
 # assimp : must be built from source with CMake
 # ---------------------------------------------------------------------------
 Write-Step "assimp"
-$assimpLibName = 'assimp-vc143-mtd'
+# The import library name embeds the toolset (vc143 = VS2022). Do NOT hardcode:
+# detect it from whatever is already in Dependence, or from the build output.
+function Get-AssimpLibName([string]$Dir) {
+    $hit = Get-ChildItem -Path $Dir -Filter 'assimp-*-mtd.lib' -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($hit) { return $hit.BaseName }   # e.g. assimp-vc143-mtd
+    return $null
+}
+$assimpLibName = Get-AssimpLibName "$Dep\lib\assimp"
 if ($SkipAssimp) {
     Write-Skip 'assimp (-SkipAssimp)'
-} elseif ((Test-Path "$Dep\lib\assimp\$assimpLibName.lib") -and -not $Force -and -not $AssimpSource -and -not $BuildAssimp) {
-    Write-Skip 'assimp already present (pass -AssimpSource or -BuildAssimp to replace)'
+} elseif ($assimpLibName -and -not $Force -and -not $AssimpSource -and -not $BuildAssimp) {
+    Write-Skip "assimp already present ($assimpLibName; pass -AssimpSource or -BuildAssimp to replace)"
 } else {
     if ($BuildAssimp) {
         $vs = Find-VSInstall
@@ -211,6 +256,12 @@ if ($SkipAssimp) {
         Write-Warn2 'assimp not installed. Pass -AssimpSource <dir> (already built) or -BuildAssimp.'
     } else {
         if (-not $AssimpBuildDir) { $AssimpBuildDir = Join-Path $AssimpSource 'build' }
+        # The name follows the toolset actually used to build (vc143 today,
+        # something else on a newer VS) -- detect it from the build output.
+        $assimpLibName = Get-AssimpLibName "$AssimpBuildDir\lib\Debug"
+        if (-not $assimpLibName) {
+            throw "No assimp-*-mtd.lib found under $AssimpBuildDir\lib\Debug. Build assimp Debug|x64 with BUILD_SHARED_LIBS=ON first."
+        }
         $lib = "$AssimpBuildDir\lib\Debug\$assimpLibName.lib"
         $dll = "$AssimpBuildDir\bin\Debug\$assimpLibName.dll"
         if (-not (Test-Path $lib) -or -not (Test-Path $dll)) {
@@ -224,16 +275,31 @@ if ($SkipAssimp) {
         Copy-Item $lib, $dll "$Dep\lib\assimp"
         $pdb = "$AssimpBuildDir\bin\Debug\$assimpLibName.pdb"
         if (Test-Path $pdb) { Copy-Item $pdb "$Dep\lib\assimp" }
-        Write-Host "    installed from $AssimpSource"
+        Write-Host "    installed from $AssimpSource ($assimpLibName)"
     }
 }
 
 # ---------------------------------------------------------------------------
 # Vulkan SDK : needed for BOTH backends (premake always links vulkan-1 / shaderc_shared / spirv-cross-c-shared)
 # ---------------------------------------------------------------------------
+# Same probe as premake5-defs.lua: VULKAN_SDK env var first, then the newest
+# version directory under C:\VulkanSDK. $VulkanRoot (the pinned version) is
+# only where -InstallVulkanSDK installs to.
+function Find-VulkanRoot {
+    $root = $env:VULKAN_SDK
+    if (-not $root -or -not (Test-Path (Join-Path $root 'Lib\vulkan-1.lib'))) {
+        $root = Get-ChildItem 'C:\VulkanSDK' -Directory -ErrorAction SilentlyContinue |
+            Where-Object { Test-Path (Join-Path $_.FullName 'Lib\vulkan-1.lib') } |
+            Sort-Object { [version]($_.Name -replace '[^\d.]', '') } -ErrorAction SilentlyContinue |
+            Select-Object -Last 1 -ExpandProperty FullName
+    }
+    return $root
+}
+$VulkanFound = Find-VulkanRoot
+
 Write-Step "Vulkan SDK $($V.VulkanSDK)"
-if (Test-Path "$VulkanRoot\Lib\vulkan-1.lib") {
-    Write-Skip "found at $VulkanRoot"
+if ($VulkanFound) {
+    Write-Skip "found at $VulkanFound"
 } elseif ($InstallVulkanSDK) {
     $exe = Get-Download "https://sdk.lunarg.com/sdk/download/$($V.VulkanSDK)/windows/vulkansdk-windows-X64-$($V.VulkanSDK).exe" 'vulkansdk.exe'
     $sig = Get-AuthenticodeSignature $exe
@@ -269,15 +335,40 @@ $required = [ordered]@{
     'Vulkan SDK SPIRV-Cross'  = "$VulkanRoot\Lib\spirv-cross-c-shared.lib"
     'Vulkan SDK SPIRV-Cross dll' = "$VulkanRoot\Bin\spirv-cross-c-shared.dll"
     'Vulkan SDK SPIRV-Cross header' = "$VulkanRoot\Include\spirv_cross\spirv_cross_c.h"
-    "Windows SDK $($V.WinSDK)" = "${env:ProgramFiles(x86)}\Windows Kits\10\Include\$($V.WinSDK)"
+    "Windows SDK (any)"       = $null   # handled specially below
+}
+if ($VulkanFound) {
+    # Re-key the Vulkan checks onto the actually-installed SDK.
+    foreach ($key in @('Vulkan SDK vulkan-1.lib','Vulkan SDK shaderc','Vulkan SDK shaderc dll',
+                       'Vulkan SDK SPIRV-Cross','Vulkan SDK SPIRV-Cross dll','Vulkan SDK SPIRV-Cross header')) {
+        $required[$key] = $required[$key] -replace [regex]::Escape("$VulkanRoot"), $VulkanFound
+    }
 }
 $missing = 0
 foreach ($k in $required.Keys) {
-    if (Test-Path $required[$k]) { Write-Host ("    [ OK ] {0}" -f $k) -ForegroundColor Green }
-    else { Write-Host ("    [MISS] {0}  ({1})" -f $k, $required[$k]) -ForegroundColor Red; $missing++ }
+    $path = $required[$k]
+    if ($k -eq 'Windows SDK (any)') {
+        # premake probes the newest installed version, so any one will do.
+        $kits = "${env:ProgramFiles(x86)}\Windows Kits\10\Include"
+        $hit = Get-ChildItem $kits -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match '^\d' } | Select-Object -First 1
+        if ($hit) { Write-Host "    [ OK ] Windows SDK ($($hit.Name))" -ForegroundColor Green }
+        else { Write-Host "    [MISS] Windows SDK (none under $kits)" -ForegroundColor Red; $missing++ }
+        continue
+    }
+    if (Test-Path $path) { Write-Host ("    [ OK ] {0}" -f $k) -ForegroundColor Green }
+    else { Write-Host ("    [MISS] {0}  ({1})" -f $k, $path) -ForegroundColor Red; $missing++ }
 }
 if ($missing -gt 0) {
     Write-Host "`n$missing item(s) missing, see DEPENDENCIES.md." -ForegroundColor Red
     exit 1
 }
-Write-Host "`nAll dependencies in place. Next: .\premake5.exe vs2022   (or --renderer=vulkan)" -ForegroundColor Green
+Write-Host @"
+
+All dependencies in place. Next: .\premake5.exe vs2022   (or --renderer=vulkan)
+
+To uninstall what this script installed:
+  vender/ + Dependence/ in the repo : delete the folders (or setup_deps.bat re-installs them)
+  download/build cache (~1 GB)      : setup_deps.bat -CleanCache   (%TEMP%\tsundere_deps)
+  Vulkan SDK                        : uninstall 'Vulkan SDK <version>' via Windows Settings > Apps
+"@ -ForegroundColor Green

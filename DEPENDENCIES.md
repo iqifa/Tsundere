@@ -14,9 +14,12 @@ setup_deps.bat -AssimpSource F:\assimp
 
 :: 已有的库会跳过，-Force 强制重新下载覆盖
 setup_deps.bat -Force -SkipAssimp
+
+:: 清理 %TEMP% 里的下载/assimp 构建缓存（约 1 GB），已装好的依赖不受影响
+setup_deps.bat -CleanCache
 ```
 
-脚本在 `scripts/setup_deps.ps1`，下载缓存放在 `%TEMP%\tsundere_deps`。最后会逐项检查，缺什么会标 `[MISS]` 并返回非 0。
+脚本在 `scripts/setup_deps.ps1`，下载缓存放在 `%TEMP%\tsundere_deps`（不会自动清理，用 `-CleanCache` 手动删）。最后会逐项检查，缺什么会标 `[MISS]` 并返回非 0。
 
 依赖齐了之后：
 
@@ -33,10 +36,22 @@ premake5.exe vs2022 --renderer=vulkan  :: Vulkan 后端
 | 项目          | 要求                                          | 说明                           |
 | ----------- | ------------------------------------------- | ---------------------------- |
 | 系统          | Windows 10/11 x64                           | 只支持 x64，所有库都必须是 x64          |
-| IDE         | Visual Studio 2022（v143 工具集，"使用 C++ 的桌面开发"） | assimp 的库名 `vc143` 取决于它      |
-| Windows SDK | 10.0.22621.0                                | premake 里写死的 `systemversion` |
-| Vulkan SDK  | 1.4.357.0，装在 `C:\VulkanSDK\1.4.357.0`       | **两个后端都需要**，见下文              |
+| IDE         | Visual Studio 2022（"使用 C++ 的桌面开发"）；别的 VS 版本也可以 | assimp 的库名跟着工具集走（vc143=VS2022），自动探测 |
+| Windows SDK | VS2022 安装时勾选的 C++ 桌面开发组件即可                  | 版本由 `premake5-defs.lua` 自动探测 |
+| Vulkan SDK  | 1.4.357.0（其他版本也可以，自动探测）                     | **两个后端都需要**，见下文              |
 | 工具          | git、curl（Win10 自带）、CMake（用 VS 自带的就行）        | CMake 只有编 assimp 时用          |
+
+> **不用再改 premake 适配新机器**：assimp 库名、Vulkan SDK 路径、Windows SDK 版本都由 `premake5-defs.lua`
+> 在 `premake5 vs2022` 时自动探测（依次查环境变量，再扫常见安装目录），检测过程会打印出来：
+>
+> ```
+> premake: assimp library   = assimp-vc143-mtd
+> premake: Vulkan SDK root  = C:\VulkanSDK\1.4.357.0
+> premake: Windows SDK ver  = 10.0.22621.0
+> ```
+>
+> VS 版本不同编出的 `assimp-vc145-mtd` 之类、装了别的 Vulkan SDK 版本、SDK 版本不同——都不需要改任何文件。
+> 探测失败时 premake 会打 WARNING 并使用旧默认值，链接才会报错，所以看到 WARNING 就先跑 `setup_deps.bat`。
 
 
 
@@ -54,7 +69,7 @@ premake5.exe vs2022 --renderer=vulkan  :: Vulkan 后端
 | GLEW       | 2.3.1                  | 预编译 x64            | `Dependence/include/GL`、`Dependence/lib/GLEW`       | [nigels-com/glew](https://github.com/nigels-com/glew/releases/tag/glew-2.3.1)  |
 | GLFW       | 3.5.1                  | 预编译 x64（vc2022）    | `Dependence/include/GLFW`、`Dependence/lib/GLFW`     | [glfw.org](https://www.glfw.org/download.html)                                 |
 | assimp     | 6.0.5                  | **需要自己用 CMake 编译** | `Dependence/include/assimp`、`Dependence/lib/assimp` | [assimp/assimp](https://github.com/assimp/assimp/releases/tag/v6.0.5)          |
-| Vulkan SDK | 1.4.357.0              | 安装包                | `C:\VulkanSDK\1.4.357.0`                            | [LunarG](https://vulkan.lunarg.com/sdk/home)                                   |
+| Vulkan SDK | 1.4.357.0（推荐，自动探测）     | 安装包                | `C:\VulkanSDK\<版本>`（默认根目录即可）                        | [LunarG](https://vulkan.lunarg.com/sdk/home)                                   |
 
 
 标"固定"的两个库不能随便升级，升级会导致编译失败，原因见[需要配合修改的代码](#需要配合修改的代码和配置)。
@@ -79,6 +94,7 @@ Dependence/
     ├── GLEW/     glew32.lib  glew32s.lib  glew32.dll
     ├── GLFW/     glfw3.lib  (glfw3dll.lib  glfw3_mt.lib  glfw3.dll 用不到，放着无妨)
     └── assimp/   assimp-vc143-mtd.lib  assimp-vc143-mtd.dll  (assimp-vc143-mtd.pdb)
+                  （名字跟工具集走，premake 自动探测，这里以 VS2022 为例）
 ```
 
 代码里的写法是 `#include "imgui/imgui.h"`、`<glm/glm.hpp>`、`"spdlog/spdlog.h"`、`"stb_image/stb_image.h"`、`<entt/entt.hpp>`，
@@ -151,8 +167,10 @@ include 根目录是 `T_Core/vender/` 和 `Dependence/include/`，所以**每个
 
 ### assimp（需要自己编译）
 
-assimp 没有官方的 Windows 预编译包，必须用 CMake 编。要求：**x64、Debug、动态库、VS2022（v143）**，
-产物名必须是 `assimp-vc143-mtd`（premake 里写死了这个名字）。
+assimp 没有官方的 Windows 预编译包，必须用 CMake 编。要求：**x64、Debug、动态库**，
+用哪个 VS 版本都可以——编出来的库名（`assimp-vc143-mtd`、`assimp-vc145-mtd`……）会跟着工具集走，
+premake 生成工程时会自动探测 `Dependence/lib/assimp/` 里的实际文件名，**不需要改 premake**。
+用 `-BuildAssimp`（推荐）或下面的手动命令编即可：
 
 **命令行（推荐，脚本** `-BuildAssimp` **做的就是这些）：**
 
@@ -184,8 +202,8 @@ cmake --build build --config Debug --parallel
 | ---------------------------------------------------------------- | ---------------------------- |
 | `<assimp>/include/assimp/*`（不要 `*.in` 文件）                        | `Dependence/include/assimp/` |
 | `<assimp>/build/include/assimp/config.h`、`revision.h`（CMake 生成的） | `Dependence/include/assimp/` |
-| `<assimp>/build/lib/Debug/assimp-vc143-mtd.lib`                  | `Dependence/lib/assimp/`     |
-| `<assimp>/build/bin/Debug/assimp-vc143-mtd.dll`（和 `.pdb`）        | `Dependence/lib/assimp/`     |
+| `<assimp>/build/lib/Debug/assimp-*-mtd.lib`（按实际工具集名）             | `Dependence/lib/assimp/`     |
+| `<assimp>/build/bin/Debug/assimp-*-mtd.dll`（和 `.pdb`，同名）         | `Dependence/lib/assimp/`     |
 
 
 > 只看 build 目录会以为头文件很少，这是正常的：公开头文件都在**源码目录**的 `include/assimp`，build 目录里只有生成的 `config.h` 和 `revision.h`。
@@ -195,8 +213,10 @@ cmake --build build --config Debug --parallel
 
 ### Vulkan SDK
 
-- 安装到 `C:\VulkanSDK\1.4.357.0`（安装包会自动设置 `VULKAN_SDK` 并把 `Bin` 加进 PATH）。
-- 静默安装：`vulkansdk-windows-X64-1.4.357.0.exe --root C:\VulkanSDK\1.4.357.0 --accept-licenses --default-answer --confirm-command install`（需要管理员权限）。
+- 装到 `C:\VulkanSDK\<版本>` 默认根目录即可（安装包会自动设置 `VULKAN_SDK` 并把 `Bin` 加进 PATH）。
+  版本不限于 1.4.357.0：premake 会先读 `VULKAN_SDK` 环境变量，没有就取 `C:\VulkanSDK\` 下最新的版本目录。
+- 静默安装（`-InstallVulkanSDK` 做的就是这个，需要管理员权限）：
+  `vulkansdk-windows-X64-<版本>.exe --root C:\VulkanSDK\<版本> --accept-licenses --default-answer --confirm-command install`。
 - **OpenGL 后端也需要**：premake 在两个后端下都会链接 `vulkan-1.lib`、`shaderc_shared.lib`、`spirv-cross-c-shared.lib`，
 而且 `imgui_impl_vulkan.cpp` 总会被编译进 `T_Core.dll`。
 - **Shader 编译依赖 SDK**：两个后端的 shader 都由 `T_Core/src/Platform/ShaderCompiler.cpp` 编译，
@@ -218,8 +238,8 @@ OpenGL 后端还会把 SPIR-V 转回 GLSL 430。这两个库都随 SDK 安装，
 | 3   | ImGui 从 `T_Core.dll` 导出                     | 已写在 premake 里，不用管 |
 | 4   | ImGui 版本固定在 1.92.3                          | 升级前必须改代码          |
 | 5   | EnTT 版本固定在 3.15.0                           | 升级前必须改代码          |
-| 6   | Vulkan SDK 版本写死在 premake 里                  | 换 SDK 版本时要改       |
-| 7   | assimp 库名写死为 `assimp-vc143-mtd`             | 换工具集时要改           |
+| 6   | Vulkan SDK 版本                               | ~~写死~~ 已改为自动探测    |
+| 7   | assimp 库名 `assimp-vc143-mtd`                | ~~写死~~ 已改为自动探测    |
 
 
 **1. stb_image.cpp**：工程里没有任何地方定义 `STB_IMAGE_IMPLEMENTATION`，没有这个文件会在链接时报 `stbi_load` 等符号找不到。
@@ -264,18 +284,20 @@ entt::meta_factory<T>{}.type(entt::hashed_string{ name });
 
 EnTT 4.x（master）要求 C++20，需要把 premake 的++ `cppdialect` ++改成 `C++20`，改动面更大。
 
-**6. Vulkan SDK 路径**：`T_Core/premake5.lua` 和 `SandBox/premake5.lua` 的 `includedirs`、`libdirs` 里都写死了
-`C:/VulkanSDK/1.4.357.0`，`T_Core/premake5.lua` 的 `postbuildcommands` 里拷 `shaderc_shared.dll`、`spirv-cross-c-shared.dll`
-的两行也写死了这个路径。装了别的版本要同时改这 6 处（或者改成 `os.getenv("VULKAN_SDK")`）。
-`setup_deps.ps1` 顶部的 `$V.VulkanSDK` 也要一起改。
+**6. Vulkan SDK 路径（已自动化）**：`premake5-defs.lua` 生成工程时自动探测 SDK——先读 `VULKAN_SDK`
+环境变量（安装包会设置），没有就取 `C:\VulkanSDK\` 下最新的版本目录，`includedirs`、`libdirs`、
+post-build 拷 dll 都用探测到的路径。`setup_deps.ps1` 的 `-InstallVulkanSDK` 仍按 `$V.VulkanSDK`
+（当前 1.4.357.0）下载安装，想换版本改它即可。
 
-**7. assimp 库名**：premake 的 `links`、`linkoptions` 和 `postbuildcommands` 里都写死了 `assimp-vc143-mtd`。
-用 VS2026 等其他工具集编出来会叫 `vc145` 之类的名字，需要同步修改。Release 配置链接的也是这个 Debug 库，所以只编 Debug 就够了。
+**7. assimp 库名（已自动化）**：`premake5-defs.lua` 扫描 `Dependence/lib/assimp/assimp-*-mtd.lib`
+拿到真实文件名（`vc143`/`vc145`……），`links`、`linkoptions`、post-build 拷 dll 都用探测到的名字；
+`setup_deps.ps1` 安装时同样按构建产物的实际名字匹配，不再假设 vc143。
+Release 配置链接的也是这个 Debug 库，所以只编 Debug 就够了。
 
 ## 其他说明
 
 - **运行库**：项目用 `/MDd`。官方的 `glfw3.lib` 是 `/MD` 编的，链接时可能出现 `LNK4098` 警告，不影响使用。assimp 按上面的参数编出来就是 `/MDd`，是匹配的。
-- **DLL 拷贝**：`T_Core` 的 post-build 会把 `glew32.dll`、`assimp-vc143-mtd.dll`、`shaderc_shared.dll`、`spirv-cross-c-shared.dll` 拷到 `bin/`。GLFW 是静态链接，不需要 dll。
+- **DLL 拷贝**：`T_Core` 的 post-build 会把 `glew32.dll`、`assimp-*-mtd.dll`（按探测到的名字）、`shaderc_shared.dll`、`spirv-cross-c-shared.dll` 拷到 `bin/`。GLFW 是静态链接，不需要 dll。
 - **不要**把第三方库提交进 git：`.gitignore` 已经忽略了 `T_Core/vender/`*、`Dependence/*`，只保留 `.gitkeep`。
 
 
@@ -290,7 +312,7 @@ EnTT 4.x（master）要求 C++20，需要把 premake 的++ `cppdialect` ++改成
 | `initInfo.RenderPass` 不是成员                     | ImGui 版本 ≥ 1.92.4，见第 4 条                                                  |
 | `LNK2019 ImGui::Begin ...`                     | `IMGUI_API` 没有导出，见第 3 条（重新跑一次 `premake5 vs2022`）                          |
 | `LNK2019 stbi_load`                            | 缺 `stb_image.cpp`                                                         |
-| 找不到 `vulkan/vulkan.h` 或 `vulkan-1.lib`         | Vulkan SDK 没装，或者版本和 premake 里写的不一致                                        |
+| 找不到 `vulkan/vulkan.h` 或 `vulkan-1.lib`         | Vulkan SDK 没装。跑 `premake5 vs2022` 看有没有 "no Vulkan SDK found" 的 WARNING；装好后重新生成工程       |
 | 找不到 `spirv_cross/spirv_cross_c.h` 或 `spirv-cross-c-shared.lib` | 同上；装 SDK 时没勾掉 SPIRV-Cross 组件的话默认就有                                  |
 | 启动提示缺 `shaderc_shared.dll` / `spirv-cross-c-shared.dll` | post-build 没跑成功（看 SDK 路径是否正确），或者手动从 SDK 的 `Bin` 拷到 `bin/`              |
 | 链接报 `LNK2038` `RuntimeLibrary` 不匹配（spirv-cross） | 链接了 SDK 的 SPIRV-Cross 静态库，改成 `spirv-cross-c-shared.lib`                        |

@@ -68,22 +68,22 @@ project "T_Core"
         "../T_Tool/include",
         "../T_UI/include",
         "src/Platform/GL",
-        "C:/VulkanSDK/1.4.357.0/Include",
+        VULKAN_SDK_ROOT and (VULKAN_SDK_ROOT .. "/Include") or "",
         -- "vender/spdlog/include"
     }
     libdirs{
         "../Dependence/lib/GLFW/",
         "../Dependence/lib/GLEW/",
         "../Dependence/lib/assimp/",
-        "C:/VulkanSDK/1.4.357.0/Lib"
+        VULKAN_SDK_ROOT and (VULKAN_SDK_ROOT .. "/Lib") or ""
     }
     filter "system:windows" --对特定的系统(windows、OS..)、配置(Debug/Release)、平台(x64、x86)的项目属性
     cppdialect "C++17"  --C++特性版本
-    staticruntime "On"  
-    systemversion "10.0.22621.0"    -- windows SKD版本
+    staticruntime "On"
+    systemversion (WINSDK_VERSION or "10.0.22621.0")    -- windows SDK版本,由 premake5-defs.lua 探测
 
     links{
-        "glfw3.lib","opengl32.lib","glew32.lib","assimp-vc143-mtd.lib","comdlg32.lib","vulkan-1.lib","shaderc_shared.lib","spirv-cross-c-shared.lib"
+        "glfw3.lib","opengl32.lib","glew32.lib", ASSIMP_LIB or "assimp-vc143-mtd.lib","comdlg32.lib","vulkan-1.lib","shaderc_shared.lib","spirv-cross-c-shared.lib"
     }
 
 
@@ -102,9 +102,9 @@ project "T_Core"
     postbuildcommands{
         ("{COPY} %{cfg.targetdir} ../bin"),
         "{COPY} ../Dependence/lib/GLEW/glew32.dll ../bin",
-        "{COPY} ../Dependence/lib/assimp/assimp-vc143-mtd.dll ../bin",
-        "{COPY} C:/VulkanSDK/1.4.357.0/Bin/shaderc_shared.dll ../bin",
-        "{COPY} C:/VulkanSDK/1.4.357.0/Bin/spirv-cross-c-shared.dll ../bin"
+        "{COPY} ../Dependence/lib/assimp/" .. (ASSIMP_LIB or "assimp-vc143-mtd") .. ".dll ../bin",
+        "{COPY} " .. (VULKAN_SDK_ROOT or "C:/VulkanSDK/1.4.357.0") .. "/Bin/shaderc_shared.dll ../bin",
+        "{COPY} " .. (VULKAN_SDK_ROOT or "C:/VulkanSDK/1.4.357.0") .. "/Bin/spirv-cross-c-shared.dll ../bin"
     }
 
     
