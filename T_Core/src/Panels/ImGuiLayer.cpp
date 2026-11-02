@@ -7,12 +7,6 @@ bool& EditorWindows::ShadowMap()
     return open;
 }
 
-bool& EditorWindows::ModelImport()
-{
-    static bool open = true;
-    return open;
-}
-
 bool& EditorWindows::Console()
 {
     static bool open = true;
@@ -63,7 +57,6 @@ namespace Engine
             {
                 ImGui::MenuItem("Console", nullptr, &EditorWindows::Console());
                 ImGui::MenuItem("Shadow Map", nullptr, &EditorWindows::ShadowMap());
-                ImGui::MenuItem("Model Import", nullptr, &EditorWindows::ModelImport());
                 ImGui::EndMenu();
             }
             ImGui::EndMenuBar();

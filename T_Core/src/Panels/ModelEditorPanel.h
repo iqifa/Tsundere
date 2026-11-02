@@ -23,19 +23,19 @@ class ModelEditorPanel : public Engine::Layer
 public:
 	static void BindScene(Ref<Scene> scene)
 	{
-		s_Scene = std::move(scene);
+		BoundScene() = std::move(scene);
 	}
 
 	ModelEditorPanel(Ref<Scene> scene, const std::string& name = "Model Editor")
 		: Layer(name), m_Scene(std::move(scene))
 	{
-		s_Instance = this;
+		Instance() = this;
 	}
 
 	~ModelEditorPanel() override
 	{
-		if (s_Instance == this)
-			s_Instance = nullptr;
+		if (Instance() == this)
+			Instance() = nullptr;
 		if (m_PreviewFramebuffer)
 		{
 			if (RHITexture2D* color = m_PreviewFramebuffer->GetColorAttachment(0))
@@ -45,26 +45,26 @@ public:
 
 	static void Open(const std::string& path)
 	{
-		if (path.empty() || !s_Scene)
+		if (path.empty() || !BoundScene())
 			return;
-		if (!s_Instance)
-			Engine::Application::Get().PushLayer(new ModelEditorPanel(s_Scene, "Model Editor"));
-		if (s_Instance)
-			s_Instance->OpenPath(path);
+		if (!Instance())
+			Engine::Application::Get().PushLayer(new ModelEditorPanel(BoundScene(), "Model Editor"));
+		if (Instance())
+			Instance()->OpenPath(path);
 	}
 
 	static void CloseIfShowing(const std::string& path)
 	{
-		if (s_Instance && s_Instance->m_Open && s_Instance->m_SelectedPath == path)
-			s_Instance->m_Open = false;
+		if (Instance() && Instance()->m_Open && Instance()->m_SelectedPath == path)
+			Instance()->m_Open = false;
 	}
 
 	static const std::string& ShowingPath()
 	{
 		static const std::string empty;
-		if (!s_Instance || !s_Instance->m_Open)
+		if (!Instance() || !Instance()->m_Open)
 			return empty;
-		return s_Instance->m_SelectedPath;
+		return Instance()->m_SelectedPath;
 	}
 
 	void OnImGuiRender() override
@@ -600,8 +600,10 @@ private:
 		delete this;
 	}
 
-	static inline ModelEditorPanel* s_Instance = nullptr;
-	static inline Ref<Scene> s_Scene;
+	// One copy inside T_Core. Inline statics here would be duplicated in SandBox,
+	// so BindScene() from the exe would not be visible to Open() in the DLL.
+	T_API static ModelEditorPanel*& Instance();
+	T_API static Ref<Scene>& BoundScene();
 
 	Ref<Scene> m_Scene;
 	std::string m_SelectedPath;

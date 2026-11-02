@@ -112,9 +112,8 @@ GLTexture2D::GLTexture2D(const Texture2DDesc& desc)
     }
     else if (!desc.filePath.empty())
     {
-        stbi_set_flip_vertically_on_load(1);
         int w, h, ch;
-        unsigned char* data = stbi_load(desc.filePath.c_str(), &w, &h, &ch, 0);
+        unsigned char* data = Engine::LoadImageSTB(desc.filePath.c_str(), &w, &h, &ch, 0, true);
         if (data)
         {
             m_Width = w; m_Height = h;

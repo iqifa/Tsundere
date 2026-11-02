@@ -1,4 +1,5 @@
 #include"Debug.h"
+#include "stb_image/stb_image.h"
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/sinks/base_sink.h>
 
@@ -65,5 +66,13 @@ namespace Engine {
 	{
 		std::lock_guard<std::mutex> lock(g_ConsoleMutex);
 		g_ClientLines.clear();
+	}
+
+	unsigned char* LoadImageSTB(const char* path, int* width, int* height, int* components, int requiredComponents, bool flipVertically)
+	{
+		static std::mutex decodeMutex;
+		std::lock_guard<std::mutex> lock(decodeMutex);
+		stbi_set_flip_vertically_on_load(flipVertically ? 1 : 0);
+		return stbi_load(path, width, height, components, requiredComponents);
 	}
 }

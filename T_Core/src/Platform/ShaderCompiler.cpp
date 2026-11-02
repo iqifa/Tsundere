@@ -69,6 +69,30 @@ namespace
         return s.substr(first, last - first + 1);
     }
 
+    // Shader paths are stored as res/shaders/... . The process working directory
+    // is often bin/ or SandBox/, so walk up until that relative file exists.
+    std::string ResolveShaderPath(const std::string& filepath)
+    {
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        const fs::path requested(filepath);
+        if (requested.is_absolute())
+            return fs::exists(requested, ec) ? requested.string() : filepath;
+
+        fs::path dir = fs::current_path();
+        for (int depth = 0; depth < 8; ++depth)
+        {
+            const fs::path candidate = dir / requested;
+            if (fs::exists(candidate, ec))
+                return candidate.string();
+            const fs::path parent = dir.parent_path();
+            if (parent == dir)
+                break;
+            dir = parent;
+        }
+        return filepath;
+    }
+
     // Every section keeps the file's full line count (foreign lines blanked) so
     // compiler diagnostics report line numbers of the .shader file itself.
     bool LoadShaderSource(const std::string& filepath, ShaderSourceFile& out)
@@ -603,9 +627,10 @@ namespace
 CompiledShader CompileShaderFile(const std::string& filepath, ShaderTarget target)
 {
     CompiledShader result;
+    const std::string resolved = ResolveShaderPath(filepath);
 
     ShaderSourceFile file;
-    if (!LoadShaderSource(filepath, file))
+    if (!LoadShaderSource(resolved, file))
         return result;
 
     bool bypassSpirv = false;
@@ -628,7 +653,7 @@ CompiledShader CompileShaderFile(const std::string& filepath, ShaderTarget targe
     for (ShaderStage stage : file.Stages)
     {
         std::vector<uint32_t> spirv;
-        if (CompileToSpirv(compiler, stage, file.Sections[stage], filepath, target, spirv))
+        if (CompileToSpirv(compiler, stage, file.Sections[stage], resolved, target, spirv))
             result.Spirv[stage] = std::move(spirv);
         else
             ok = false;

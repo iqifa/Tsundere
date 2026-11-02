@@ -3,6 +3,9 @@
 #include "Core/Threading/ResourceLoader.h"
 #include "Debug/Debug.h"
 #include "Panels/MeshFilePath.h"
+#include "Panels/ModelEditorPanel.h"
+#include "Panels/MaterialEditorPanel.h"
+#include "Panels/TextureViewerPanel.h"
 #include <algorithm>
 
 // Resolve the project root (the directory containing res/) as an absolute path.
@@ -449,6 +452,7 @@ void AssetsPanel::ImportAsset()
 		{
 			My_map::AddModelPath(destPath.string());
 			Engine::ResourceLoader::RequestModelLoad(destPath.string());
+			ModelEditorPanel::Open(destPath.string());
 		}
 		else if (type == AssetEntry::Type::Material)
 		{
@@ -538,29 +542,16 @@ void AssetsPanel::OpenAsset(const AssetEntry& entry)
 		break;
 
 	case AssetEntry::Type::Model:
-		if (s_Scene)
-			ModelEditorPanel::Open(entry.path);
+		ModelEditorPanel::Open(entry.path);
 		break;
 
 	case AssetEntry::Type::Texture:
-		// Load into the texture library so it is ready to assign
-		{
-			Ref<RHITexture2D> tex = TextureLibiary::Load(entry.path);
-			if (tex)
-				Info_Core("Opened texture: {0}", entry.path);
-		}
+		TextureViewerPanel::Open(entry.path);
 		break;
 
 	case AssetEntry::Type::Material:
-	{
-		// Load into the material library (deserialize .tmat)
-		Ref<Engine::Material> mat = Engine::MaterialLibrary::Load(entry.path);
-		if (mat)
-			Info_Core("Opened material: {0}", entry.path);
-		if (!mat)
-			Error_Core("Failed to load material: {0}", entry.path);
+		MaterialEditorPanel::Open(entry.path);
 		break;
-	}
 
 	case AssetEntry::Type::Shader:
 		// Open shader in external editor

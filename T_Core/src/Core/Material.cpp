@@ -420,6 +420,8 @@ bool Material::Deserialize(const std::string& filepath)
 
 	file.close();
 	m_AssetPath = filepath;
+	if (m_Shader)
+		InitializeParametersFromShader();
 	Info_Core("Loaded material from: {0}", filepath);
 	return true;
 }

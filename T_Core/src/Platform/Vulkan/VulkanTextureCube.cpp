@@ -78,12 +78,13 @@ void VulkanTextureCube::Create(const TextureCubeDesc& desc)
         for (uint32_t face = 0; face < 6; ++face)
         {
             int channels = 0;
-            loadedFaces[face] = stbi_load(
+            loadedFaces[face] = Engine::LoadImageSTB(
                 desc.facePaths[face].c_str(),
                 &widths[face],
                 &heights[face],
                 &channels,
-                STBI_rgb_alpha);
+                STBI_rgb_alpha,
+                false);
 
             if (!loadedFaces[face])
             {

@@ -46,6 +46,10 @@ namespace Engine {
 		static Ref<spdlog::logger> s_CoreLogger;
 		static Ref<spdlog::logger> s_ClientLogger;
 	};
+
+	// stb_image keeps one process-global vertical-flip flag. 2D loads want it
+	// on and cubemaps want it off, so every decode goes through this lock.
+	T_API unsigned char* LoadImageSTB(const char* path, int* width, int* height, int* components, int requiredComponents, bool flipVertically);
 }
 #endif // !DUBUG
 

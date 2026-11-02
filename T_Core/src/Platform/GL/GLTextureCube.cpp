@@ -24,7 +24,9 @@ GLTextureCube::GLTextureCube(const TextureCubeDesc& desc)
     for (unsigned int i = 0; i < 6; i++)
     {
         int w, h, ch;
-        unsigned char* data = stbi_load(desc.facePaths[i].c_str(), &w, &h, &ch, 4);
+        // Cubemap faces are authored for the unflipped OpenGL convention.
+        // 2D loads flip vertically; sharing that flag turns the sky upside down.
+        unsigned char* data = Engine::LoadImageSTB(desc.facePaths[i].c_str(), &w, &h, &ch, 4, false);
         if (data)
         {
             if (m_Size == 0) { m_Size = static_cast<uint32_t>(w); }

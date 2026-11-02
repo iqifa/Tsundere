@@ -7,6 +7,5 @@
 struct T_API EditorWindows
 {
 	static bool& ShadowMap();
-	static bool& ModelImport();
 	static bool& Console();
 };

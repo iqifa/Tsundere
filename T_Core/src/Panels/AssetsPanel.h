@@ -5,7 +5,6 @@
 #include "Core/MaterialLibrary.h"
 #include "Platform/RHI/RHITextureLibrary.h"
 #include "Platform/FileDialog.h"
-#include "Panels/ModelEditorPanel.h"
 #include "HeadLine.h"
 #include <filesystem>
 #include <vector>
@@ -23,9 +22,6 @@ public:
 
 	// Set the root directory to browse (default: "res/")
 	void SetRootDirectory(const std::string& path);
-
-	// Bind scene for Model Editor Panel
-	static void BindScene(Ref<Scene> scene) { s_Scene = scene; }
 
 private:
 	struct AssetEntry
@@ -73,6 +69,4 @@ private:
 	int m_SelectedIndex = -1;
 
 	bool m_ShowHiddenFiles = false;
-
-	static inline Ref<Scene> s_Scene;
 };

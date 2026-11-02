@@ -309,9 +309,8 @@ inline void ResourceLoader::WorkerLoop()
 inline void ResourceLoader::ExecuteTextureLoad(AsyncLoadRequest& req)
 {
 	// Phase-1: 在 worker 线程解码图片，全部存入 std::vector（无 GL 调用）
-	stbi_set_flip_vertically_on_load(1);
 	int w = 0, h = 0, ch = 0;
-	uint8_t* raw = stbi_load(req.path.c_str(), &w, &h, &ch, 4); // 强制 RGBA
+	uint8_t* raw = Engine::LoadImageSTB(req.path.c_str(), &w, &h, &ch, 4, true);
 	if (raw) {
 		req.cpuTexture.path     = req.path;
 		req.cpuTexture.width    = w;
