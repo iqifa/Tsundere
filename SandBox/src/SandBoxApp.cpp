@@ -24,7 +24,6 @@ public:
 		//PushLayer(new ExampleLayer(m_ActivateScene, "Example"));
 		PushLayer(new Inspect(m_ActivateScene, "Inspect"));
 		ModelEditorPanel::BindScene(m_ActivateScene);
-		AssetsPanel::BindScene(m_ActivateScene);
 		PushLayer(new AssetsPanel("Assets"));
 		PushLayer(new ConsolePanel("Console"));
 	}
