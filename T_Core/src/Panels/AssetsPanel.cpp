@@ -7,6 +7,7 @@
 #include "Panels/MaterialEditorPanel.h"
 #include "Panels/TextureViewerPanel.h"
 #include <algorithm>
+#include <cctype>
 
 // Resolve the project root (the directory containing res/) as an absolute path.
 // The working directory varies between VS launch, double-click launch and
@@ -50,6 +51,7 @@ AssetsPanel::AssetsPanel(const std::string& name)
 		m_CurrentDirectory = m_RootDirectory;
 	}
 	RefreshCurrentDirectory();
+	SyncRegistry();
 }
 
 void AssetsPanel::SetRootDirectory(const std::string& path)
@@ -57,6 +59,7 @@ void AssetsPanel::SetRootDirectory(const std::string& path)
 	m_RootDirectory = path;
 	m_CurrentDirectory = m_RootDirectory;
 	RefreshCurrentDirectory();
+	SyncRegistry();
 }
 
 void AssetsPanel::OnImGuiRender()
@@ -73,7 +76,10 @@ void AssetsPanel::OnImGuiRender()
 
 	ImGui::SameLine();
 	if (ImGui::Button("Refresh"))
+	{
 		RefreshCurrentDirectory();
+		SyncRegistry();
+	}
 
 	ImGui::SameLine();
 	ImGui::SetNextItemWidth(120.0f);
@@ -186,35 +192,49 @@ void AssetsPanel::DrawDirectoryTree(const fs::path& directory, bool& nodeOpen)
 void AssetsPanel::DrawAssetGrid()
 {
 	const float cellSize = m_ThumbnailSize + 20.0f;
+	const float gap = 8.0f;
 	const float panelWidth = ImGui::GetContentRegionAvail().x;
-	int columnCount = (int)(panelWidth / cellSize);
+	int columnCount = (int)((panelWidth + gap) / (cellSize + gap));
 	if (columnCount < 1)
 		columnCount = 1;
 
 	const float nameHeight = ImGui::GetTextLineHeight();
 	const float cellHeight = m_ThumbnailSize + nameHeight + 12.0f;
-	const ImVec2 cellSize2(cellSize, cellHeight);
-	const ImVec4 highlight = ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive);
+	const float pitchX = cellSize + gap;
+	const float pitchY = cellHeight + gap;
+	const ImVec2 origin = ImGui::GetCursorScreenPos();
 
-	int column = 0;
+	auto ellipsize = [](const std::string& text, float maxWidth)
+	{
+		if (ImGui::CalcTextSize(text.c_str()).x <= maxWidth)
+			return text;
+		const std::string ellipsis = "...";
+		const float ellipsisW = ImGui::CalcTextSize(ellipsis.c_str()).x;
+		if (ellipsisW >= maxWidth)
+			return ellipsis;
+		std::string cut = text;
+		while (!cut.empty() && ImGui::CalcTextSize(cut.c_str()).x + ellipsisW > maxWidth)
+		{
+			cut.pop_back();
+			while (!cut.empty() && (static_cast<unsigned char>(cut.back()) & 0xC0) == 0x80)
+				cut.pop_back();
+		}
+		return cut + ellipsis;
+	};
+
 	for (size_t i = 0; i < m_CurrentAssets.size(); ++i)
 	{
 		const auto& asset = m_CurrentAssets[i];
+		const int column = (int)i % columnCount;
+		const int row = (int)i / columnCount;
+		const ImVec2 cellTopLeft(origin.x + column * pitchX, origin.y + row * pitchY);
+		const ImVec2 thumbTopLeft(cellTopLeft.x + 10.0f, cellTopLeft.y + 4.0f);
+
 		ImGui::PushID((int)i);
-
-		// Start the cell at the left edge of this grid row slot
-		ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(0.0f, 0.0f));
-		ImGui::BeginGroup();
-
-		ImVec2 cellTopLeft = ImGui::GetCursorScreenPos();
-		ImVec2 thumbTopLeft(cellTopLeft.x + 10.0f, cellTopLeft.y + 4.0f);
-
-		bool isSelected = (m_SelectedIndex == (int)i);
-
-		// Reserve the whole cell; the button reports clicked/hovered
-		ImGui::SetCursorScreenPos(thumbTopLeft);
-		ImGui::InvisibleButton("##assetbg", ImVec2(m_ThumbnailSize, m_ThumbnailSize));
-		bool hovered = ImGui::IsItemHovered();
+		ImGui::SetCursorScreenPos(cellTopLeft);
+		ImGui::InvisibleButton("##assetbg", ImVec2(cellSize, cellHeight));
+		const bool hovered = ImGui::IsItemHovered();
+		const bool isSelected = (m_SelectedIndex == (int)i);
 		if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
 		{
 			m_SelectedIndex = (int)i;
@@ -225,18 +245,24 @@ void AssetsPanel::DrawAssetGrid()
 
 		DrawAssetContextMenu(asset);
 
-		// Selection highlight behind the thumbnail
+		if (hovered)
+		{
+			ImGui::BeginTooltip();
+			ImGui::TextUnformatted(asset.name.c_str());
+			ImGui::TextUnformatted(asset.path.c_str());
+			ImGui::EndTooltip();
+		}
+
 		if (isSelected || hovered)
 		{
 			ImDrawList* dl = ImGui::GetWindowDrawList();
 			ImU32 bg = ImGui::GetColorU32(
 				isSelected ? ImGuiCol_HeaderActive : ImGuiCol_HeaderHovered);
 			dl->AddRectFilled(cellTopLeft,
-				ImVec2(cellTopLeft.x + cellSize2.x, cellTopLeft.y + cellSize2.y),
+				ImVec2(cellTopLeft.x + cellSize, cellTopLeft.y + cellHeight),
 				bg, 4.0f);
 		}
 
-		// Thumbnail area (texture preview or icon text), centered
 		{
 			ImDrawList* dl = ImGui::GetWindowDrawList();
 			bool drewThumb = false;
@@ -259,7 +285,6 @@ void AssetsPanel::DrawAssetGrid()
 
 			if (!drewThumb)
 			{
-				// Flat tile with type-tinted background + centered icon
 				ImU32 tile = IM_COL32(60, 60, 68, 200);
 				ImU32 fg = IM_COL32(220, 220, 225, 255);
 				switch (asset.type)
@@ -281,37 +306,25 @@ void AssetsPanel::DrawAssetGrid()
 					thumbTopLeft.y + (m_ThumbnailSize - iconSize.y) * 0.5f),
 					fg, icon.c_str());
 			}
+
+			const float nameMaxWidth = cellSize - 8.0f;
+			const std::string displayName = ellipsize(asset.name, nameMaxWidth);
+			const ImVec2 nameSize = ImGui::CalcTextSize(displayName.c_str());
+			dl->AddText(
+				ImVec2(cellTopLeft.x + (cellSize - nameSize.x) * 0.5f,
+					thumbTopLeft.y + m_ThumbnailSize + 4.0f),
+				IM_COL32(220, 220, 225, 255),
+				displayName.c_str());
 		}
-
-		// Asset name below the thumbnail, centered, single line
-		ImGui::SetCursorScreenPos(ImVec2(cellTopLeft.x + 4.0f, thumbTopLeft.y + m_ThumbnailSize + 4.0f));
-		ImGui::PushItemWidth(cellSize2.x - 8.0f);
-		std::string displayName = asset.name;
-		if (displayName.size() > 12)
-			displayName = displayName.substr(0, 9) + "...";
-		ImGui::TextUnformatted(displayName.c_str());
-		ImGui::PopItemWidth();
-
-		if (ImGui::IsItemHovered())
-		{
-			ImGui::BeginTooltip();
-			ImGui::TextUnformatted(asset.name.c_str());
-			ImGui::TextUnformatted(asset.path.c_str());
-			ImGui::EndTooltip();
-		}
-
-		ImGui::EndGroup();
-		ImGui::PopStyleVar();
-
-		// Advance to the next grid slot
-		column++;
-		if (column < columnCount)
-			ImGui::SameLine();
-		else
-			column = 0;
 
 		ImGui::PopID();
 	}
+
+	const int rows = m_CurrentAssets.empty()
+		? 0
+		: ((int)m_CurrentAssets.size() + columnCount - 1) / columnCount;
+	ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + rows * pitchY));
+	ImGui::Dummy(ImVec2(0.0f, 0.0f));
 }
 
 void AssetsPanel::DrawAssetContextMenu(const AssetEntry& entry)
@@ -376,6 +389,11 @@ std::string AssetsPanel::GetAssetTypeIcon(AssetEntry::Type type)
 	}
 }
 
+void AssetsPanel::SyncRegistry()
+{
+	Engine::AssetDatabase::Sync(m_RootDirectory);
+}
+
 void AssetsPanel::RefreshCurrentDirectory()
 {
 	m_CurrentAssets.clear();
@@ -386,6 +404,12 @@ void AssetsPanel::RefreshCurrentDirectory()
 	for (const auto& entry : fs::directory_iterator(m_CurrentDirectory))
 	{
 		if (!m_ShowHiddenFiles && entry.path().filename().string()[0] == '.')
+			continue;
+
+		std::string ext = entry.path().extension().string();
+		std::transform(ext.begin(), ext.end(), ext.begin(),
+			[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+		if (ext == ".meta")
 			continue;
 
 		AssetEntry::Type type = GetAssetType(entry.path());
@@ -462,6 +486,7 @@ void AssetsPanel::ImportAsset()
 		}
 
 		RefreshCurrentDirectory();
+		SyncRegistry();
 	}
 	catch (const std::exception& e)
 	{
@@ -496,6 +521,7 @@ void AssetsPanel::CreateMaterialAsset()
 
 	Info_Core("Created material: {0}", target.string());
 	RefreshCurrentDirectory();
+	SyncRegistry();
 }
 
 void AssetsPanel::DeleteAsset(const std::string& path)
@@ -505,10 +531,16 @@ void AssetsPanel::DeleteAsset(const std::string& path)
 		if (fs::is_directory(path))
 			fs::remove_all(path);
 		else
+		{
+			fs::path meta(fs::path(path).string() + ".meta");
+			std::error_code ec;
+			fs::remove(meta, ec);
 			fs::remove(path);
+		}
 
 		Info_Core("Deleted asset: {0}", path);
 		RefreshCurrentDirectory();
+		SyncRegistry();
 	}
 	catch (const std::exception& e)
 	{
@@ -524,8 +556,19 @@ void AssetsPanel::RenameAsset(const std::string& oldPath, const std::string& new
 		fs::path newPath = old.parent_path() / newName;
 		fs::rename(old, newPath);
 
+		fs::path oldMeta(old.string() + ".meta");
+		fs::path newMeta(newPath.string() + ".meta");
+		if (fs::exists(oldMeta))
+		{
+			std::error_code ec;
+			if (fs::exists(newMeta))
+				fs::remove(newMeta, ec);
+			fs::rename(oldMeta, newMeta);
+		}
+
 		Info_Core("Renamed asset: {0} -> {1}", oldPath, newPath.string());
 		RefreshCurrentDirectory();
+		SyncRegistry();
 	}
 	catch (const std::exception& e)
 	{

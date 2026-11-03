@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Core/Assets/AssetDatabase.h"
 #include "Core/Layer/Layer.h"
 #include "Core/Material.h"
 #include "Core/MaterialLibrary.h"
@@ -53,6 +54,7 @@ private:
 	std::string GetAssetTypeIcon(AssetEntry::Type type);
 
 	void RefreshCurrentDirectory();
+	void SyncRegistry();
 	void NavigateToDirectory(const fs::path& directory);
 
 	void ImportAsset();

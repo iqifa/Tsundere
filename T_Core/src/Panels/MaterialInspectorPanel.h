@@ -7,12 +7,23 @@
 #include "Platform/RHI/RHITextureLibrary.h"
 #include "Platform/RHI/RHIImGuiRenderer.h"
 #include "Platform/FileDialog.h"
+#include "Core/Assets/AssetDatabase.h"
 #include "Panels/MeshFilePath.h"
 #include "Debug/Debug.h"
 #include "HeadLine.h"
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 #include <cstring>
+#include <unordered_set>
+
+// Writes the material back to its .tmat when it already has an asset path.
+inline void SaveMaterialAsset(const Ref<Engine::Material>& mat)
+{
+	if (!mat || mat->GetAssetPath().empty())
+		return;
+	Engine::MaterialLibrary::Save(mat, mat->GetAssetPath());
+}
 
 // Parameter UI for one material. Driven by shader reflection: each uniform
 // becomes an editor widget of the reflected type.
@@ -25,6 +36,8 @@ inline void DrawMaterialFields(Ref<Engine::Material> mat)
 	strcpy_s(nameBuf, sizeof(nameBuf), mat->GetName().c_str());
 	if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf)))
 		mat->SetName(nameBuf);
+	if (ImGui::IsItemDeactivatedAfterEdit())
+		SaveMaterialAsset(mat);
 
 	if (!mat->GetAssetPath().empty())
 		ImGui::TextDisabled("Asset: %s", mat->GetAssetPath().c_str());
@@ -36,15 +49,35 @@ inline void DrawMaterialFields(Ref<Engine::Material> mat)
 			: shaderPath.substr(shaderPath.find_last_of("/\\") + 1);
 		if (ImGui::BeginCombo("Shader", shaderLabel.c_str()))
 		{
-			for (const auto& path : My_map::GetShaderPaths())
+			std::unordered_set<std::string> seen;
+			auto addShader = [&](const std::string& path, const char* id)
 			{
-				bool selected = (path == shaderPath);
-				std::string display = path.substr(path.find_last_of("/\\") + 1);
+				const std::string key = Engine::AssetDatabase::NormalizePath(path);
+				if (!seen.insert(key).second)
+					return;
+				ImGui::PushID(id);
+				const bool selected = !shaderPath.empty()
+					&& key == Engine::AssetDatabase::NormalizePath(shaderPath);
+				const std::string display = path.substr(path.find_last_of("/\\") + 1);
 				if (ImGui::Selectable(display.c_str(), selected))
+				{
 					mat->SetShader(ShaderLibiray::Get(path));
+					SaveMaterialAsset(mat);
+				}
 				if (selected)
 					ImGui::SetItemDefaultFocus();
+				ImGui::PopID();
+			};
+
+			for (const auto& record : Engine::AssetDatabase::GetByKind(Engine::AssetKind::Shader))
+			{
+				char uidLabel[32];
+				std::snprintf(uidLabel, sizeof(uidLabel), "%llu",
+					static_cast<unsigned long long>(record.uid));
+				addShader(record.path, uidLabel);
 			}
+			for (const auto& path : My_map::GetShaderPaths())
+				addShader(path, path.c_str());
 			ImGui::EndCombo();
 		}
 		ImGui::SameLine();
@@ -53,7 +86,10 @@ inline void DrawMaterialFields(Ref<Engine::Material> mat)
 			std::string picked = OpenFileDialog(
 				"Shader Files\0*.shader;*.glsl;*.vert;*.frag\0All Files\0*.*\0");
 			if (!picked.empty())
+			{
 				mat->SetShader(ShaderLibiray::Get(picked));
+				SaveMaterialAsset(mat);
+			}
 		}
 	}
 
@@ -71,6 +107,8 @@ inline void DrawMaterialFields(Ref<Engine::Material> mat)
 			float val = mat->GetFloat(name);
 			if (ImGui::DragFloat(name.c_str(), &val, 0.01f))
 				mat->SetFloat(name, val);
+			if (ImGui::IsItemDeactivatedAfterEdit())
+				SaveMaterialAsset(mat);
 			break;
 		}
 		case Engine::MaterialParameter::Type::Vec2:
@@ -78,6 +116,8 @@ inline void DrawMaterialFields(Ref<Engine::Material> mat)
 			glm::vec2 val = mat->GetVec2(name);
 			if (ImGui::DragFloat2(name.c_str(), &val.x, 0.01f))
 				mat->SetVec2(name, val);
+			if (ImGui::IsItemDeactivatedAfterEdit())
+				SaveMaterialAsset(mat);
 			break;
 		}
 		case Engine::MaterialParameter::Type::Vec3:
@@ -100,6 +140,8 @@ inline void DrawMaterialFields(Ref<Engine::Material> mat)
 				if (ImGui::DragFloat3(name.c_str(), &val.x, 0.01f))
 					mat->SetVec3(name, val);
 			}
+			if (ImGui::IsItemDeactivatedAfterEdit())
+				SaveMaterialAsset(mat);
 			break;
 		}
 		case Engine::MaterialParameter::Type::Vec4:
@@ -121,6 +163,8 @@ inline void DrawMaterialFields(Ref<Engine::Material> mat)
 				if (ImGui::DragFloat4(name.c_str(), &val.x, 0.01f))
 					mat->SetVec4(name, val);
 			}
+			if (ImGui::IsItemDeactivatedAfterEdit())
+				SaveMaterialAsset(mat);
 			break;
 		}
 		case Engine::MaterialParameter::Type::Int:
@@ -128,6 +172,8 @@ inline void DrawMaterialFields(Ref<Engine::Material> mat)
 			int val = mat->GetInt(name);
 			if (ImGui::DragInt(name.c_str(), &val))
 				mat->SetInt(name, val);
+			if (ImGui::IsItemDeactivatedAfterEdit())
+				SaveMaterialAsset(mat);
 			break;
 		}
 		case Engine::MaterialParameter::Type::Texture2D:
@@ -153,11 +199,39 @@ inline void DrawMaterialFields(Ref<Engine::Material> mat)
 			ImGui::BeginGroup();
 			if (ImGui::BeginCombo("##TexCombo", tex ? "(assigned)" : "(none)"))
 			{
-				for (auto& [path, texture] : TextureLibiary::m_TextureMap)
+				std::unordered_set<std::string> seen;
+				auto addTexture = [&](const std::string& path, const char* id, Ref<RHITexture2D> loaded)
 				{
-					if (ImGui::Selectable(path.c_str(), tex == texture))
-						mat->SetTexture(name, texture);
+					const std::string key = Engine::AssetDatabase::NormalizePath(path);
+					if (!seen.insert(key).second)
+						return;
+					ImGui::PushID(id);
+					const bool selected = tex
+						&& key == Engine::AssetDatabase::NormalizePath(tex->GetPath());
+					const std::string display = path.substr(path.find_last_of("/\\") + 1);
+					if (ImGui::Selectable(display.c_str(), selected))
+					{
+						Ref<RHITexture2D> assigned = loaded ? loaded : TextureLibiary::Get(path);
+						if (assigned)
+						{
+							mat->SetTexture(name, assigned);
+							SaveMaterialAsset(mat);
+						}
+					}
+					if (selected)
+						ImGui::SetItemDefaultFocus();
+					ImGui::PopID();
+				};
+
+				for (const auto& record : Engine::AssetDatabase::GetByKind(Engine::AssetKind::Texture))
+				{
+					char uidLabel[32];
+					std::snprintf(uidLabel, sizeof(uidLabel), "%llu",
+						static_cast<unsigned long long>(record.uid));
+					addTexture(record.path, uidLabel, nullptr);
 				}
+				for (auto& [path, texture] : TextureLibiary::Entries())
+					addTexture(path, path.c_str(), texture);
 				ImGui::EndCombo();
 			}
 			ImGui::SameLine();
@@ -165,13 +239,23 @@ inline void DrawMaterialFields(Ref<Engine::Material> mat)
 			{
 				std::string texPath = OpenTextureFileDialog();
 				if (!texPath.empty())
-					mat->SetTexture(name, TextureLibiary::Load(texPath));
+				{
+					Ref<RHITexture2D> loadedTex = TextureLibiary::Load(texPath);
+					if (loadedTex)
+					{
+						mat->SetTexture(name, loadedTex);
+						SaveMaterialAsset(mat);
+					}
+				}
 			}
 			if (tex)
 			{
 				ImGui::SameLine();
 				if (ImGui::Button("X"))
+				{
 					mat->SetTexture(name, nullptr);
+					SaveMaterialAsset(mat);
+				}
 			}
 			ImGui::EndGroup();
 			break;
@@ -183,21 +267,10 @@ inline void DrawMaterialFields(Ref<Engine::Material> mat)
 
 		ImGui::PopID();
 	}
-
-	ImGui::Separator();
-
-	if (ImGui::Button("Save Material"))
-	{
-		std::string savePath = mat->GetAssetPath().empty()
-			? SaveFileDialog("Tsundere Material\0*.tmat\0All Files\0*.*\0")
-			: mat->GetAssetPath();
-		if (!savePath.empty() && Engine::MaterialLibrary::Save(mat, savePath))
-			Info_Core("Saved material to: {}", savePath);
-	}
 }
 
 // Inline inspector for MeshRender materials.
-// Materials persist as .tmat files via MaterialLibrary (Save/Load).
+// A material that already has a .tmat path is written back as its fields change.
 inline void RenderMaterialInspector(Entity& entity)
 {
 	if (!entity.HasComponent<Component::MeshRender>())
@@ -241,6 +314,42 @@ inline void RenderMaterialInspector(Entity& entity)
 				if (ImGui::TreeNodeEx(header.c_str(), ImGuiTreeNodeFlags_DefaultOpen))
 				{
 					Ref<Engine::Material> mat = meshRender.materials[i];
+
+					{
+						std::string preview = "<none>";
+						if (mat)
+						{
+							preview = mat->GetAssetPath().empty()
+								? mat->GetName()
+								: mat->GetAssetPath().substr(mat->GetAssetPath().find_last_of("/\\") + 1);
+						}
+						if (ImGui::BeginCombo("Material", preview.c_str()))
+						{
+							for (const auto& record : Engine::AssetDatabase::GetByKind(Engine::AssetKind::Material))
+							{
+								char uidLabel[32];
+								std::snprintf(uidLabel, sizeof(uidLabel), "%llu",
+									static_cast<unsigned long long>(record.uid));
+								ImGui::PushID(uidLabel);
+								const bool selected = mat && !mat->GetAssetPath().empty()
+									&& Engine::AssetDatabase::NormalizePath(mat->GetAssetPath()) == record.path;
+								const std::string display = record.path.substr(record.path.find_last_of("/\\") + 1);
+								if (ImGui::Selectable(display.c_str(), selected))
+								{
+									Ref<Engine::Material> loaded = Engine::MaterialLibrary::Get(record.path);
+									if (loaded)
+									{
+										meshRender.materials[i] = loaded;
+										mat = loaded;
+									}
+								}
+								if (selected)
+									ImGui::SetItemDefaultFocus();
+								ImGui::PopID();
+							}
+							ImGui::EndCombo();
+						}
+					}
 
 					if (!mat)
 					{

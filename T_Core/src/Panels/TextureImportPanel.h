@@ -40,11 +40,12 @@ public:
 		}
 
 		ImGui::Separator();
-		ImGui::Text("Textures (%d)", (int)TextureLibiary::m_TextureMap.size());
+		const auto textures = TextureLibiary::Entries();
+		ImGui::Text("Textures (%d)", (int)textures.size());
 
 		ImGui::BeginChild("TextureList", ImVec2(0, 0), true);
 		std::string removePath;
-		for (auto& [path, tex] : TextureLibiary::m_TextureMap)
+		for (auto& [path, tex] : textures)
 		{
 			ImGui::PushID(path.c_str());
 
@@ -74,10 +75,7 @@ public:
 			ImGui::PopID();
 		}
 		if (!removePath.empty())
-		{
-			std::unique_lock<std::shared_mutex> lock(TextureLibiary::s_Mutex);
-			TextureLibiary::m_TextureMap.erase(removePath);
-		}
+			TextureLibiary::Remove(removePath);
 
 		ImGui::EndChild();
 		ImGui::End();

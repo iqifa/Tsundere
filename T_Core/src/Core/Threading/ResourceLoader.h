@@ -542,10 +542,8 @@ inline void ResourceLoader::CompleteTextureLoad(AsyncLoadRequest& req)
 		req.cpuTexture.pixels.shrink_to_fit();
 	}
 
-	if (tex) {
-		std::unique_lock lock(TextureLibiary::s_Mutex);
-		TextureLibiary::m_TextureMap[req.path] = tex;
-	}
+	if (tex)
+		TextureLibiary::Add(req.path, tex);
 
 	Info_Core("[Loader Thread] Texture loaded: " + req.path);
 }

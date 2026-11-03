@@ -1,55 +1,26 @@
 #pragma once
 
-// Path-based texture cache (RHI-typed). Moved here from Platform/GL/Texture.h
-// when the legacy Texture class was removed; the value type is now Ref<RHITexture2D>.
+// Path-based texture cache. The map lives in T_Core so the editor executable
+// and the DLL share one copy, and Application can release the textures while
+// the device is still alive.
 
 #include "Platform/RHI/RHITexture.h"
-#include <mutex>
-#include <unordered_map>
-#include <shared_mutex>
+#include <string>
+#include <utility>
+#include <vector>
 
-class TextureLibiary
+class T_API TextureLibiary
 {
 public:
-    inline static std::unordered_map<std::string, Ref<RHITexture2D>> m_TextureMap;
-    inline static std::shared_mutex s_Mutex;
+	static void Add(Ref<RHITexture2D> tex);
+	static void Add(const std::string& path, Ref<RHITexture2D> tex);
 
-    static void Add(Ref<RHITexture2D> tex)
-    {
-        std::unique_lock lock(s_Mutex);
-        auto& path = tex->GetPath();
-        m_TextureMap[path] = tex;
-    }
+	static Ref<RHITexture2D> Load(const std::string& filepath);
+	static Ref<RHITexture2D> Get(const std::string& filepath);
 
-    static Ref<RHITexture2D> Load(const std::string& filepath)
-    {
-        {
-            std::shared_lock lock(s_Mutex);
-            auto it = m_TextureMap.find(filepath);
-            if (it != m_TextureMap.end())
-                return it->second;
-        }
-        Texture2DDesc desc;
-        desc.filePath = filepath;
-        auto tex = RHITexture2D::Create(desc);
-        Add(tex);
-        return tex;
-    }
+	static void Remove(const std::string& path);
+	static void Clear();
 
-    static void Clear()
-    {
-        std::unique_lock lock(s_Mutex);
-        m_TextureMap.clear();
-    }
-
-    static Ref<RHITexture2D> Get(const std::string& filepath)
-    {
-        {
-            std::shared_lock lock(s_Mutex);
-            auto it = m_TextureMap.find(filepath);
-            if (it != m_TextureMap.end())
-                return it->second;
-        }
-        return Load(filepath);
-    }
+	// Snapshot for UI. The live map stays inside the DLL.
+	static std::vector<std::pair<std::string, Ref<RHITexture2D>>> Entries();
 };

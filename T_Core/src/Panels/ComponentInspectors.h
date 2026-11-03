@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Core/Assets/AssetDatabase.h"
 #include "ExternalFiles.h"
 #include "GLHead.h"
 #include "Platform/RHI/RHITextureLibrary.h"
@@ -11,6 +12,8 @@
 #include "Scene/Scene.h"
 #include "Scene/BVHBuilder.h"
 #include "Core/Threading/ResourceLoader.h"
+#include <cstdio>
+#include <unordered_set>
 
 // ============================================================================
 // Inspector free functions
@@ -236,10 +239,16 @@ inline void RenderMeshRenderInspector(Entity& entity)
 
 		if (ImGui::BeginCombo("##ModelPath", preview.c_str()))
 		{
-			for (const auto& path : My_map::GetModelPaths())
+			std::unordered_set<std::string> seen;
+			auto addModel = [&](const std::string& path, const char* id)
 			{
-				bool selected = (path == meshrender.ModelPath);
-				std::string display = path.substr(path.find_last_of("/\\") + 1);
+				const std::string key = Engine::AssetDatabase::NormalizePath(path);
+				if (!seen.insert(key).second)
+					return;
+				ImGui::PushID(id);
+				const bool selected = !meshrender.ModelPath.empty()
+					&& key == Engine::AssetDatabase::NormalizePath(meshrender.ModelPath);
+				const std::string display = path.substr(path.find_last_of("/\\") + 1);
 				if (ImGui::Selectable(display.c_str(), selected))
 				{
 					meshrender.ModelPath = path;
@@ -247,7 +256,18 @@ inline void RenderMeshRenderInspector(Entity& entity)
 				}
 				if (selected)
 					ImGui::SetItemDefaultFocus();
+				ImGui::PopID();
+			};
+
+			for (const auto& record : Engine::AssetDatabase::GetByKind(Engine::AssetKind::Model))
+			{
+				char uidLabel[32];
+				std::snprintf(uidLabel, sizeof(uidLabel), "%llu",
+					static_cast<unsigned long long>(record.uid));
+				addModel(record.path, uidLabel);
 			}
+			for (const auto& path : My_map::GetModelPaths())
+				addModel(path, path.c_str());
 			ImGui::EndCombo();
 		}
 		ImGui::SameLine();

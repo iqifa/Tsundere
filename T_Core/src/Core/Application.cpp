@@ -1,5 +1,6 @@
 #include "Application.h"
 #include "Core/Threading/ResourceLoader.h"
+#include "Core/MaterialLibrary.h"
 #include "Core/Assets/GPUDeletionQueue.h"
 #include "Platform/RHI/RHIRenderer.h"
 #include"Platform/RHI/RHIImGuiRenderer.h"
@@ -82,6 +83,10 @@ namespace Engine {
 		layerStack.Clear();
 		ModelEditorPanel::BindScene(nullptr);
 		My_map::Clear();
+		// Materials keep shader and texture refs. Clear them before those
+		// libraries, while the GL context still exists. Otherwise the last
+		// glDeleteProgram runs after the window is destroyed and the process hangs.
+		MaterialLibrary::Clear();
 		TextureLibiary::Clear();
 		ShaderLibiray::Clear();
 		if (currentcamera)

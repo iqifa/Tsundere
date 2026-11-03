@@ -285,19 +285,7 @@ bool Material::Serialize(const std::string& filepath)
 			if (const Ref<RHITexture2D>* tex = param.Get<Ref<RHITexture2D>>())
 			{
 				if (*tex)
-				{
-					// Try to find texture path in TextureLibrary
-					std::string texPath;
-					for (const auto& [path, texture] : TextureLibiary::m_TextureMap)
-					{
-						if (texture == *tex)
-						{
-							texPath = path;
-							break;
-						}
-					}
-					file << "texture2d " << texPath;
-				}
+					file << "texture2d " << (*tex)->GetPath();
 				else
 				{
 					file << "texture2d";
