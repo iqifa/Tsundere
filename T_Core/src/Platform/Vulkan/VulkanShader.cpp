@@ -30,7 +30,6 @@ void VulkanShader::Build(const std::string& filepath)
 		return;
 	}
 
-	uniform = std::move(compiled.Uniforms);
 	m_Reflection = std::move(compiled.Reflection);
 
 	auto& spirv = compiled.Spirv;
