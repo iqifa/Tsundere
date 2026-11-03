@@ -19,6 +19,10 @@ if RenderBackend ~= "opengl" and RenderBackend ~= "vulkan" then
     error("Invalid renderer: " .. RenderBackend .. ". Use --renderer=opengl or --renderer=vulkan")
 end
 
+-- Detect the assimp library name and Vulkan SDK location for THIS machine
+-- (see premake5-defs.lua). Sets the globals ASSIMP_LIB / VULKAN_SDK_ROOT.
+dofile("premake5-defs.lua")
+
 targetdir ("build/%{cfg.buildcfg}")
 
 
