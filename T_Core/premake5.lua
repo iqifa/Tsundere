@@ -56,7 +56,11 @@ project "T_Core"
             "src/Platform/Windows/VulkanWindow.h",
             "src/Platform/Windows/VulkanWindow.cpp",
             "src/Panels/Platform/Vulkan/**.h",
-            "src/Panels/Platform/Vulkan/**.cpp"
+            "src/Panels/Platform/Vulkan/**.cpp",
+            -- GL backend still compiles shaders through SPIR-V (shaderc +
+            -- SPIRV-Cross), but does not use the Vulkan API itself.
+            "vender/imgui/imgui_impl_vulkan.h",
+            "vender/imgui/imgui_impl_vulkan.cpp"
         }
     end
 
@@ -83,8 +87,14 @@ project "T_Core"
     systemversion (WINSDK_VERSION or "10.0.22621.0")    -- windows SDK版本,由 premake5-defs.lua 探测
 
     links{
-        "glfw3.lib","opengl32.lib","glew32.lib", ASSIMP_LIB or "assimp-vc143-mtd.lib","comdlg32.lib","vulkan-1.lib","shaderc_shared.lib","spirv-cross-c-shared.lib"
+        "glfw3.lib","opengl32.lib","glew32.lib", ASSIMP_LIB or "assimp-vc143-mtd.lib","comdlg32.lib",
+        "shaderc_shared.lib","spirv-cross-c-shared.lib"
     }
+    -- GL backend does not use the Vulkan API itself (shaders still compile
+    -- through shaderc/SPIRV-Cross from the SDK), so skip vulkan-1.
+    if RenderBackend == "vulkan" then
+        links{ "vulkan-1.lib" }
+    end
 
 
     filter{ "system:windows", "action:vs2022" }

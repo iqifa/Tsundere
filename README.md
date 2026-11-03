@@ -1,90 +1,124 @@
-<!--
- * @Date: 2023-05-04 20:58:06
- * @LastEditors: IQQQQA
--->
+# Tsundere
 
-## 项目中的一些问题
+基于 C++17 的渲染引擎,四层架构 + 可插拔图形后端(OpenGL 4.5 / Vulkan 1.3):
 
-### 引用库
+```
+┌─ 应用层          SandBox(编辑器视口、相机交互、RDG 驱动)
+├─ 场景与管线层     T_Core:EnTT ECS 场景 + RDG 渲染依赖图
+├─ 硬件抽象层       T_Core::Platform::RHI(统一命令缓冲 / 管线 / 纹理 / 描述符)
+└─ 图形 API 层      OpenGL 4.5(VAO)/ Vulkan 1.3(dynamic rendering)
+```
 
-> 依赖的版本、放置位置和一键配置脚本见 [DEPENDENCIES.md](DEPENDENCIES.md)（`setup_deps.bat`）。
+核心特性:
 
-#### [GLEW]
-添加库文件到目录中，除此之外需要在vc++链接器中添加静态库文件,这里使用的是二进制文件
-#### [GLFW]
-GLFW是一个专门针对OpenGL的C语言库，它提供了一些渲染物体所需的最低限度的接口
+- **RDG(Render Dependency Graph)**:Pass 声明读写,自动拓扑排序、推导内存屏障、管理瞬态资源生命周期
+- **双后端**:同一套 Pass 代码跑 OpenGL 和 Vulkan,`--renderer=vulkan` 一键切换
+- **自动着色器管线**:GLSL → shaderc → SPIR-V → SPIRV-Cross 反射(GL 后端还会转回 GLSL 430),运行时编译,改完 `.glsl` 重启即生效
+- **ImGui 编辑器**: docking 布局、组件检查器、RenderPass 管理面板(运行时开关 Pass)
 
-选择库文件下载或者Cmake编译`ShowDefaultDemo()`来显示一个预览窗口
+参考项目:[The Cherno](https://www.youtube.com/@TheCherno)、[LearnOpenGL](https://learnopengl-cn.github.io/)
 
-#### [stb]
-一个适用c++的文件导入的库
+## 快速开始
 
-导入图片
+前置要求(详见 [DEPENDENCIES.md](DEPENDENCIES.md)):
 
-`unsigned char* m_LocalBuffer = stbi_load(path.c_str(), &m_Width, &m_Height, &m_BPP, 0);`
+| 项目 | 要求 |
+| ---- | ---- |
+| 系统 | Windows 10/11 x64 |
+| IDE | Visual Studio 2022("使用 C++ 的桌面开发"工作负载;其他 VS 版本也可以) |
+| Git、curl | curl Win10 自带 |
 
-将纹理导入gl
+一条命令准备全部第三方依赖(含自动克隆并编译 assimp、静默安装 Vulkan SDK,后者会弹 UAC):
 
-`glTexImage2D(GL_TEXTURE_2D, 0, format, m_Width, m_Height, 0, format, GL_UNSIGNED_BYTE, m_LocalBuffer);`
-#### [ImGui] 
-一个与几个图形API独立的轻量化UI图形库，导入时需要所有外文件以及对应平台文件
+```bat
+git clone https://gitee.com/Waibi_waibi/Tsundere.git
+cd Tsundere
+setup_deps.bat -BuildAssimp -InstallVulkanSDK
 
-项目中对应
-- "imgui_impl_opengl3.h"
-- "imgui_impl_opengl3.cpp"
-- "imgui_impl_opengl3_loader.h"
-#### [glm]
-基于 OpenGL 着色语言 （GLSL） 规范的图形软件的标头C++数学库。
-#### [entt]
-一个支持ecs架构的开源库，只有一个头文件，易于使用
-- "entt.hpp"
-#### [assimp]
-加载3D文件的库，支持obj、fbx等40多种文件格式的导入
+:: 生成 VS 工程(OpenGL 后端,默认)
+premake5.exe vs2022
+:: 或 Vulkan 后端
+premake5.exe vs2022 --renderer=vulkan
+```
 
-需要注意的是assimp与上面库不同需要用[CMake]编译生成链接库
+打开 `Tsundere.sln`,选 `Debug | x64` 编译,运行 `bin/SandBox.exe`。
 
-### CMake
-GitHub上很多库需要生成相应的ide工程文件然后编译对于库文件，这里用assimp库来示范。
+**不用手动配置任何库路径**:assimp 库名、Vulkan SDK 路径、Windows SDK 版本由 `premake5-defs.lua`
+在生成工程时自动探测(探测结果会打印出来),换了 VS 版本或 SDK 版本也不需要改代码。
 
-CMake 下载完成后用GUI启动。在选择源代码位置与生成文件位置后Config配置属性
+常用脚本操作:
 
-![图一](doc/Cmake1.png)
+```bat
+setup_deps.bat -CleanCache          :: 清理 %TEMP% 下载/构建缓存(~1 GB),已装依赖不受影响
+setup_deps.bat                      :: 补缺检查(已装的自动跳过)
+setup_deps.bat -Force -SkipAssimp   :: 强制重新下载除 assimp 外的所有库
+```
 
-注意选择对应ide以及系统，这里使用vs2019以及win32系统
+## 构建
 
-![图二](doc/Cmake2.png)
+`premake5 vs2022` 生成解决方案,VS2022 中 `Debug | x64` 编译。产物:
 
-另外注意，**config后选择zlib，否则会编译失败**具体原因可能是若项目目录中不存在则优先读取anaconda中的z.lib，若anaconda中的系统与编译系统不同则会报错
+```
+bin/
+├── SandBox.exe          编辑器主程序
+├── T_Core.dll           引擎核心
+└── *.dll                glew32 / assimp / shaderc / spirv-cross(post-build 自动拷贝)
+```
 
-![图三](doc/Cmake3.png)
+C++ 标准 C++17,运行时 `/MDd`(Debug),仅 x64。
 
-生成项目后在ide中编译后就可以将库文件放在项目中了
+## 代码结构
 
-![图四](doc/Project1.png)
+```
+SandBox/          主程序与示例层
+T_Core/
+  src/Core/       基础设施(Asset、Resource、Serializer)
+  src/Scene/      ECS(Entity、Transform、Camera、Light)
+  src/Pipeline/   RenderGraph、RenderGraphPass、各渲染 Pass
+  src/Platform/   RHI 抽象 + GL / Vulkan 后端 + ShaderCompiler
+  src/Panels/     ImGui 面板与组件检查器
+T_Tool/           工具库(字符串、格式、内存)
+T_UI/             ImGui 布局与面板基础设施
+```
 
-### 项目问题
+### 添加一个渲染 Pass
 
-#### 应用程序违法正常启动(0x000007b)
+1. 在 `T_Core/src/Pipeline/Passes/` 新建 `MyPass.h/.cpp`,继承 `RenderGraphPass`
+2. `Setup(builder)`:用 `builder.ReadTexture() / WriteTexture()` 声明读写(纯声明,不碰物理资源)
+3. `Execute(ctx)`:用 `ctx.GetTexture(handle)` 解码物理资源,经 `ctx.GetCommandBuffer()` 录制 GPU 工作
+4. 文件末尾 `REGISTER_RENDER_PASS("MyPass")` 自动注册
+5. 在 RenderPassManager 面板运行时开关,无需改代码
 
-![图五](doc/Error1.png)
+Pass 只依赖 `RenderGraphBuilder` + `RHICommandBuffer`,完全不感知具体图形 API——
+屏障插入、布局转换、瞬态内存分配全部由 RDG 在编译期推导。
 
-环境缺少对应库文件，此项目目前缺少glew32.dll,freeglut.dll
+## 依赖
 
-**解决方法**
+| 库 | 版本 | 用途 |
+| ---- | ---- | ---- |
+| ImGui | 1.92.3-docking(固定) | 编辑器 UI |
+| glm | 1.0.3 | 数学库 |
+| spdlog | 1.17.0 | 日志 |
+| stb_image | 2c980bb | 图片加载 |
+| EnTT | 3.15.0(固定) | ECS |
+| GLEW / GLFW | 2.3.1 / 3.5.1 | OpenGL 加载 / 窗口 |
+| assimp | 6.0.5 | 模型导入(40+ 格式,含 PMX) |
+| Vulkan SDK | 1.4.357.0(推荐,自动探测) | 两个后端都需要(shaderc / SPIRV-Cross 编着色器) |
 
-把对应库文件放在可执行文件目录下，或者放在ide中设置的环境变量路径下
+版本、放置位置、手动构建方法、升级注意事项(ImGui/EnTT 有不兼容版本)全部见
+[DEPENDENCIES.md](DEPENDENCIES.md)。
 
-![图六](doc/Project2.png)
+## 常见问题
 
-项目参考[Cherno]、[LearnOpenGL]
+**启动报 `0xc000007b`**:bin/ 里混进了 x86 的 dll或缺 dll。确认 `glew32.dll`、`assimp-*-mtd.dll`
+等是 x64,并重新编译一次(post-build 会重新拷 dll)。更多排查见 [DEPENDENCIES.md](DEPENDENCIES.md) 常见问题表。
 
-[ImGui]: https://github.com/ocornut/imgui
-[GLEW]:  https://glew.sourceforge.net/
-[GLFW]:  https://www.glfw.org/
-[stb]:   https://github.com/nothings/stb
-[glm]:   https://github.com/g-truc/glm
-[entt]:  https://github.com/skypjack/entt
-[assimp]:https://github.com/assimp/assimp
-[CMake]: https://cmake.org/
-[Cherno]:https://www.youtube.com/@TheCherno
-[LearnOpenGL]:https://learnopengl-cn.github.io/
+**着色器报错**:着色器在启动时编译(GLSL → SPIR-V),看控制台的 shaderc 输出定位 `.glsl` 行号;
+没有着色器缓存,每次启动都会重编。
+
+**切换后端后链接失败**:两个后端共用一套依赖,但切换要重新生成工程
+(`premake5 vs2022 --renderer=vulkan` 或去掉该参数),然后重新编译。
+
+## 许可
+
+见 [LICENSE](LICENSE)。
