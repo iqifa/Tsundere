@@ -224,7 +224,9 @@ void AssetsPanel::DrawAssetGrid()
 
 	for (size_t i = 0; i < m_CurrentAssets.size(); ++i)
 	{
-		const auto& asset = m_CurrentAssets[i];
+		// Copy: opening an entry (e.g. double-click on a directory) refreshes
+		// m_CurrentAssets and would leave the loop iterating a dangling reference.
+		const AssetEntry asset = m_CurrentAssets[i];
 		const int column = (int)i % columnCount;
 		const int row = (int)i / columnCount;
 		const ImVec2 cellTopLeft(origin.x + column * pitchX, origin.y + row * pitchY);

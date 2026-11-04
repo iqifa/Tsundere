@@ -39,6 +39,10 @@ inline void DrawMaterialFields(Ref<Engine::Material> mat)
 	if (ImGui::IsItemDeactivatedAfterEdit())
 		SaveMaterialAsset(mat);
 
+	// Deferred mutations: SetShader() rebuilds m_Parameters, which would
+	// invalidate references into it below. Apply only after all UI is done.
+	std::string pendingShaderPath;
+
 	if (!mat->GetAssetPath().empty())
 		ImGui::TextDisabled("Asset: %s", mat->GetAssetPath().c_str());
 
@@ -61,7 +65,8 @@ inline void DrawMaterialFields(Ref<Engine::Material> mat)
 				const std::string display = path.substr(path.find_last_of("/\\") + 1);
 				if (ImGui::Selectable(display.c_str(), selected))
 				{
-					mat->SetShader(ShaderLibiray::Get(path));
+					// Defer: SetShader() rebuilds m_Parameters mid-iteration.
+					pendingShaderPath = path;
 					SaveMaterialAsset(mat);
 				}
 				if (selected)
@@ -87,7 +92,8 @@ inline void DrawMaterialFields(Ref<Engine::Material> mat)
 				"Shader Files\0*.shader;*.glsl;*.vert;*.frag\0All Files\0*.*\0");
 			if (!picked.empty())
 			{
-				mat->SetShader(ShaderLibiray::Get(picked));
+				// Defer: SetShader() rebuilds m_Parameters mid-iteration.
+				pendingShaderPath = picked;
 				SaveMaterialAsset(mat);
 			}
 		}
@@ -267,6 +273,10 @@ inline void DrawMaterialFields(Ref<Engine::Material> mat)
 
 		ImGui::PopID();
 	}
+
+	// Apply deferred shader switch after the parameter loop is done.
+	if (!pendingShaderPath.empty())
+		mat->SetShader(ShaderLibiray::Get(pendingShaderPath));
 }
 
 // Inline inspector for MeshRender materials.
