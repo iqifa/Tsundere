@@ -43,6 +43,8 @@ public:
 	void SetUniformVec3(const std::string& name, const glm::vec3& value)const override;
 	void SetUniformVec2(const std::string& name, const glm::vec2& value)const override;
 
+	bool HasUniform(const std::string& name) const override;
+
 	// Legacy static factories — return Ref<Shader> for code that hasn't migrated yet
 	static Ref<GLShader>Create(const std::string& filepath, const std::string& name);
 	static Ref<GLShader>Create(const std::string& filepath);

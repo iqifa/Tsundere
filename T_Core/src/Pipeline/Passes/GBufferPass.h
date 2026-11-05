@@ -3,6 +3,9 @@
 #include "Pipeline/RenderPassRegistry.h"
 #include "Scene/Vertex.h"
 #include <cstddef>
+#include <cstring>
+#include <vector>
+#include <unordered_map>
 
 class GbufferPass :public RenderGraphPass
 {
@@ -209,6 +212,8 @@ public:
 				if (diffuse)  m_GbufferDescriptSet->BindTexture(10, diffuse, 10);
 				if (specular) m_GbufferDescriptSet->BindTexture(11, specular, 11);
 				if (normal)   m_GbufferDescriptSet->BindTexture(12, normal, 12);
+				if (Ref<RHIBuffer> matUBO = AcquireMaterialUBO(mat))
+					m_GbufferDescriptSet->BindUniformBuffer(3, matUBO);
 
 				// Normal-map presence must match what is actually bound.
 				GbufferFrameUBO fubo;
@@ -240,6 +245,14 @@ public:
 	}
 
 private:
+	struct MaterialUBOEntry
+	{
+		Ref<RHIBuffer> buffer;
+		std::vector<char> bytes;
+		uint32_t size = 0;
+	};
+	std::unordered_map<const Engine::Material*, MaterialUBOEntry> m_MaterialUBOs;
+
 	Ref<Scene> m_Scene;
 	Ref<RGFrameData> m_FrameData;
 	Ref<RHIBuffer> m_CameraUBO;
@@ -390,8 +403,8 @@ private:
 
 	// Material textures for one draw. Resolves the shader's reflected sampler
 	// names against the material's texture parameters; falls back to the white
-	// default texture. Returns false when nothing differs from the defaults.
-	bool ResolveMaterialTextures(
+	// default texture.
+	void ResolveMaterialTextures(
 		const Ref<Engine::Material>& mat,
 		RHITexture2D*& diffuse,
 		RHITexture2D*& specular,
@@ -400,7 +413,7 @@ private:
 		diffuse = specular = normal = nullptr;
 
 		if (!mat || !m_GbufferShader)
-			return false;
+			return;
 
 		const ShaderReflection& refl = m_GbufferShader->GetReflection();
 		for (const auto& sampler : refl.SampledImages)
@@ -416,7 +429,36 @@ private:
 			else if (sampler.Name.find("normal") != std::string::npos)
 				normal = tex.get();
 		}
-		return diffuse || specular || normal;
+	}
+
+	// Packed material-parameter UBO for one draw (MaterialParams, binding 3).
+	// One buffer per material, rebuilt when the packed bytes change.
+	Ref<RHIBuffer> AcquireMaterialUBO(const Ref<Engine::Material>& mat)
+	{
+		if (!mat || !m_GbufferShader)
+			return nullptr;
+
+		std::vector<char> packed;
+		if (mat->PackMaterialBlock(m_GbufferShader->GetReflection(), packed) == 0)
+			return nullptr;
+
+		auto& entry = m_MaterialUBOs[mat.get()];
+		if (!entry.buffer || entry.size != packed.size() ||
+			std::memcmp(entry.bytes.data(), packed.data(), packed.size()) != 0)
+		{
+			if (!entry.buffer || entry.size != packed.size())
+			{
+				entry.buffer = RHIBuffer::Create(BufferDesc{
+					(uint32_t)packed.size(), BufferUsage::Uniform, true, packed.data() });
+			}
+			else
+			{
+				entry.buffer->Upload(packed.data(), (uint32_t)packed.size());
+			}
+			entry.bytes = std::move(packed);
+			entry.size = (uint32_t)entry.bytes.size();
+		}
+		return entry.buffer;
 	}
 
 	void BindGeometryDescriptors(RHITexture2D* shadowTex)

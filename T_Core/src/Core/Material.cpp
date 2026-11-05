@@ -1,9 +1,11 @@
 #include "Material.h"
 #include "Platform/RHI/RHITextureLibrary.h"
 #include "Debug/Debug.h"
+#include <algorithm>
+#include <cstring>
 #include <fstream>
 #include <sstream>
-#include <algorithm>
+#include <vector>
 
 namespace Engine {
 
@@ -154,6 +156,68 @@ Ref<RHITexture2D> Material::GetTexture(const std::string& name) const
 	return nullptr;
 }
 
+size_t Material::PackMaterialBlock(
+	const ShaderReflection& refl,
+	std::vector<char>& out) const
+{
+	out.clear();
+
+	// Material-parameter block by convention: binding >= 3, the first such
+	// UBO in the shader. Engine blocks (0/1/2) belong to the render passes.
+	const ShaderBlock* materialBlock = nullptr;
+	for (const auto& block : refl.UniformBlocks)
+	{
+		if (block.Binding >= 3)
+		{
+			materialBlock = &block;
+			break;
+		}
+	}
+	if (!materialBlock || materialBlock->Size == 0)
+		return 0;
+
+	out.assign(materialBlock->Size, 0);
+	for (const auto& member : materialBlock->Members)
+	{
+		if (member.Size == 0 || member.Offset + member.Size > out.size())
+			continue;
+
+		const auto* param = GetParameter(member.Name);
+		if (!param)
+			continue;
+
+		auto writeRaw = [&](const void* src, size_t bytes)
+		{
+			const size_t n = std::min(bytes, static_cast<size_t>(member.Size));
+			std::memcpy(out.data() + member.Offset, src, n);
+		};
+
+		// std140 scalar/vector sizes match the GLM types for the shapes the
+		// material editor exposes (float, vec2..4, int); arrays are not.
+		switch (param->type)
+		{
+		case MaterialParameter::Type::Float:
+			if (const float* v = param->Get<float>()) writeRaw(v, sizeof(float));
+			break;
+		case MaterialParameter::Type::Int:
+			if (const int* v = param->Get<int>()) writeRaw(v, sizeof(int));
+			break;
+		case MaterialParameter::Type::Vec2:
+			if (const glm::vec2* v = param->Get<glm::vec2>()) writeRaw(v, sizeof(glm::vec2));
+			break;
+		case MaterialParameter::Type::Vec3:
+			if (const glm::vec3* v = param->Get<glm::vec3>()) writeRaw(v, sizeof(glm::vec3));
+			break;
+		case MaterialParameter::Type::Vec4:
+			if (const glm::vec4* v = param->Get<glm::vec4>()) writeRaw(v, sizeof(glm::vec4));
+			break;
+		default:
+			break;
+		}
+	}
+	return out.size();
+}
+
 void Material::ApplyToShader(Ref<RHIShader> shader) const
 {
 	if (!shader)
@@ -161,6 +225,11 @@ void Material::ApplyToShader(Ref<RHIShader> shader) const
 
 	for (const auto& [name, param] : m_Parameters)
 	{
+		// Skip uniforms the target program does not have (loose uniforms only;
+		// block members are uploaded via descriptor sets, not by name).
+		if (!shader->HasUniform(name))
+			continue;
+
 		switch (param.type)
 		{
 		case MaterialParameter::Type::Float:
@@ -196,11 +265,21 @@ void Material::InitializeParametersFromShader()
 
 	const ShaderReflection& refl = m_Shader->GetReflection();
 
-	// Extract uniform blocks (UBOs)
+	// Extract uniform blocks (UBOs). Engine-owned blocks (binding 0/1/2 =
+	// PerPass / PerFrame / Camera) are uploaded by the render passes; only
+	// material-parameter blocks (binding >= 3, e.g. MaterialParams) and
+	// non-pad members become editable parameters.
 	for (const auto& block : refl.UniformBlocks)
 	{
+		if (block.Binding < 3)
+			continue;
+
 		for (const auto& member : block.Members)
 		{
+			// Skip std140 padding helpers — not user-visible parameters.
+			if (member.Name.rfind("_pad", 0) == 0 || member.Name.rfind("_matpad", 0) == 0)
+				continue;
+
 			// Skip if parameter already exists (preserve user-set values)
 			if (m_Parameters.find(member.Name) != m_Parameters.end())
 				continue;
