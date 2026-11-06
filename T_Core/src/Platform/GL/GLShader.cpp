@@ -396,6 +396,16 @@ int GLShader::GetUniformLocation(const string& name)  const
 	return locatation;
 }
 
+bool GLShader::HasUniform(const std::string& name) const
+{
+	if (m_UniformLocationCache.find(name) != m_UniformLocationCache.end())
+		return m_UniformLocationCache[name] != -1;
+
+	int location = glGetUniformLocation(m_RendererID, name.c_str());
+	m_UniformLocationCache[name] = location;
+	return location != -1;
+}
+
 // --- RHI Factory methods (inline) ---
 // Shader IS the GL implementation of RHIShader, so factories delegate to Shader::Create*.
 #ifdef RenderAPI_OpenGL

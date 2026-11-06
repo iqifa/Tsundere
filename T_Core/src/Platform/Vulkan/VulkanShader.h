@@ -38,6 +38,8 @@ public:
 	void SetUniformVec3(const std::string& name, const glm::vec3& value) const override;
 	void SetUniformVec2(const std::string& name, const glm::vec2& value) const override;
 
+	bool HasUniform(const std::string& name) const override { (void)name; return false; }
+
 
 	std::pair<VkShaderModule, VkShaderModule> GetGraphicsShaderModule();
 

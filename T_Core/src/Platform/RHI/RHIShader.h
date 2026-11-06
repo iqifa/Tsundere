@@ -55,6 +55,10 @@ public:
     virtual void SetUniformVec3(const std::string& name, const glm::vec3& value) const = 0;
     virtual void SetUniformVec2(const std::string& name, const glm::vec2& value) const = 0;
 
+    // Query whether a loose uniform (not inside a block) exists in the program.
+    // GL: checks location cache. VK: always false (SetUniform* are no-ops).
+    virtual bool HasUniform(const std::string& name) const = 0;
+
     // --- Factories (defined inline in GL backend header) ---
     static Ref<RHIShader> Create(const std::string& filepath);
     static Ref<RHIShader> Create(const std::string& filepath, const std::string& name);

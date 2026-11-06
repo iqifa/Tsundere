@@ -3,6 +3,9 @@
 #include "Pipeline/RenderPassRegistry.h"
 #include "Scene/Vertex.h"
 #include <cstddef>
+#include <cstring>
+#include <vector>
+#include <unordered_map>
 
 class GbufferPass :public RenderGraphPass
 {
@@ -196,15 +199,33 @@ public:
 					? meshrender.materials[i]
 					: meshrender.materials[0];
 
-					if (mat) mat->ApplyToShader(m_GbufferShader);
+				// Material textures override the white defaults; the shader's
+				// reflected sampler names (texture_diffuse1/...) pick the slots.
+				RHITexture2D* diffuse = nullptr;
+				RHITexture2D* specular = nullptr;
+				RHITexture2D* normal = nullptr;
+				ResolveMaterialTextures(mat, diffuse, specular, normal);
 
-					BindGeometryDescriptors(shadowTex);
-					m_GbufferDescriptSet->Apply(0);
-					cmd.BindDescriptorSet(m_GbufferDescriptSet, 0);
-					PushDrawModel(cmd, modelMat, modelMat);
+				if (mat) mat->ApplyToShader(m_GbufferShader);
 
-					mesh.gpuMesh->Draw(cmd);
-					drewSomething = true;
+				BindGeometryDescriptors(shadowTex);
+				if (diffuse)  m_GbufferDescriptSet->BindTexture(10, diffuse, 10);
+				if (specular) m_GbufferDescriptSet->BindTexture(11, specular, 11);
+				if (normal)   m_GbufferDescriptSet->BindTexture(12, normal, 12);
+				if (Ref<RHIBuffer> matUBO = AcquireMaterialUBO(mat))
+					m_GbufferDescriptSet->BindUniformBuffer(3, matUBO);
+
+				// Normal-map presence must match what is actually bound.
+				GbufferFrameUBO fubo;
+				fubo.hasNormalMap = normal ? 1 : 0;
+				m_FrameUBO->Upload(&fubo, sizeof(fubo));
+
+				m_GbufferDescriptSet->Apply(0);
+				cmd.BindDescriptorSet(m_GbufferDescriptSet, 0);
+				PushDrawModel(cmd, modelMat, modelMat);
+
+				mesh.gpuMesh->Draw(cmd);
+				drewSomething = true;
 			}
 		}
 	
@@ -224,6 +245,14 @@ public:
 	}
 
 private:
+	struct MaterialUBOEntry
+	{
+		Ref<RHIBuffer> buffer;
+		std::vector<char> bytes;
+		uint32_t size = 0;
+	};
+	std::unordered_map<const Engine::Material*, MaterialUBOEntry> m_MaterialUBOs;
+
 	Ref<Scene> m_Scene;
 	Ref<RGFrameData> m_FrameData;
 	Ref<RHIBuffer> m_CameraUBO;
@@ -372,6 +401,66 @@ private:
 		return glm::vec2(halton(index + 1, 2) - 0.5f, halton(index + 1, 3) - 0.5f);
 	}
 
+	// Material textures for one draw. Resolves the shader's reflected sampler
+	// names against the material's texture parameters; falls back to the white
+	// default texture.
+	void ResolveMaterialTextures(
+		const Ref<Engine::Material>& mat,
+		RHITexture2D*& diffuse,
+		RHITexture2D*& specular,
+		RHITexture2D*& normal)
+	{
+		diffuse = specular = normal = nullptr;
+
+		if (!mat || !m_GbufferShader)
+			return;
+
+		const ShaderReflection& refl = m_GbufferShader->GetReflection();
+		for (const auto& sampler : refl.SampledImages)
+		{
+			Ref<RHITexture2D> tex = mat->GetTexture(sampler.Name);
+			if (!tex)
+				continue;
+
+			if (sampler.Name.find("diffuse") != std::string::npos)
+				diffuse = tex.get();
+			else if (sampler.Name.find("specular") != std::string::npos)
+				specular = tex.get();
+			else if (sampler.Name.find("normal") != std::string::npos)
+				normal = tex.get();
+		}
+	}
+
+	// Packed material-parameter UBO for one draw (MaterialParams, binding 3).
+	// One buffer per material, rebuilt when the packed bytes change.
+	Ref<RHIBuffer> AcquireMaterialUBO(const Ref<Engine::Material>& mat)
+	{
+		if (!mat || !m_GbufferShader)
+			return nullptr;
+
+		std::vector<char> packed;
+		if (mat->PackMaterialBlock(m_GbufferShader->GetReflection(), packed) == 0)
+			return nullptr;
+
+		auto& entry = m_MaterialUBOs[mat.get()];
+		if (!entry.buffer || entry.size != packed.size() ||
+			std::memcmp(entry.bytes.data(), packed.data(), packed.size()) != 0)
+		{
+			if (!entry.buffer || entry.size != packed.size())
+			{
+				entry.buffer = RHIBuffer::Create(BufferDesc{
+					(uint32_t)packed.size(), BufferUsage::Uniform, true, packed.data() });
+			}
+			else
+			{
+				entry.buffer->Upload(packed.data(), (uint32_t)packed.size());
+			}
+			entry.bytes = std::move(packed);
+			entry.size = (uint32_t)entry.bytes.size();
+		}
+		return entry.buffer;
+	}
+
 	void BindGeometryDescriptors(RHITexture2D* shadowTex)
 	{
 		m_GbufferDescriptSet->Reset();
@@ -386,6 +475,7 @@ private:
 		else
 			m_GbufferDescriptSet->BindTexture(13, m_DefaultTex, 13);
 	}
+
 	void DrawFallbackCube(RHICommandBuffer& cmd, RHITexture2D* shadowTex)
 	{
 		m_GbufferShader->Bind();
