@@ -5,6 +5,7 @@
 #include <cstring>
 #include <fstream>
 #include <sstream>
+#include <unordered_set>
 #include <vector>
 
 namespace Engine {
@@ -287,17 +288,20 @@ void Material::InitializeParametersFromShader()
 			MaterialParameter::Type type = TypeFromString(member.Type);
 			switch (type)
 			{
+			// Identity-ish defaults so a fresh material is neutral: colors and
+			// vectors at 1 (no tint), roughness-ish floats at 0.5, uv pairs at
+			// (1,1). Zero defaults would black out texture-multiplied outputs.
 			case MaterialParameter::Type::Float:
-				m_Parameters[member.Name] = MaterialParameter(0.0f);
+				m_Parameters[member.Name] = MaterialParameter(0.5f);
 				break;
 			case MaterialParameter::Type::Vec2:
-				m_Parameters[member.Name] = MaterialParameter(glm::vec2(0.0f));
+				m_Parameters[member.Name] = MaterialParameter(glm::vec2(1.0f));
 				break;
 			case MaterialParameter::Type::Vec3:
-				m_Parameters[member.Name] = MaterialParameter(glm::vec3(0.0f));
+				m_Parameters[member.Name] = MaterialParameter(glm::vec3(1.0f));
 				break;
 			case MaterialParameter::Type::Vec4:
-				m_Parameters[member.Name] = MaterialParameter(glm::vec4(0.0f));
+				m_Parameters[member.Name] = MaterialParameter(glm::vec4(1.0f));
 				break;
 			case MaterialParameter::Type::Int:
 				m_Parameters[member.Name] = MaterialParameter(0);
@@ -488,7 +492,38 @@ bool Material::Deserialize(const std::string& filepath)
 	file.close();
 	m_AssetPath = filepath;
 	if (m_Shader)
+	{
+		// .tmat files written before the reflection rework can hold garbage:
+		// engine block members (PerFrame_Camera etc.) as scalar params,
+		// _pad helpers, and mat4 members flattened to a single float. Drop
+		// anything that does not match the shader's own material block, then
+		// InitializeParametersFromShader fills the gaps with identity values.
+		const ShaderReflection& refl = m_Shader->GetReflection();
+		std::unordered_set<std::string> valid;
+		for (const auto& block : refl.UniformBlocks)
+		{
+			if (block.Binding < 3)
+				continue;
+			for (const auto& member : block.Members)
+			{
+				if (member.Name.rfind("_pad", 0) == 0 || member.Name.rfind("_matpad", 0) == 0)
+					continue;
+				valid.insert(member.Name);
+			}
+		}
+		for (const auto& sampler : refl.SampledImages)
+			valid.insert(sampler.Name);
+
+		for (auto it = m_Parameters.begin(); it != m_Parameters.end();)
+		{
+			if (!valid.count(it->first))
+				it = m_Parameters.erase(it);
+			else
+				++it;
+		}
+
 		InitializeParametersFromShader();
+	}
 	Info_Core("Loaded material from: {0}", filepath);
 	return true;
 }

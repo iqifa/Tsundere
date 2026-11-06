@@ -36,6 +36,11 @@ public:
 		{
 			m_GbufferDescriptSet->BindUniformBuffer(1, m_FrameUBO);
 			m_GbufferDescriptSet->BindUniformBuffer(2, m_CameraUBO);
+			// Establish the material-block layout binding before the pipeline
+			// freezes the descriptor layout in Setup(). Per-draw bindings
+			// replace it with the material's own UBO.
+			if (m_DefaultMaterialUBO)
+				m_GbufferDescriptSet->BindUniformBuffer(3, m_DefaultMaterialUBO);
 			m_GbufferDescriptSet->BindTexture(10, m_DefaultTex, 10);
 			m_GbufferDescriptSet->BindTexture(11, m_DefaultTex, 11);
 			m_GbufferDescriptSet->BindTexture(12, m_DefaultTex, 12);
