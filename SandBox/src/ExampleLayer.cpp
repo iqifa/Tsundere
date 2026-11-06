@@ -2,6 +2,8 @@
 #include <Debug/Debug.h>
 #include<Trans/SceneCamera.h>
 #include<Core/Application.h>
+#include<Core/MaterialLibrary.h>
+#include<Panels/MeshFilePath.h>
 #include<Scene/BVHBuilder.h>
 #include<Pipeline/Passes/GeometryPassV2.h>
 
@@ -100,6 +102,29 @@ ExampleLayer::ExampleLayer(Ref<Scene>scene, std::string name) : BasePanel(name)
 		deferredLightingPass->SetDDGIPass(m_DDGIPass.get());
 
 
+
+	// Material smoke-test entity: first model from the registry, all meshes
+	// sharing one material, plus a light so shading is exercised. The model
+	// loads asynchronously; GBufferPass falls back to materials[0] for any
+	// mesh beyond the material list.
+	{
+		auto testEntity = scene->CreateEntity("MaterialTest");
+		auto& transform = testEntity.GetComponent<Component::Transform>();
+		transform.Position = vec3(0.0f, 0.0f, 0.0f);
+		transform.Scale = vec3(1.0f);
+
+		auto& mr = testEntity.AddComponent<MeshRender>();
+		mr.ModelPath = My_map::GetModelPaths().front();
+
+		Ref<RHIShader> litShader = ShaderLibiray::Get("res/shaders/Lit.shader");
+		Ref<Engine::Material> sharedMat = Engine::MaterialLibrary::CreateDefault("TestShared", litShader);
+		sharedMat->SetVec4("u_BaseColor", vec4(1.0f, 1.0f, 1.0f, 1.0f));
+		sharedMat->SetFloat("u_Roughness", 0.5f);
+		sharedMat->SetFloat("u_Metallic", 0.0f);
+		mr.materials.push_back(sharedMat);
+
+		Info_Core("MaterialTest entity created: model={0} shared material ready", mr.ModelPath);
+	}
 
 	// Create test entity with material for UI editing
 	//auto testEntity = m_Context->CreateEntity("Test Cube");

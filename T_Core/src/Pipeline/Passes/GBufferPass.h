@@ -414,9 +414,10 @@ private:
 		return glm::vec2(halton(index + 1, 2) - 0.5f, halton(index + 1, 3) - 0.5f);
 	}
 
-	// Material textures for one draw. Resolves the shader's reflected sampler
-	// names against the material's texture parameters; falls back to the white
-	// default texture.
+	// Material textures for one draw. First tries the GBuffer shader's own
+	// sampler names (texture_diffuse1/...), then falls back to scanning the
+	// material's texture parameters by role keyword — a material created from
+	// a different shader stores its texture under e.g. "u_BaseColorMap".
 	void ResolveMaterialTextures(
 		const Ref<Engine::Material>& mat,
 		RHITexture2D*& diffuse,
@@ -425,22 +426,63 @@ private:
 	{
 		diffuse = specular = normal = nullptr;
 
-		if (!mat || !m_GbufferShader)
+		if (!mat)
 			return;
+
+		// Collect the material's texture parameters (name, texture) once.
+		std::vector<std::pair<const std::string*, RHITexture2D*>> matTextures;
+		for (const auto& [name, param] : mat->GetParameters())
+		{
+			if (param.type != Engine::MaterialParameter::Type::Texture2D)
+				continue;
+			const auto tex = param.Get<Ref<RHITexture2D>>();
+			if (tex && *tex)
+				matTextures.push_back({ &name, (*tex).get() });
+		}
+		if (matTextures.empty())
+			return;
+
+		auto findByName = [&](const std::string& samplerName) -> RHITexture2D*
+		{
+			for (const auto& [name, tex] : matTextures)
+				if (*name == samplerName)
+					return tex;
+			return nullptr;
+		};
+		auto findByRole = [&](const char* keyword) -> RHITexture2D*
+		{
+			for (const auto& [name, tex] : matTextures)
+			{
+				std::string lower = *name;
+				std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+				if (lower.find(keyword) != std::string::npos)
+					return tex;
+			}
+			return nullptr;
+		};
 
 		const ShaderReflection& refl = m_GbufferShader->GetReflection();
 		for (const auto& sampler : refl.SampledImages)
 		{
-			Ref<RHITexture2D> tex = mat->GetTexture(sampler.Name);
+			RHITexture2D* tex = findByName(sampler.Name);
+			if (!tex)
+			{
+				if (sampler.Name.find("diffuse") != std::string::npos)
+					tex = findByRole("diffuse");
+				if (!tex && sampler.Name.find("specular") != std::string::npos)
+					tex = findByRole("specular");
+				if (!tex && sampler.Name.find("normal") != std::string::npos)
+					tex = findByRole("normal");
+			}
+
 			if (!tex)
 				continue;
-
 			if (sampler.Name.find("diffuse") != std::string::npos)
-				diffuse = tex.get();
+				diffuse = tex;
 			else if (sampler.Name.find("specular") != std::string::npos)
-				specular = tex.get();
+				specular = tex;
 			else if (sampler.Name.find("normal") != std::string::npos)
-				normal = tex.get();
+				normal = tex;
 		}
 	}
 
