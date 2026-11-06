@@ -62,20 +62,44 @@ layout(std140, binding = 1) uniform PerFrame_Gbuffer
    int _pad0[3];
 };
 
+// Material parameters baked into the GBuffer outputs. Same std140 layout as
+// MaterialTest.shader's block, so Material::PackMaterialBlock packs both.
+// Engine blocks are bindings 0/1/2; material blocks start at 3.
+layout(std140, binding = 3) uniform MaterialParams
+{
+    vec4  u_BaseColor;          // multiplies the diffuse texture
+    vec3  u_EmissiveColor;
+    float _matpad0;
+    vec2  u_Tiling;             // uv = v_TexCoords * u_Tiling + u_Offset
+    vec2  u_Offset;
+    float u_Roughness;          // → shininess = exp2(mix(2, 8, 1-r)); 0.5 → legacy 32
+    float u_Metallic;           // tints specular toward the base color
+    float u_EmissiveStrength;
+    int   u_CheckerMode;
+    int   _matpad1[3];
+};
+
 layout(binding = 10) uniform sampler2D texture_diffuse1;
 layout(binding = 11) uniform sampler2D texture_specular1;
 layout(binding = 12) uniform sampler2D texture_normal1;
 layout(binding = 13) uniform sampler2D u_ShadowMap;
 
-const float shininess = 32.0;
+// Roughness→shininess on the same curve the material editor exposes.
+// 0.5 (the CreateDefault value) maps to the legacy constant 32.
+float ShininessFromRoughness(float roughness)
+{
+    return exp2(mix(2.0, 8.0, 1.0 - clamp(roughness, 0.0, 1.0)));
+}
 
 void main()
 {
+    vec2 uv = v_TexCoords * u_Tiling + u_Offset;
+
     // hasNormalMap == 0: interpolated vertex normal, already in world space.
     vec3 normal = normalize(v_Normal);
     if (hasNormalMap == 1)
     {
-        vec3 normalTex = texture(texture_normal1, v_TexCoords).rgb;
+        vec3 normalTex = texture(texture_normal1, uv).rgb;
         normalTex = normalize(normalTex * 2.0 - 1.0);
         vec3 T = normalize(v_Tangent);
         vec3 B = normalize(v_Bitangent);
@@ -86,9 +110,18 @@ void main()
 
     // RGBA16F stores the signed world normal. Lighting normalizes it on read.
     o_Normal = vec4(normal, 1.0);
-    o_Albedo = vec4(texture(texture_diffuse1, v_TexCoords).rgb, 1.0);
+
+    // Material parameters bake into the GBuffer outputs: DeferredLight is a
+    // fullscreen pass with no per-draw state, so this is the only place a
+    // material can influence lighting.
+    vec3 baseColor = u_BaseColor.rgb;
+    vec4 texColor = texture(texture_diffuse1, uv);
+    vec3 albedo = texColor.rgb * baseColor;
+    vec3 specular = texture(texture_specular1, uv).rgb * mix(vec3(1.0), baseColor, u_Metallic);
+
+    o_Albedo = vec4(albedo, 1.0);
     // RGBA8 alpha holds shininess/255. DeferredLight reconstructs it as alpha * 255.
-    o_Specular = vec4(texture(texture_specular1, v_TexCoords).rgb, shininess / 255.0);
+    o_Specular = vec4(specular, ShininessFromRoughness(u_Roughness) / 255.0);
 
     vec3 currentNDC = v_CurrentClipPos.xyz / v_CurrentClipPos.w;
     vec3 previousNDC = v_PreviousClipPos.xyz / v_PreviousClipPos.w;

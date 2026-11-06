@@ -4,6 +4,12 @@
 #include <shaderc/shaderc.h>
 #include <spirv_cross/spirv_cross_c.h>
 
+#define WIN32_LEAN_AND_MEAN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <Windows.h>
+
 #include <array>
 #include <cstring>
 #include <filesystem>
@@ -71,6 +77,7 @@ namespace
 
     // Shader paths are stored as res/shaders/... . The process working directory
     // is often bin/ or SandBox/, so walk up until that relative file exists.
+    // Tries the exe directory first (CWD-independent), then the CWD chain.
     std::string ResolveShaderPath(const std::string& filepath)
     {
         namespace fs = std::filesystem;
@@ -79,16 +86,20 @@ namespace
         if (requested.is_absolute())
             return fs::exists(requested, ec) ? requested.string() : filepath;
 
-        fs::path dir = fs::current_path();
-        for (int depth = 0; depth < 8; ++depth)
+        fs::path exeDir;
+        char exePath[MAX_PATH] = {};
+        if (GetModuleFileNameA(nullptr, exePath, MAX_PATH) > 0)
+            exeDir = fs::path(exePath).parent_path();
+
+        for (fs::path dir : { exeDir, fs::current_path() })
         {
-            const fs::path candidate = dir / requested;
-            if (fs::exists(candidate, ec))
-                return candidate.string();
-            const fs::path parent = dir.parent_path();
-            if (parent == dir)
-                break;
-            dir = parent;
+            while (!dir.empty() && dir.has_parent_path())
+            {
+                const fs::path candidate = dir / requested;
+                if (fs::exists(candidate, ec))
+                    return candidate.string();
+                dir = dir.parent_path();
+            }
         }
         return filepath;
     }
