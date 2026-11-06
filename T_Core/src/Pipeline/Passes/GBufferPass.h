@@ -2,6 +2,7 @@
 #include<Pipeline/Passes/PassCommon.h>
 #include "Pipeline/RenderPassRegistry.h"
 #include "Scene/Vertex.h"
+#include "Core/MaterialLibrary.h"
 #include <cstddef>
 #include <cstring>
 #include <vector>
@@ -21,6 +22,7 @@ public:
 
 		m_GbufferShader=RHIShader::Create("D:/Code/C++/Tsundere/res/shaders/GBuffer.shader");
 
+		InitDefaultMaterialUBO();
 
 		InitFallbackGeometry();
 
@@ -253,6 +255,12 @@ private:
 	};
 	std::unordered_map<const Engine::Material*, MaterialUBOEntry> m_MaterialUBOs;
 
+	// Identity material parameters for draws without a material block: white
+	// base color, no tint/tiling, roughness 0.5 (legacy shininess 32). Keeps
+	// the GBuffer outputs byte-identical to the pre-material behaviour.
+	Ref<RHIBuffer> m_DefaultMaterialUBO;
+	std::vector<char> m_DefaultMaterialBytes;
+
 	Ref<Scene> m_Scene;
 	Ref<RGFrameData> m_FrameData;
 	Ref<RHIBuffer> m_CameraUBO;
@@ -432,33 +440,61 @@ private:
 	}
 
 	// Packed material-parameter UBO for one draw (MaterialParams, binding 3).
-	// One buffer per material, rebuilt when the packed bytes change.
+	// One buffer per material, rebuilt when the packed bytes change. Materials
+	// without a material block fall back to the identity defaults.
 	Ref<RHIBuffer> AcquireMaterialUBO(const Ref<Engine::Material>& mat)
 	{
-		if (!mat || !m_GbufferShader)
-			return nullptr;
+		if (!m_GbufferShader)
+			return m_DefaultMaterialUBO;
+
+		if (mat)
+		{
+			std::vector<char> packed;
+			if (mat->PackMaterialBlock(m_GbufferShader->GetReflection(), packed) > 0)
+			{
+				auto& entry = m_MaterialUBOs[mat.get()];
+				if (!entry.buffer || entry.size != packed.size() ||
+					std::memcmp(entry.bytes.data(), packed.data(), packed.size()) != 0)
+				{
+					if (!entry.buffer || entry.size != packed.size())
+					{
+						entry.buffer = RHIBuffer::Create(BufferDesc{
+							(uint32_t)packed.size(), BufferUsage::Uniform, true, packed.data() });
+					}
+					else
+					{
+						entry.buffer->Upload(packed.data(), (uint32_t)packed.size());
+					}
+					entry.bytes = std::move(packed);
+					entry.size = (uint32_t)entry.bytes.size();
+				}
+				return entry.buffer;
+			}
+		}
+		return m_DefaultMaterialUBO;
+	}
+
+	// Builds the identity material UBO once, sized from the shader's
+	// MaterialParams block. Call after m_GbufferShader exists.
+	void InitDefaultMaterialUBO()
+	{
+		if (!m_GbufferShader || m_DefaultMaterialUBO)
+			return;
 
 		std::vector<char> packed;
-		if (mat->PackMaterialBlock(m_GbufferShader->GetReflection(), packed) == 0)
-			return nullptr;
+		if (m_GbufferShader->GetReflection().UniformBlocks.empty())
+			return;
 
-		auto& entry = m_MaterialUBOs[mat.get()];
-		if (!entry.buffer || entry.size != packed.size() ||
-			std::memcmp(entry.bytes.data(), packed.data(), packed.size()) != 0)
-		{
-			if (!entry.buffer || entry.size != packed.size())
-			{
-				entry.buffer = RHIBuffer::Create(BufferDesc{
-					(uint32_t)packed.size(), BufferUsage::Uniform, true, packed.data() });
-			}
-			else
-			{
-				entry.buffer->Upload(packed.data(), (uint32_t)packed.size());
-			}
-			entry.bytes = std::move(packed);
-			entry.size = (uint32_t)entry.bytes.size();
-		}
-		return entry.buffer;
+		// Identity values in the block's declared layout: pack through an
+		// anonymous material holding the editor defaults.
+		auto shader = m_GbufferShader;
+		Ref<Engine::Material> identity = Engine::MaterialLibrary::CreateDefault("Identity", shader);
+		if (identity->PackMaterialBlock(shader->GetReflection(), packed) == 0)
+			return;
+
+		m_DefaultMaterialUBO = RHIBuffer::Create(BufferDesc{
+			(uint32_t)packed.size(), BufferUsage::Uniform, true, packed.data() });
+		m_DefaultMaterialBytes = std::move(packed);
 	}
 
 	void BindGeometryDescriptors(RHITexture2D* shadowTex)
@@ -466,6 +502,8 @@ private:
 		m_GbufferDescriptSet->Reset();
 		m_GbufferDescriptSet->BindUniformBuffer(1, m_FrameUBO);
 		m_GbufferDescriptSet->BindUniformBuffer(2, m_CameraUBO);
+		if (m_DefaultMaterialUBO)
+			m_GbufferDescriptSet->BindUniformBuffer(3, m_DefaultMaterialUBO);
 		m_GbufferDescriptSet->BindTexture(10, m_DefaultTex, 10);
 		m_GbufferDescriptSet->BindTexture(11, m_DefaultTex, 11);
 		m_GbufferDescriptSet->BindTexture(12, m_DefaultTex, 12);
