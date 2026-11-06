@@ -468,11 +468,22 @@ private:
 			if (!tex)
 			{
 				if (sampler.Name.find("diffuse") != std::string::npos)
+				{
 					tex = findByRole("diffuse");
+					if (!tex) tex = findByRole("basecolor");
+					if (!tex) tex = findByRole("albedo");
+				}
 				if (!tex && sampler.Name.find("specular") != std::string::npos)
+				{
 					tex = findByRole("specular");
+					if (!tex) tex = findByRole("metallic");
+					if (!tex) tex = findByRole("roughness");
+				}
 				if (!tex && sampler.Name.find("normal") != std::string::npos)
+				{
 					tex = findByRole("normal");
+					if (!tex) tex = findByRole("bump");
+				}
 			}
 
 			if (!tex)
