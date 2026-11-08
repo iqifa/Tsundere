@@ -5,7 +5,7 @@
 #include<Core/MaterialLibrary.h>
 #include<Panels/MeshFilePath.h>
 #include<Scene/BVHBuilder.h>
-#include<Pipeline/Passes/GeometryPassV2.h>
+#include<Pipeline/Passes/GeometryPass.h>
 
 
 entt::entity m_SelectedContext = null;
@@ -962,8 +962,7 @@ void ExampleLayer::BuildRenderGraphV2(uint32_t width, uint32_t height)
 	// ========================================
 
 	// Geometry Pass（新接口）
-	auto geometryPassV2 = CreateRef<GeometryPassV2>(m_Context, m_GraphFrameData);
-	geometryPassV2->EnableJitter = geometrypass->EnableJitter;  // 复制设置
+	auto geometryPassV2 = CreateRef<GeometryPass>(m_Context, m_GraphFrameData);
 	geometryPassV2->SetViewportSize(width, height);
 	m_RenderGraph.AddPass(geometryPassV2);
 
@@ -1014,7 +1013,11 @@ void ExampleLayer::ExecuteRenderGraphV2()
 	}
 
 	// 一行搞定！
+	m_GraphFrameData->CameraJitterEnabled = geometrypass && geometrypass->EnableJitter;
+	m_GraphFrameData->BeginCameraFrame(currentcamera->GetViewFront(),
+		currentcamera->GetProj(), width, height, currentcamera);
 	m_RenderGraph.Execute(*context);
+	m_GraphFrameData->EndCameraFrame();
 
 	// 读取已显式导出的结果。不要从 ExampleLayer 访问 RenderGraph 的私有资源解析接口。
 	RHITexture2D* finalColor = m_RenderGraph.GetExportedTexture(m_GraphFinalColor);

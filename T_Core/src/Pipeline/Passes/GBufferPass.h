@@ -150,12 +150,7 @@ public:
 		cmd.SetDepthFunc(CompareOp::Less);
 
 		// 3. ��ȡ�������
-		glm::mat4 view = currentcamera->GetViewFront();
-		glm::mat4 proj = currentcamera->GetProj();
-		glm::mat4 currentViewProj = proj * view;
-
-		if (EnableJitter)
-			proj = Jittering(proj, (float)m_Width, (float)m_Height);
+		const auto& frameCamera = m_FrameData->Camera;
 
 		//currentcamera->RenderSkyBox(cmd);
 
@@ -164,9 +159,9 @@ public:
 		m_FrameUBO->Upload(&fubo, sizeof(fubo));
 
 		CameraUBO camera;
-		camera.jitteredViewProj = proj * view;
-		camera.viewProj = currentViewProj;
-		camera.prevViewProj = m_PrevViewProjMatrix;
+		camera.jitteredViewProj = frameCamera.JitteredViewProj;
+		camera.viewProj = frameCamera.ViewProj;
+		camera.prevViewProj = frameCamera.PrevViewProj;
 		m_CameraUBO->Upload(&camera, sizeof(camera));
 
 		m_GbufferShader->Bind();
@@ -241,10 +236,7 @@ public:
 			DrawFallbackCube(cmd, shadowTex);
 		}
 
-		m_PrevViewProjMatrix = currentViewProj;
-		m_FrameCount++;
 	}
-	bool EnableJitter = false;
 	void SetViewportSize(uint32_t width, uint32_t height)
 	{
 		m_Width = width;
@@ -284,8 +276,6 @@ private:
 
 	uint32_t m_Width = 1920;
 	uint32_t m_Height = 1080;
-	int m_FrameCount = 0;
-	glm::mat4 m_PrevViewProjMatrix = glm::mat4(1.0f);
 
 	Ref<RHIBuffer> m_CubeVB;
 	Ref<RHIBuffer> m_CubeIB;
@@ -383,36 +373,6 @@ private:
 		m_CubePipelineDesc = pipeDesc;
 	}
 
-	glm::mat4 Jittering(const glm::mat4& originalProj, float width, float height)
-	{
-		int jitterIndex = m_FrameCount % 16;
-		glm::vec2 currentJitter = GetHaltonJitter(jitterIndex);
-
-		float deltaX = currentJitter.x * 2.0f / width;
-		float deltaY = currentJitter.y * 2.0f / height;
-
-		glm::mat4 jitteredProjMatrix = originalProj;
-		jitteredProjMatrix[2][0] += deltaX;
-		jitteredProjMatrix[2][1] += deltaY;
-
-		return jitteredProjMatrix;
-	}
-	glm::vec2 GetHaltonJitter(int index)
-	{
-		auto halton = [](int index, int base) -> float {
-			float f = 1.0f;
-			float r = 0.0f;
-			int current = index;
-			while (current > 0) {
-				f = f / base;
-				r = r + f * (current % base);
-				current = current / base;
-			}
-			return r;
-			};
-
-		return glm::vec2(halton(index + 1, 2) - 0.5f, halton(index + 1, 3) - 0.5f);
-	}
 
 	// Material textures for one draw. First tries the GBuffer shader's own
 	// sampler names (texture_diffuse1/...), then falls back to scanning the

@@ -67,7 +67,6 @@ inline void DrawMaterialFields(Ref<Engine::Material> mat)
 				{
 					// Defer: SetShader() rebuilds m_Parameters mid-iteration.
 					pendingShaderPath = path;
-					SaveMaterialAsset(mat);
 				}
 				if (selected)
 					ImGui::SetItemDefaultFocus();
@@ -94,7 +93,6 @@ inline void DrawMaterialFields(Ref<Engine::Material> mat)
 			{
 				// Defer: SetShader() rebuilds m_Parameters mid-iteration.
 				pendingShaderPath = picked;
-				SaveMaterialAsset(mat);
 			}
 		}
 	}
@@ -274,9 +272,15 @@ inline void DrawMaterialFields(Ref<Engine::Material> mat)
 		ImGui::PopID();
 	}
 
-	// Apply deferred shader switch after the parameter loop is done.
+	// Apply deferred shader switch after the parameter loop is done, then
+	// persist: SetShader() rebuilds the parameters from the new shader's
+	// reflection, so the .tmat must be written after — otherwise it keeps
+	// the old Shader: line and the stale parameter set until the next edit.
 	if (!pendingShaderPath.empty())
+	{
 		mat->SetShader(ShaderLibiray::Get(pendingShaderPath));
+		SaveMaterialAsset(mat);
+	}
 }
 
 // Inline inspector for MeshRender materials.

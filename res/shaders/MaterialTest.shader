@@ -24,6 +24,8 @@ layout(std140, binding = 2) uniform PerFrame_Camera
 layout(location = 0) out vec2 v_TexCoords;
 layout(location = 1) out vec3 v_Normal;
 layout(location = 2) out vec3 v_WorldPos;
+layout(location = 3) out vec4 v_CurrentClipPos;
+layout(location = 4) out vec4 v_PreviousClipPos;
 
 void main()
 {
@@ -33,16 +35,21 @@ void main()
     v_Normal = (pc.model * vec4(aNormal, 0.0)).xyz;
     v_TexCoords = aTexCoords;
     v_TexCoords.y = 1.0 - v_TexCoords.y;
+    v_CurrentClipPos = viewProj * worldPos;
+    v_PreviousClipPos = prevViewProj * pc.prevModel * vec4(aPos, 1.0);
 }
 
 #shader fragment
 #version 430 core
 
 layout(location = 0) out vec4 FragColor;
+layout(location = 1) out vec2 MotionVector;
 
 layout(location = 0) in vec2 v_TexCoords;
 layout(location = 1) in vec3 v_Normal;
 layout(location = 2) in vec3 v_WorldPos;
+layout(location = 3) in vec4 v_CurrentClipPos;
+layout(location = 4) in vec4 v_PreviousClipPos;
 
 layout(std140, binding = 1) uniform PerFrame_Geometry
 {
@@ -58,7 +65,9 @@ layout(std140, binding = 1) uniform PerFrame_Geometry
     int   u_ShadowMapEnabled;
     vec2  u_ShadowMapSize;
     float u_LightSize;
-    int   _pad3[3];
+    int   _pad3;
+    int   _pad4;
+    int   _pad5;
 };
 
 // ---- Material-editable parameters (shown in the material inspector) ----
@@ -112,4 +121,7 @@ void main()
     vec3 emissive = u_EmissiveColor * u_EmissiveStrength;
 
     FragColor = vec4(diffuse + spec + emissive, u_BaseColor.a);
+    vec2 currentNDC = v_CurrentClipPos.xy / v_CurrentClipPos.w;
+    vec2 previousNDC = v_PreviousClipPos.xy / v_PreviousClipPos.w;
+    MotionVector = (currentNDC - previousNDC) * 0.5;
 }

@@ -5,13 +5,16 @@
 #include "Scene/Scene.h"
 #include "Scene/Vertex.h"
 #include <cstddef>
+#include <unordered_map>
 
-// GeometryPassV2 - 新接口的 Geometry Pass
-// 使用统一的 RenderGraphPass 基类，资源通过名字引用
-class GeometryPassV2 : public RenderGraphPass
+// Forward pass: each scene mesh draws with its material shader. Compatible
+// shaders use frame UBO binding 1, camera UBO binding 2, model/prevModel push
+// constants, color output 0 and velocity output 1. Material UBO binding 3
+// and sampler2D bindings >= 10 are optional.
+class GeometryPass : public RenderGraphPass
 {
 public:
-	GeometryPassV2(Ref<Scene> scene, Ref<RGFrameData> frameData)
+	GeometryPass(Ref<Scene> scene, Ref<RGFrameData> frameData)
 		: m_Scene(scene), m_FrameData(frameData)
 	{
 		// 初始化 Shader 和资源
@@ -120,25 +123,22 @@ public:
 			}
 		}
 
-		// Create pipeline for scene meshes (7-attribute vertex format with BoneIDs/Weights)
-		if (!m_ScenePipeline)
-		{
-			VertexLayout sceneLayout;
-			sceneLayout.stride = sizeof(Vertex);
-			sceneLayout.attributes = {
-				{ 0, VertexFormat::Float3, offsetof(Vertex, Position) },
-				{ 1, VertexFormat::Float3, offsetof(Vertex, Normal) },
-				{ 2, VertexFormat::Float2, offsetof(Vertex, TexCoords) },
-				{ 3, VertexFormat::Float3, offsetof(Vertex, Tangent) },
-				{ 4, VertexFormat::Float3, offsetof(Vertex, Bitangent) },
-				{ 5, VertexFormat::Int4,   offsetof(Vertex, m_BoneIDs) },
-				{ 6, VertexFormat::Float4, offsetof(Vertex, m_Weights) },
-			};
-
-			PipelineDesc scenePipeDesc = m_CubePipelineDesc;  // Reuse base settings
-			scenePipeDesc.descriptorSets = { m_GeometryDescriptorSet };
-			m_ScenePipeline = builder.CreatePipeline(m_LitShader, sceneLayout, &scenePipeDesc);
-		}
+		// Material pipelines can be created when a material or its shader changes,
+		// without rebuilding the graph. They all use this pass's attachment signature.
+		m_ScenePipelineDesc = m_CubePipelineDesc;
+		m_ScenePipelineDesc.vertexLayout.stride = sizeof(Vertex);
+		m_ScenePipelineDesc.vertexLayout.attributes = {
+			{ 0, VertexFormat::Float3, offsetof(Vertex, Position) },
+			{ 1, VertexFormat::Float3, offsetof(Vertex, Normal) },
+			{ 2, VertexFormat::Float2, offsetof(Vertex, TexCoords) },
+			{ 3, VertexFormat::Float3, offsetof(Vertex, Tangent) },
+			{ 4, VertexFormat::Float3, offsetof(Vertex, Bitangent) },
+			{ 5, VertexFormat::Int4,   offsetof(Vertex, m_BoneIDs) },
+			{ 6, VertexFormat::Float4, offsetof(Vertex, m_Weights) },
+		};
+		m_ScenePipelineDesc.renderingSignature.colorFormats = { Format::RGBA8_UNORM, Format::RG16F };
+		m_ScenePipelineDesc.renderingSignature.depthFormat = Format::D24_UNORM_S8_UINT;
+		m_ScenePipelineDesc.renderingSignature.sampleCount = m_SampleCount;
 	}
 
 	void Execute(RenderGraphContext& context) override
@@ -155,12 +155,7 @@ public:
 		cmd.SetDepthFunc(CompareOp::Less);
 
 		// 3. 获取相机矩阵
-		glm::mat4 view = currentcamera->GetViewFront();
-		glm::mat4 proj = currentcamera->GetProj();
-		glm::mat4 currentViewProj = proj * view;
-
-		if (EnableJitter)
-			proj = Jittering(proj, (float)m_Width, (float)m_Height);
+		const auto& frameCamera = m_FrameData->Camera;
 
 		// 4. 获取光照信息
 		glm::vec3 lightDir = glm::vec3(-0.5f, -1.0f, -0.5f);
@@ -198,29 +193,14 @@ public:
 		m_FrameUBO->Upload(&fubo, sizeof(fubo));
 
 		CameraUBO camera;
-		camera.jitteredViewProj = proj * view;
-		camera.viewProj = currentViewProj;
-		camera.prevViewProj = m_PrevViewProjMatrix;
+		camera.jitteredViewProj = frameCamera.JitteredViewProj;
+		camera.viewProj = frameCamera.ViewProj;
+		camera.prevViewProj = frameCamera.PrevViewProj;
 		m_CameraUBO->Upload(&camera, sizeof(camera));
 
 		// 7. 绑定 Shader 和稳定的 descriptor layout
-		m_LitShader->Bind();
-
-		if (!m_GeometryDescriptorSet)
-			return;
-
-		BindGeometryDescriptors(shadowTex);
-		m_GeometryDescriptorSet->Apply(0);
-
 		// 9. 绘制场景
-		bool drewSomething = false;
-		m_DefaultTex->Bind(0);
-
-		// Bind scene pipeline once before drawing all scene objects
-		if (m_ScenePipeline)
-		{
-			cmd.BindPipeline(m_ScenePipeline);
-		}
+		bool hadReadyMesh = false;
 
 		for (auto [entityID, transform, meshrender] : m_Scene->m_Registry.view<Component::Transform, Component::MeshRender>().each())
 		{
@@ -238,34 +218,36 @@ public:
 				auto& mesh = model->meshes[i];
 				if (!mesh.IsGPUReady())
 					continue;
+				hadReadyMesh = true;
 
 				Ref<Engine::Material> mat = i < meshrender.materials.size()
 					? meshrender.materials[i]
 					: meshrender.materials[0];
+				// Scene meshes use their material's shader. A missing shader is an
+				// invalid material, not a request to substitute the pass shader.
+				if (!mat || !mat->GetShader())
+					continue;
+				ShaderState* state = GetShaderState(mat->GetShader());
+				if (!state)
+					continue;
 
-				if (mat) mat->ApplyToShader(m_LitShader);
-
-				BindGeometryDescriptors(shadowTex);
-				m_GeometryDescriptorSet->Apply(0);
-				cmd.BindDescriptorSet(m_GeometryDescriptorSet, 0);
+				cmd.BindPipeline(state->pipeline);
+				mat->ApplyToShader(state->shader);
+				BindMaterialDescriptors(*state, mat, shadowTex);
+				cmd.BindDescriptorSet(state->descriptors, 0);
 				PushDrawModel(cmd, modelMat, modelMat);
 
 				mesh.gpuMesh->Draw(cmd);
-				drewSomething = true;
 			}
 		}
 
 		// 10. Fallback Cube（如果没有场景物体）
-		if (!drewSomething)
+		if (!hadReadyMesh)
 		{
 			DrawFallbackCube(cmd, shadowTex);
 		}
 
-		m_PrevViewProjMatrix = currentViewProj;
-		m_FrameCount++;
 	}
-
-	bool EnableJitter = true;
 
 	void SetViewportSize(uint32_t width, uint32_t height)
 	{
@@ -280,11 +262,137 @@ public:
 			return;
 		m_SampleCount = samples;
 		m_CubePipeline.reset();
-		m_ScenePipeline.reset();
+		m_ShaderStates.clear();
+		m_RejectedShaders.clear();
 	}
 	uint32_t GetSampleCount() const { return m_SampleCount; }
 
 private:
+	struct MaterialUBOEntry
+	{
+		Ref<RHIBuffer> buffer;
+		std::vector<char> bytes;
+	};
+
+	struct ShaderState
+	{
+		Ref<RHIShader> shader;
+		Ref<RHIPipeline> pipeline;
+		Ref<RHIDescriptorSet> descriptors;
+		Ref<RHIBuffer> defaultMaterialUBO;
+		std::unordered_map<const Engine::Material*, MaterialUBOEntry> materialUBOs;
+		uint32_t materialBlockSize = 0;
+	};
+
+	ShaderState* GetShaderState(const Ref<RHIShader>& shader)
+	{
+		if (auto it = m_ShaderStates.find(shader.get()); it != m_ShaderStates.end())
+			return &it->second;
+		if (m_RejectedShaders.find(shader.get()) != m_RejectedShaders.end())
+			return nullptr;
+
+		const ShaderReflection& reflection = shader->GetReflection();
+		const ShaderBlock* frameBlock = reflection.FindUniformBlock(1);
+		const ShaderBlock* cameraBlock = reflection.FindUniformBlock(2);
+		const bool validLayout = frameBlock && frameBlock->Size == sizeof(GeometryFrameUBO) &&
+			cameraBlock && cameraBlock->Size == sizeof(CameraUBO) &&
+			!reflection.PushConstants.empty() &&
+			reflection.PushConstants[0].Size >= sizeof(DrawPushConstants) &&
+			reflection.StorageBlocks.empty() && reflection.StorageImages.empty();
+		if (!validLayout)
+		{
+			Error_Core("GeometryPass: material shader '{}' does not implement the forward camera/frame/push-constant interface", shader->GetPath());
+			m_RejectedShaders.emplace(shader.get(), shader);
+			return nullptr;
+		}
+
+		ShaderState state;
+		state.shader = shader;
+		state.descriptors = RHIDescriptorSet::Create();
+		if (!state.descriptors)
+			return nullptr;
+		state.descriptors->BindUniformBuffer(1, m_FrameUBO);
+		state.descriptors->BindUniformBuffer(2, m_CameraUBO);
+		for (const auto& block : reflection.UniformBlocks)
+		{
+			if (block.Set == 0 && (block.Binding == 1 || block.Binding == 2))
+				continue;
+			if (block.Set != 0 || block.Binding != 3 || block.Size == 0 ||
+				state.materialBlockSize != 0)
+			{
+				Error_Core("GeometryPass: material shader '{}' has an unsupported uniform block binding", shader->GetPath());
+				m_RejectedShaders.emplace(shader.get(), shader);
+				return nullptr;
+			}
+			state.materialBlockSize = block.Size;
+			std::vector<char> zero(block.Size, 0);
+			state.defaultMaterialUBO = RHIBuffer::Create(BufferDesc{
+				block.Size, BufferUsage::Uniform, true, zero.data() });
+			state.descriptors->BindUniformBuffer(3, state.defaultMaterialUBO);
+		}
+		for (const auto& image : reflection.SampledImages)
+		{
+			if (image.Set != 0 || image.Binding < 10 || image.Type != "sampler2D")
+			{
+				Error_Core("GeometryPass: material shader '{}' has an unsupported sampler", shader->GetPath());
+				m_RejectedShaders.emplace(shader.get(), shader);
+				return nullptr;
+			}
+			state.descriptors->BindTexture(image.Binding, m_DefaultTex, image.Binding);
+		}
+		// Vulkan freezes the descriptor layout when the pipeline is created.
+		state.descriptors->Apply(0);
+		PipelineDesc desc = m_ScenePipelineDesc;
+		desc.shader = shader;
+		desc.descriptorSets = { state.descriptors };
+		state.pipeline = RHIPipeline::Create(desc);
+		if (!state.pipeline)
+			return nullptr;
+		auto [it, inserted] = m_ShaderStates.emplace(shader.get(), std::move(state));
+		return &it->second;
+	}
+
+	Ref<RHIBuffer> AcquireMaterialUBO(ShaderState& state, const Ref<Engine::Material>& mat)
+	{
+		if (state.materialBlockSize == 0)
+			return nullptr;
+		std::vector<char> packed;
+		if (!mat || mat->PackMaterialBlock(state.shader->GetReflection(), packed) != state.materialBlockSize)
+			return state.defaultMaterialUBO;
+		auto& entry = state.materialUBOs[mat.get()];
+		if (!entry.buffer || entry.bytes != packed)
+		{
+			if (!entry.buffer)
+				entry.buffer = RHIBuffer::Create(BufferDesc{
+					state.materialBlockSize, BufferUsage::Uniform, true, packed.data() });
+			else
+				entry.buffer->Upload(packed.data(), state.materialBlockSize);
+			entry.bytes = std::move(packed);
+		}
+		return entry.buffer;
+	}
+
+	void BindMaterialDescriptors(ShaderState& state, const Ref<Engine::Material>& mat,
+		RHITexture2D* shadowTex)
+	{
+		state.descriptors->Reset();
+		state.descriptors->BindUniformBuffer(1, m_FrameUBO);
+		state.descriptors->BindUniformBuffer(2, m_CameraUBO);
+		if (state.materialBlockSize != 0)
+			state.descriptors->BindUniformBuffer(3, AcquireMaterialUBO(state, mat));
+		for (const auto& image : state.shader->GetReflection().SampledImages)
+		{
+			RHITexture2D* texture = image.Name == "u_ShadowMap" && shadowTex
+				? shadowTex : nullptr;
+			Ref<RHITexture2D> materialTexture = mat->GetTexture(image.Name);
+			if (!texture && materialTexture)
+				texture = materialTexture.get();
+			state.descriptors->BindTexture(image.Binding,
+				texture ? texture : m_DefaultTex.get(), image.Binding);
+		}
+		state.descriptors->Apply(0);
+	}
+
 	struct GeometryFrameUBO
 	{
 		glm::vec4 lightDir;
@@ -419,37 +527,6 @@ private:
 		m_CubePipeline->Unbind();
 	}
 
-	glm::mat4 Jittering(const glm::mat4& originalProj, float width, float height)
-	{
-		int jitterIndex = m_FrameCount % 16;
-		glm::vec2 currentJitter = GetHaltonJitter(jitterIndex);
-
-		float deltaX = currentJitter.x * 2.0f / width;
-		float deltaY = currentJitter.y * 2.0f / height;
-
-		glm::mat4 jitteredProjMatrix = originalProj;
-		jitteredProjMatrix[2][0] += deltaX;
-		jitteredProjMatrix[2][1] += deltaY;
-
-		return jitteredProjMatrix;
-	}
-
-	glm::vec2 GetHaltonJitter(int index)
-	{
-		auto halton = [](int index, int base) -> float {
-			float f = 1.0f;
-			float r = 0.0f;
-			int current = index;
-			while (current > 0) {
-				f = f / base;
-				r = r + f * (current % base);
-				current = current / base;
-			}
-			return r;
-		};
-
-		return glm::vec2(halton(index + 1, 2) - 0.5f, halton(index + 1, 3) - 0.5f);
-	}
 
 	Ref<Scene> m_Scene;
 	Ref<RGFrameData> m_FrameData;
@@ -462,7 +539,9 @@ private:
 	Ref<RHIBuffer> m_CubeVB;
 	Ref<RHIBuffer> m_CubeIB;
 	Ref<RHIPipeline> m_CubePipeline;
-	Ref<RHIPipeline> m_ScenePipeline;  // Pipeline for scene meshes (7-attribute format)
+	PipelineDesc m_ScenePipelineDesc;
+	std::unordered_map<const RHIShader*, ShaderState> m_ShaderStates;
+	std::unordered_map<const RHIShader*, Ref<RHIShader>> m_RejectedShaders;
 	VertexLayout m_CubeVertexLayout;
 	PipelineDesc m_CubePipelineDesc;
 
@@ -475,10 +554,8 @@ private:
 	uint32_t m_Width = 1920;
 	uint32_t m_Height = 1080;
 	uint32_t m_SampleCount = 4;
-	int m_FrameCount = 0;
-	glm::mat4 m_PrevViewProjMatrix = glm::mat4(1.0f);
 };
 
 // 自动注册到 RenderPassRegistry
 // 参数：类名, Pass名称, 分类, 优先级, 默认启用
-REGISTER_RENDER_PASS(GeometryPassV2, "Geometry", "Base", 10, false)
+REGISTER_RENDER_PASS(GeometryPass, "Geometry", "Base", 10, false)

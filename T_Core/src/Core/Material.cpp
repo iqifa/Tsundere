@@ -40,6 +40,12 @@ Material& Material::operator=(const Material& other)
 void Material::SetShader(Ref<RHIShader> shader)
 {
 	m_Shader = shader;
+
+	// The new shader defines a different parameter set: drop everything rather
+	// than letting the previous shader's entries linger as dead UI/uniforms.
+	// (InitializeParametersFromShader only fills gaps; it never removes.)
+	m_Parameters.clear();
+
 	if (m_Shader)
 		InitializeParametersFromShader();
 }

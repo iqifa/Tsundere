@@ -34,6 +34,69 @@ struct RGFrameData
 {
 	static constexpr uint32_t MaxShadowSlots = 16;
 
+	struct CameraFrame
+	{
+		glm::mat4 View = glm::mat4(1.0f);
+		glm::mat4 ViewProj = glm::mat4(1.0f);
+		glm::mat4 JitteredViewProj = glm::mat4(1.0f);
+		glm::mat4 PrevViewProj = glm::mat4(1.0f);
+		glm::mat4 PrevJitteredViewProj = glm::mat4(1.0f);
+		// Actual screen-space UV displacement of the projection, not the Halton sample.
+		glm::vec2 JitterUV = glm::vec2(0.0f);
+		glm::vec2 PrevJitterUV = glm::vec2(0.0f);
+		bool HistoryValid = false;
+	};
+
+	CameraFrame Camera;
+	bool CameraJitterEnabled = false;
+
+	void BeginCameraFrame(const glm::mat4& view, const glm::mat4& projection,
+		uint32_t width, uint32_t height, const void* cameraIdentity)
+	{
+		const bool resetHistory = cameraIdentity != m_CameraIdentity ||
+			width != m_CameraWidth || height != m_CameraHeight ||
+			CameraJitterEnabled != m_PreviousJitterEnabled;
+		if (resetHistory)
+		{
+			m_FrameIndex = 0;
+			Camera.HistoryValid = false;
+		}
+
+		Camera.View = view;
+		Camera.ViewProj = projection * view;
+		glm::mat4 jitteredProjection = projection;
+		Camera.JitterUV = glm::vec2(0.0f);
+		if (CameraJitterEnabled && width != 0 && height != 0)
+		{
+			const uint32_t index = (m_FrameIndex % 16) + 1;
+			const glm::vec2 sample(Halton(index, 2) - 0.5f, Halton(index, 3) - 0.5f);
+			jitteredProjection[2][0] += 2.0f * sample.x / static_cast<float>(width);
+			jitteredProjection[2][1] += 2.0f * sample.y / static_cast<float>(height);
+			// With this perspective projection, [2][xy] shifts NDC by -2*sample/size.
+			Camera.JitterUV = -sample / glm::vec2(width, height);
+		}
+		Camera.JitteredViewProj = jitteredProjection * view;
+		if (!Camera.HistoryValid)
+		{
+			Camera.PrevViewProj = Camera.ViewProj;
+			Camera.PrevJitteredViewProj = Camera.JitteredViewProj;
+			Camera.PrevJitterUV = Camera.JitterUV;
+		}
+		m_CameraIdentity = cameraIdentity;
+		m_CameraWidth = width;
+		m_CameraHeight = height;
+		m_PreviousJitterEnabled = CameraJitterEnabled;
+	}
+
+	void EndCameraFrame()
+	{
+		Camera.PrevViewProj = Camera.ViewProj;
+		Camera.PrevJitteredViewProj = Camera.JitteredViewProj;
+		Camera.PrevJitterUV = Camera.JitterUV;
+		Camera.HistoryValid = true;
+		++m_FrameIndex;
+	}
+
 	bool HasShadowMap = false;
 	std::vector<RGShadowSlot> ShadowSlots;
 	// Maps light entt::entity -> starting index in ShadowSlots (-1 if no shadow).
@@ -57,6 +120,26 @@ struct RGFrameData
 	unsigned int ShadowMaskID = 0;
 	unsigned int DDGIIrradianceAtlasID = 0;
 	unsigned int DDGIDepthAtlasID = 0;
+
+private:
+	static float Halton(uint32_t index, uint32_t base)
+	{
+		float result = 0.0f;
+		float fraction = 1.0f;
+		while (index != 0)
+		{
+			fraction /= static_cast<float>(base);
+			result += fraction * static_cast<float>(index % base);
+			index /= base;
+		}
+		return result;
+	}
+
+	uint32_t m_FrameIndex = 0;
+	uint32_t m_CameraWidth = 0;
+	uint32_t m_CameraHeight = 0;
+	const void* m_CameraIdentity = nullptr;
+	bool m_PreviousJitterEnabled = false;
 };
 
 // Per-draw transform. 128 bytes is the Vulkan minimum maxPushConstantsSize.

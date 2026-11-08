@@ -17,7 +17,6 @@ project "T_Core"
         "src/Test/**.*",
         "src/GL.cpp",
         "src/Scene/SceneRender.h",
-        "src/Pipeline/Passes/TAAPass.h",
         "src/Pipeline/Passes/ShadowPass.h",
         "src/Pipeline/Passes/ShadowApplyPass.h",
         "src/Pipeline/Passes/PathTracePass.h",

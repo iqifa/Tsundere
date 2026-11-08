@@ -25,9 +25,7 @@ public:
 		m_ShadowMapDepthShader = RHIShader::Create("D:/Code/C++/Tsundere/res/shaders/ShadowMapDepth.shader");
 
 		
-		//unsigned char black[4] = { 0, 0, 0, 0 };
 
-		//m_DefaultTex=RHITexture2D::Create({1,1,Format::RGBA8_UNORM,FilterMode::Linear,FilterMode::Linear,WrapMode::ClampToEdge,WrapMode::ClampToEdge,false,black});
 		
 		
 		m_ShdowPassDescriptSet = RHIDescriptorSet::Create();
@@ -35,7 +33,6 @@ public:
 		if (m_ShdowPassDescriptSet){
 			m_ShdowPassDescriptSet->BindUniformBuffer(0, m_LightViewProjUBO, sizeof(ViewUBO));
 			m_ShdowPassDescriptSet->MarkBindingAsDynamic(0);
-			//m_ShdowPassDescriptSet->BindTexture(10, m_DefaultTex, 10);
 		}
 		else {
 			Error_Core("[ShadowMapPass]:m_ShdowPassDescriptSet is Null");

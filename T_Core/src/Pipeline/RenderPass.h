@@ -9,4 +9,4 @@
 #include "Pipeline/Passes/GBufferPass.h"
 #include "Pipeline/Passes/DeferredLight.h"
 #include "Pipeline/Passes/ShadowMapPass.h"
-#include "Pipeline/Passes/TAAPassV2Example.h"
+#include "Pipeline/Passes/TAAPass.h"

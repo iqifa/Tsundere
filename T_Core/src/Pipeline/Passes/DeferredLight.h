@@ -122,13 +122,7 @@ public:
 		cmd.SetDepthTest(false);
 		cmd.SetDepthFunc(CompareOp::Always);
 
-		glm::mat4 view = currentcamera->GetViewFront();
-		glm::mat4 proj = currentcamera->GetProj();
-		glm::mat4 currentViewProj = proj * view;
-
-
-		//if (EnableJitter)
-		//	proj = Jittering(proj, (float)m_Width, (float)m_Height);
+		const auto& frameCamera = m_FrameData->Camera;
 
 		
 		
@@ -156,8 +150,8 @@ public:
 		m_LightsData->Upload(lights.data(), lights.size() * sizeof(GPULight));
 
 		DeferredLightDrawUBO dlduo;	
-		dlduo.InvViewProjNoTrans = glm::inverse(currentViewProj);
-		dlduo.View = view;
+		dlduo.InvViewProjNoTrans = glm::inverse(frameCamera.JitteredViewProj);
+		dlduo.View = frameCamera.View;
 		dlduo.ViewPos = glm::vec4(currentcamera->getpos(), 0.0f);
 		dlduo.ViewportSize = { m_Width,m_Height };
 

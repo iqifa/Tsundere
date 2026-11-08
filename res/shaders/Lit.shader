@@ -71,7 +71,9 @@ layout(std140, binding = 1) uniform PerFrame_Geometry
     int   u_ShadowMapEnabled;
     vec2  u_ShadowMapSize;
     float u_LightSize;
-    int   _pad3[3];
+    int   _pad3;
+    int   _pad4;
+    int   _pad5;
 };
 
 layout(binding = 10) uniform sampler2D texture_diffuse1;

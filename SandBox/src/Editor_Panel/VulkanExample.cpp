@@ -174,7 +174,11 @@ void VulkanExampleLayer::ExecuteRenderGraph()
 	if (m_ViewportFocused)
 		currentcamera->ProcessKeyboard(m_WindowHandle, 0.5f);
 
+	m_GraphFrameData->CameraJitterEnabled = m_PassManager.IsPassEnabled("TAA");
+	m_GraphFrameData->BeginCameraFrame(currentcamera->GetViewFront(),
+		currentcamera->GetProj(), width, height, currentcamera);
 	m_RenderGraph.Execute(*context);
+	m_GraphFrameData->EndCameraFrame();
 
 	RHITexture2D* finalColor = m_RenderGraph.GetExportedTexture(m_GraphFinalColor);
 	if (finalColor != m_FinalColorTexture)
