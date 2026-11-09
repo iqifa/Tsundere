@@ -79,10 +79,8 @@ public:
     }
 
     // ImGui 控制面板
-    void OnImGuiRender()
+    void DrawControls()
     {
-        ImGui::Begin("Render Pass Manager");
-
         ImGui::Text("Total Passes: %zu", m_ActivePasses.size());
         ImGui::Separator();
 
@@ -184,7 +182,6 @@ public:
             m_NeedsRebuild = true;
         }
 
-        ImGui::End();
     }
 
     // 检查是否需要重建 RenderGraph

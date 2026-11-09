@@ -27,6 +27,10 @@ public:
 	// 在 RenderGraph::Execute() 时调用，资源已分配好
 	virtual void Execute(RenderGraphContext& context) = 0;
 
+	// Runs after EndRenderPass() for graphics passes. Declare its resource
+	// accesses in Setup() alongside those used by Execute().
+	virtual void AfterRender(RenderGraphContext&) {}
+
 	// 可选：动态启用/禁用 Pass
 	virtual bool IsEnabled() const { return true; }
 

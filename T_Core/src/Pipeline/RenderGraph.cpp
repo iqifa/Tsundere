@@ -213,7 +213,16 @@ void RenderGraph::Compile()
 
             if (state.lastWriter == InvalidPassId && !resource.imported)
             {
-                Error_Core("[RenderGraph]: invalid resource id:{0} in pass {1},None Write Before Pass Read", resourceid, pass.name);
+                // AfterRender can copy an attachment that this pass just produced.
+                const bool copiesOwnAttachment = access == RGAccess::CopySrc &&
+                    std::any_of(pass.writes.begin(), pass.writes.end(),
+                        [resourceid](const RGResourceAccess& write)
+                        {
+                            return write.resource == resourceid &&
+                                (write.access == RGAccess::RenderTarget || write.access == RGAccess::DepthWrite);
+                        });
+                if (!copiesOwnAttachment)
+                    Error_Core("[RenderGraph]: invalid resource id:{0} in pass {1},None Write Before Pass Read", resourceid, pass.name);
             }
 
 
@@ -441,6 +450,7 @@ void RenderGraph::ExecutePass(RGPass& pass, RHICommandBuffer& commandBuffer)
     pass.instance->Execute(ctx);
 
     commandBuffer.EndRenderPass();
+    pass.instance->AfterRender(ctx);
 }
 
 void RenderGraph::BuildExecutionOrder()
