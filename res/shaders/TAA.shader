@@ -10,7 +10,7 @@ layout(location = 1) in vec2 a_TexCoord;
 
 
 
-out vec2 v_TexCoord;
+layout(location = 0) out vec2 v_TexCoord;
 void main()
 {
 
@@ -26,65 +26,53 @@ void main()
 
 
 
-in vec2 v_TexCoord;
+layout(location = 0) in vec2 v_TexCoord;
 
 layout(location = 0) out vec4 o_Color;
 
 
 
 // --- bindings (descriptor set 0) ---
-// Textures: bindings 10..14
+// Textures: bindings 10..13
 // PerPass UBO: binding 0
 
 layout(binding = 10) uniform sampler2D u_CurrentColor;   // 0: 当前帧颜色 (几何 pass)
 layout(binding = 11) uniform sampler2D u_HistoryColor;   // 1: 上一帧历史颜色
 layout(binding = 12) uniform sampler2D u_VelocityTex;    // 2: 动态模糊速度图
 layout(binding = 13) uniform sampler2D u_DepthTex;       // 3: 深度图
-layout(binding = 14) uniform sampler2D u_HistoryDepthTex;// 4: 上一帧的历史深度图
 
 layout(std140, binding = 0) uniform PerPass_TAA {
     mat4 u_InverseViewProj;   // offset  0,  64
     mat4 u_PrevViewProj;      // offset 64,  64
+    vec2 u_CurrentJitter;
+    int u_HistoryValid;
+    int _pad0;
 };
 
 
 
 // --- ���Ŀ���Ӱ���� 1���ٶ����� (Velocity Dilation) ---
 
-vec2 GetClosestVelocity(vec2 uv)
-
+ivec2 GetClosestSurfacePixel(ivec2 pixel, ivec2 size, out float closestDepth)
 {
-
-    vec2 texelSize = 1.0 / vec2(textureSize(u_DepthTex, 0));
-
-    float closestDepth = 1.0;
-
-    vec2 closestUV = uv;
-
-
-
-    for(int y = -1; y <= 1; ++y) {
-
-        for(int x = -1; x <= 1; ++x) {
-
-            vec2 offsetUV = uv + vec2(x, y) * texelSize;
-
-            float depth = texture(u_DepthTex, offsetUV).r;
-
-            if(depth < closestDepth) {
-
+    closestDepth = texelFetch(u_DepthTex, pixel, 0).r;
+    ivec2 closestPixel = pixel;
+    for (int y = -1; y <= 1; ++y)
+    {
+        for (int x = -1; x <= 1; ++x)
+        {
+            if (x == 0 && y == 0)
+                continue;
+            ivec2 neighbor = clamp(pixel + ivec2(x, y), ivec2(0), size - 1);
+            float depth = texelFetch(u_DepthTex, neighbor, 0).r;
+            if (depth < closestDepth)
+            {
                 closestDepth = depth;
-
-                closestUV = offsetUV;
-
+                closestPixel = neighbor;
             }
-
         }
-
     }
-
-    return texture(u_VelocityTex, closestUV).rg;
-
+    return closestPixel;
 }
 
 
@@ -127,35 +115,37 @@ void main()
 
 {
 
-    vec3 currentColor = texture(u_CurrentColor, v_TexCoord).rgb;
-
-    float currentDepth = texture(u_DepthTex, v_TexCoord).r;
-
-
-
-    // ���޸ĵ㡿��ɾ���˴������պ� early-out ���У����������ع�ƽ������ͶӰ��
-
-
-
-    // ==========================================
-
-    // 1. ��ȡ�ٶ� (ʹ���ٶ����ţ�)
-
-    // ==========================================
-
-    vec2 velocity = GetClosestVelocity(v_TexCoord);
-
-
-
-    // ��̬��������պм�������ƶ��ٶ�
-
-    if (length(velocity) < 0.00001)
-
+    // A clear center can still touch a silhouette after MSAA depth resolve.
+    // Only bypass TAA when the entire neighborhood is clear.
+    ivec2 size = textureSize(u_DepthTex, 0);
+    ivec2 pixel = clamp(ivec2(v_TexCoord * vec2(size)), ivec2(0), size - 1);
+    float closestDepth;
+    ivec2 closestPixel = GetClosestSurfacePixel(pixel, size, closestDepth);
+    if (closestDepth >= 1.0)
     {
+        o_Color = vec4(texelFetch(u_CurrentColor, pixel, 0).rgb, 1.0);
+        return;
+    }
 
-        // ��ʹ depth �� 1.0 (��պ�)����������Ҳ����ȷ�����պе���תƽ��ƫ�ƣ�
+    // Reconstruct the jittered input on the stable grid used by the history.
+    vec2 currentUV = v_TexCoord + u_CurrentJitter;
+    vec3 currentColor = texture(u_CurrentColor, currentUV).rgb;
+    if (u_HistoryValid == 0)
+    {
+        o_Color = vec4(currentColor, 1.0);
+        return;
+    }
 
-        vec4 ndcPos = vec4(v_TexCoord * 2.0 - 1.0, currentDepth * 2.0 - 1.0, 1.0);
+    vec2 velocity = texelFetch(u_VelocityTex, closestPixel, 0).rg;
+    if (length(velocity) < 0.00001)
+    {
+        // Reproject the same surface used for velocity dilation.
+        float ndcDepth = closestDepth;
+#ifndef TS_VULKAN
+        ndcDepth = ndcDepth * 2.0 - 1.0;
+#endif
+        vec2 closestUV = (vec2(closestPixel) + 0.5) / vec2(size);
+        vec4 ndcPos = vec4(closestUV * 2.0 - 1.0, ndcDepth, 1.0);
 
         vec4 worldPos = u_InverseViewProj * ndcPos;
 
@@ -169,7 +159,7 @@ void main()
 
        
 
-        velocity = v_TexCoord - prevUV;
+        velocity = closestUV - u_CurrentJitter - prevUV;
 
     }
 
@@ -195,31 +185,7 @@ void main()
 
     // ==========================================
 
-    // 2. ��ȶԱ��޳� (Depth Rejection)
-
-    // ==========================================
-
-    float historyDepth = texture(u_HistoryDepthTex, historyUV).r;
-
-   
-
-    // �����պ�©�����ˣ����� historyDepth �ͻ��Ǿ����ӵ���ȣ��Ӷ������޳����ɵ���Ӱ��
-
-    // if (abs(currentDepth - historyDepth) > 0.05)
-
-    // {
-
-    //     o_Color = vec4(currentColor, 1.0);
-
-    //     return;
-
-    // }
-
-
-
-    // ==========================================
-
-    // 3. ��ɫ�����ȡ�� Clip AABB ǯ��
+    // 2. ��ɫ�����ȡ�� Clip AABB ǯ��
 
     // ==========================================
 
@@ -259,7 +225,7 @@ void main()
 
     // ==========================================
 
-    // 4. ���ջ��
+    // 3. ���ջ��
 
     // ==========================================
 

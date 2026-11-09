@@ -2,6 +2,7 @@
 #include<Core/Application.h>
 #include<Pipeline/Passes/GbufferPass.h>
 #include<Pipeline/Passes/DeferredLight.h>
+#include <Pipeline/Passes/TAAPass.h>
 #include <Pipeline/RenderPassRegistry.h>
 #include <Platform/RHI/RHIImGuiRenderer.h>
 #include <Panels/EditorWindows.h>
@@ -120,7 +121,16 @@ void VulkanExampleLayer::OnImGuiRender()
 	// 渲染 Pass 管理面板
 	if (m_ShowPassManager)
 	{
-		m_PassManager.OnImGuiRender();
+		if (ImGui::Begin("Render Pass Manager"))
+		{
+			m_PassManager.DrawControls();
+			ImGui::Separator();
+			ImGui::BeginDisabled(!m_PassManager.IsPassEnabled("Geometry"));
+			if (ImGui::Checkbox("Geometry MSAA (4x)", &m_GeometryMSAAEnabled))
+				m_GraphDirty = true;
+			ImGui::EndDisabled();
+		}
+		ImGui::End();
 
 		// 如果 Pass 管理器状态改变，标记需要重建
 		if (m_PassManager.NeedsRebuild())
@@ -174,13 +184,14 @@ void VulkanExampleLayer::ExecuteRenderGraph()
 	if (m_ViewportFocused)
 		currentcamera->ProcessKeyboard(m_WindowHandle, 0.5f);
 
-	m_GraphFrameData->CameraJitterEnabled = m_PassManager.IsPassEnabled("TAA");
+	m_GraphFrameData->CameraJitterEnabled = m_TAAOutputAvailable;
 	m_GraphFrameData->BeginCameraFrame(currentcamera->GetViewFront(),
 		currentcamera->GetProj(), width, height, currentcamera);
 	m_RenderGraph.Execute(*context);
 	m_GraphFrameData->EndCameraFrame();
 
-	RHITexture2D* finalColor = m_RenderGraph.GetExportedTexture(m_GraphFinalColor);
+	RHITexture2D* finalColor = m_GraphFinalColor.id != InvalidResourceId
+		? m_RenderGraph.GetExportedTexture(m_GraphFinalColor) : nullptr;
 	if (finalColor != m_FinalColorTexture)
 	{
 		if (m_FinalColorTexture)
@@ -247,12 +258,17 @@ void VulkanExampleLayer::BuildRenderGraph(uint32_t width, uint32_t height)
 	auto passes = m_PassManager.GetEnabledPasses();
 	for (auto& pass : passes)
 	{
+		if (auto geometry = std::dynamic_pointer_cast<GeometryPass>(pass))
+			geometry->SetSampleCount(m_GeometryMSAAEnabled ? 4 : 1);
 		m_RenderGraph.AddPass(pass);
 	}
 
 	m_RenderGraph.Compile();
 
-	m_GraphFinalColor = m_RenderGraph.GetTextureByName("DeferredLight.Light");
+	m_GraphFinalColor = m_RenderGraph.GetTextureByName("TAA.SceneColor");
+	m_TAAOutputAvailable = m_GraphFinalColor.id != InvalidResourceId;
+	if (!m_TAAOutputAvailable)
+		m_GraphFinalColor = m_RenderGraph.GetTextureByName("DeferredLight.Light");
 
 	if (m_GraphFinalColor.id == UINT32_MAX)
 	{

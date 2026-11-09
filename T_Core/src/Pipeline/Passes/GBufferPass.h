@@ -73,6 +73,8 @@ public:
 		depthDesc.height = m_Height;
 		depthDesc.format = Format::D24_UNORM_S8_UINT;
 		depthDesc.usage = TextureUsage::DepthStencil | TextureUsage::Sampled;
+		depthDesc.minFilter = FilterMode::Nearest;
+		depthDesc.magFilter = FilterMode::Nearest;
 
 		RDGTextureDesc normalDesc = colorDesc;
 		normalDesc.format = Format::RGBA16F;
@@ -560,4 +562,4 @@ private:
 
 };
 
-REGISTER_RENDER_PASS(GbufferPass, "Gbuffer", "Base", 11, true)
+REGISTER_RENDER_PASS(GbufferPass, "Gbuffer", "Base", 11, false)

@@ -294,14 +294,13 @@ void Material::InitializeParametersFromShader()
 			MaterialParameter::Type type = TypeFromString(member.Type);
 			switch (type)
 			{
-			// Identity-ish defaults so a fresh material is neutral: colors and
-			// vectors at 1 (no tint), roughness-ish floats at 0.5, uv pairs at
-			// (1,1). Zero defaults would black out texture-multiplied outputs.
+			// Keep tint and tiling neutral. UV offsets and emissive strength
+			// start at zero so a new material shows its texture under scene lighting.
 			case MaterialParameter::Type::Float:
-				m_Parameters[member.Name] = MaterialParameter(0.5f);
+				m_Parameters[member.Name] = MaterialParameter(member.Name == "u_EmissiveStrength" ? 0.0f : 0.5f);
 				break;
 			case MaterialParameter::Type::Vec2:
-				m_Parameters[member.Name] = MaterialParameter(glm::vec2(1.0f));
+				m_Parameters[member.Name] = MaterialParameter(glm::vec2(member.Name == "u_Offset" ? 0.0f : 1.0f));
 				break;
 			case MaterialParameter::Type::Vec3:
 				m_Parameters[member.Name] = MaterialParameter(glm::vec3(1.0f));

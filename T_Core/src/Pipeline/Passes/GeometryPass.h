@@ -65,6 +65,8 @@ public:
 		depthDesc.height = m_Height;
 		depthDesc.format = Format::D24_UNORM_S8_UINT;
 		depthDesc.usage = TextureUsage::DepthStencil | TextureUsage::Sampled;
+		depthDesc.minFilter = FilterMode::Nearest;
+		depthDesc.magFilter = FilterMode::Nearest;
 
 		m_SceneColor = builder.CreateTexture("SceneColor", colorDesc);
 		m_Velocity = builder.CreateTexture("Velocity", velocityDesc);
@@ -558,4 +560,4 @@ private:
 
 // 自动注册到 RenderPassRegistry
 // 参数：类名, Pass名称, 分类, 优先级, 默认启用
-REGISTER_RENDER_PASS(GeometryPass, "Geometry", "Base", 10, false)
+REGISTER_RENDER_PASS(GeometryPass, "Geometry", "Base", 10, true)

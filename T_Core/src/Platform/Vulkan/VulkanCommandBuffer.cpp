@@ -421,7 +421,34 @@ void VulkanCommandBuffer::SetDepthFunc(CompareOp) {}
 void VulkanCommandBuffer::SetCullMode(CullMode) {}
 void VulkanCommandBuffer::SetPointSize(float) {}
 void VulkanCommandBuffer::SetBlendState(bool, BlendFactor, BlendFactor) {}
-void VulkanCommandBuffer::CopyTexture(RHITexture2D*, RHITexture2D*) {}
+void VulkanCommandBuffer::CopyTexture(RHITexture2D* src, RHITexture2D* dst)
+{
+    auto* source = dynamic_cast<VulkanTexture2D*>(src);
+    auto* destination = dynamic_cast<VulkanTexture2D*>(dst);
+    VkCommandBuffer command = Cmd();
+    if (!command || !source || !destination || source == destination)
+        return;
+
+    if (source->GetAspectMask() != VK_IMAGE_ASPECT_COLOR_BIT ||
+        destination->GetAspectMask() != VK_IMAGE_ASPECT_COLOR_BIT ||
+        source->GetFormat() != destination->GetFormat() ||
+        source->GetSampleCount() != 1 || destination->GetSampleCount() != 1 ||
+        source->GetWidth() != destination->GetWidth() ||
+        source->GetHeight() != destination->GetHeight())
+    {
+        Error_Core("VulkanCommandBuffer: CopyTexture requires matching single-sampled color textures");
+        return;
+    }
+
+    TransitionImage(command, *source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    TransitionImage(command, *destination, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    VkImageCopy region{};
+    region.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+    region.dstSubresource = region.srcSubresource;
+    region.extent = { source->GetWidth(), source->GetHeight(), 1 };
+    vkCmdCopyImage(command, source->GetImage(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        destination->GetImage(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+}
 
 void VulkanCommandBuffer::PrepareTextureForSampling(RHITexture2D* texture)
 {

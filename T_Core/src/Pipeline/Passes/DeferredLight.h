@@ -272,4 +272,4 @@ public:
 	};
 };
 
-REGISTER_RENDER_PASS(DeferredLightPass, "DeferredLight", "Base", 12, true)
+REGISTER_RENDER_PASS(DeferredLightPass, "DeferredLight", "Base", 12, false )

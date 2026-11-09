@@ -43,6 +43,8 @@ private:
 
 	RenderGraph m_RenderGraph;
 	RenderPassManager m_PassManager;  // Pass 管理器
+	bool m_GeometryMSAAEnabled = true;
+	bool m_TAAOutputAvailable = false;
 
 
 	bool m_ViewportFocused = false;

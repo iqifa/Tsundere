@@ -29,10 +29,10 @@ layout(location = 4) out vec4 v_PreviousClipPos;
 
 void main()
 {
-    v_WorldPos = (pc.model * vec4(aPos, 1.0)).xyz;
     vec4 worldPos = pc.model * vec4(aPos, 1.0);
+    v_WorldPos = worldPos.xyz;
     gl_Position = jitteredViewProj * worldPos;
-    v_Normal = (pc.model * vec4(aNormal, 0.0)).xyz;
+    v_Normal = transpose(inverse(mat3(pc.model))) * aNormal;
     v_TexCoords = aTexCoords;
     v_TexCoords.y = 1.0 - v_TexCoords.y;
     v_CurrentClipPos = viewProj * worldPos;
@@ -93,9 +93,7 @@ void main()
 {
     vec2 uv = v_TexCoords * u_Tiling + u_Offset;
 
-    vec3 baseColor = u_BaseColor.rgb;
-    vec4 texColor = texture(u_BaseColorMap, uv);
-    baseColor *= mix(vec3(1.0), texColor.rgb, step(0.001, texColor.a + texColor.r + texColor.g + texColor.b));
+    vec3 baseColor = u_BaseColor.rgb * texture(u_BaseColorMap, uv).rgb;
 
     // Optional debug patterns
     if (u_CheckerMode == 1)
@@ -115,12 +113,16 @@ void main()
     vec3 N = normalize(v_Normal);
     float NdotL = max(dot(N, L), 0.0);
 
-    // Cheap pseudo-PBR split: diffuse * (1-metallic) + spec-ish by roughness
-    vec3 diffuse = baseColor * lightColor.rgb * NdotL * (1.0 - u_Metallic);
-    vec3 spec = lightColor.rgb * pow(max(dot(reflect(-L, N), normalize(-v_WorldPos)), 0.0), mix(4.0, 256.0, 1.0 - u_Roughness)) * (1.0 - u_Roughness);
+    float roughness = clamp(u_Roughness, 0.0, 1.0);
+    float metallic = clamp(u_Metallic, 0.0, 1.0);
+    vec3 V = normalize(viewPos.xyz - v_WorldPos);
+    vec3 ambient = baseColor * lightColor.rgb * ambientStrength;
+    vec3 diffuse = baseColor * lightColor.rgb * NdotL * (1.0 - metallic);
+    float highlight = pow(max(dot(reflect(-L, N), V), 0.0), mix(4.0, 256.0, 1.0 - roughness));
+    vec3 spec = lightColor.rgb * highlight * NdotL * (1.0 - roughness);
     vec3 emissive = u_EmissiveColor * u_EmissiveStrength;
 
-    FragColor = vec4(diffuse + spec + emissive, u_BaseColor.a);
+    FragColor = vec4(ambient + diffuse + spec + emissive, u_BaseColor.a);
     vec2 currentNDC = v_CurrentClipPos.xy / v_CurrentClipPos.w;
     vec2 previousNDC = v_PreviousClipPos.xy / v_PreviousClipPos.w;
     MotionVector = (currentNDC - previousNDC) * 0.5;
