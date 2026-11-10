@@ -22,7 +22,7 @@ public:
 		m_LightViewProjUBO = RHIBuffer::Create(BufferDesc{ kMaxShadowSlots * kViewUBOStride, BufferUsage::Uniform, true, nullptr });
 		m_FrameUBO = RHIBuffer::Create(BufferDesc{ sizeof(FramData), BufferUsage::Uniform, true, nullptr });
 
-		m_ShadowMapDepthShader = RHIShader::Create("D:/Code/C++/Tsundere/res/shaders/ShadowMapDepth.shader");
+		m_ShadowMapDepthShader = RHIShader::Create("res/shaders/ShadowMapDepth.shader");
 
 		
 

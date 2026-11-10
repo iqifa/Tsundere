@@ -28,7 +28,7 @@ param(
     [string]$AssimpSource = '',
     # CMake build dir of that checkout. Defaults to <AssimpSource>\build.
     [string]$AssimpBuildDir = '',
-    # Clone assimp at the pinned tag and build it with the CMake bundled in VS2022.
+    # Clone assimp at the pinned tag and build it with Visual Studio and CMake.
     [switch]$BuildAssimp,
     [switch]$SkipAssimp,
     # Download and silently install the Vulkan SDK (needs admin, shows a UAC prompt).
@@ -129,11 +129,41 @@ function Test-Present([string]$marker, [string]$label) {
     return $false
 }
 
-function Find-VSInstall {
+function Find-AssimpToolchain {
     $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
-    if (-not (Test-Path $vswhere)) { return $null }
-    $path = & $vswhere -version '[17.0,18.0)' -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1
-    return $path
+    if (-not (Test-Path -LiteralPath $vswhere)) {
+        throw 'Visual Studio Installer (vswhere.exe) was not found. Install Visual Studio or Build Tools with the C++ workload.'
+    }
+
+    $consoleEncoding = [Console]::OutputEncoding
+    try {
+        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+        $instancesJson = Invoke-Native $vswhere @('-version', '[17.0,)', '-products', '*',
+            '-requires', 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64', '-format', 'json', '-utf8')
+    } finally {
+        [Console]::OutputEncoding = $consoleEncoding
+    }
+    $instances = ($instancesJson -join "`n") | ConvertFrom-Json |
+        Sort-Object { [version]$_.installationVersion } -Descending
+    if (-not $instances) {
+        throw 'No Visual Studio 2022 or newer installation with the x64 C++ tools was found.'
+    }
+
+    $pathCMake = (Get-Command cmake.exe -CommandType Application -ErrorAction SilentlyContinue |
+        Select-Object -First 1).Source
+    foreach ($instance in $instances) {
+        $vsMajor = ([version]$instance.installationVersion).Major
+        $bundledCMake = Join-Path $instance.installationPath 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe'
+        foreach ($cmake in @($bundledCMake, $pathCMake) | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) } | Select-Object -Unique) {
+            $capabilities = Invoke-Native $cmake @('-E', 'capabilities') | ConvertFrom-Json
+            $generator = $capabilities.generators | Where-Object { $_.name -match "^Visual Studio $vsMajor(?: |$)" } |
+                Select-Object -First 1 -ExpandProperty name
+            if ($generator) {
+                return @{ CMake = $cmake; Generator = $generator; Instance = $instance }
+            }
+        }
+    }
+    throw 'No CMake executable supports the installed Visual Studio C++ tools. Install the Visual Studio CMake component or put a compatible cmake.exe on PATH.'
 }
 
 New-Item -ItemType Directory -Force $WorkDir | Out-Null
@@ -227,19 +257,22 @@ if ($SkipAssimp) {
     Write-Skip "assimp already present ($assimpLibName; pass -AssimpSource or -BuildAssimp to replace)"
 } else {
     if ($BuildAssimp) {
-        $vs = Find-VSInstall
-        if (-not $vs) { throw 'Visual Studio 2022 with the C++ workload was not found (needed to build assimp).' }
-        $cmake = Join-Path $vs 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe'
-        if (-not (Test-Path $cmake)) { $cmake = 'cmake' }
+        $toolchain = Find-AssimpToolchain
+        $vs = $toolchain.Instance
+        $cmake = $toolchain.CMake
 
         $AssimpSource = Join-Path $WorkDir "assimp-$($V.Assimp)"
-        $AssimpBuildDir = Join-Path $AssimpSource 'build'
+        # CMake caches the VS generator and instance in the build directory.
+        $vsMajor = ([version]$vs.installationVersion).Major
+        $AssimpBuildDir = Join-Path $AssimpSource "build-vs$vsMajor-$($vs.instanceId)"
         if (-not (Test-Path "$AssimpSource\CMakeLists.txt")) {
             Invoke-Native 'git' @('clone', '--quiet', '--depth', '1', '--branch', "v$($V.Assimp)", 'https://github.com/assimp/assimp.git', $AssimpSource)
         }
-        Write-Host '    configuring (VS2022 generator, x64, shared, bundled zlib)'
+        Write-Host "    configuring ($($toolchain.Generator), x64, shared, bundled zlib)"
+        Write-Host "    Visual Studio: $($vs.installationPath)"
         Invoke-Native $cmake @('-S', $AssimpSource, '-B', $AssimpBuildDir,
-            '-G', 'Visual Studio 17 2022', '-A', 'x64',
+            '-G', $toolchain.Generator, '-A', 'x64',
+            "-DCMAKE_GENERATOR_INSTANCE=$($vs.installationPath)",
             '-DBUILD_SHARED_LIBS=ON',
             '-DUSE_STATIC_CRT=OFF',
             '-DASSIMP_BUILD_ZLIB=ON',
@@ -265,7 +298,7 @@ if ($SkipAssimp) {
         $lib = "$AssimpBuildDir\lib\Debug\$assimpLibName.lib"
         $dll = "$AssimpBuildDir\bin\Debug\$assimpLibName.dll"
         if (-not (Test-Path $lib) -or -not (Test-Path $dll)) {
-            throw "Missing $lib / $dll. Build assimp Debug|x64 with the VS2022 (v143) toolset and BUILD_SHARED_LIBS=ON first."
+            throw "Missing $lib / $dll. Build assimp Debug|x64 with BUILD_SHARED_LIBS=ON first."
         }
         Reset-Dir "$Dep\include\assimp"; Reset-Dir "$Dep\lib\assimp"
         # Public headers live in the source tree, config.h / revision.h are generated into the build tree.

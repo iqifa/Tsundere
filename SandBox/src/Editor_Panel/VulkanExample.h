@@ -4,6 +4,7 @@
 #include<Pipeline/RenderPass.h>
 #include<Pipeline/RenderGraph.h>
 #include<Pipeline/RenderPassManager.h>
+#include <Pipeline/Passes/PostProcessPass.h>
 
 class VulkanExampleLayer :public BasePanel {
 public:
@@ -28,6 +29,9 @@ private:
 	uint32_t m_GraphBuiltWidth = 0;
 	uint32_t m_GraphBuiltHeight = 0;
 	bool m_GraphDirty = true;
+	bool m_CheckedSkyboxAssets = false;
+	PostProcess::Settings m_PostProcess;
+	Ref<RHIShader> m_PostProcessShader;
 
 
 	Ref<RGFrameData> m_GraphFrameData;

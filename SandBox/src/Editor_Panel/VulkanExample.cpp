@@ -5,6 +5,8 @@
 #include <Pipeline/RenderPassRegistry.h>
 #include <Platform/RHI/RHIImGuiRenderer.h>
 #include <Panels/EditorWindows.h>
+#include <algorithm>
+#include <filesystem>
 
 
 VulkanExampleLayer::VulkanExampleLayer(Ref<Scene> scene, std::string name)
@@ -44,8 +46,33 @@ void VulkanExampleLayer::OnImGuiRender()
 	// (and imgui.ini would persist that), leaving OnUpdate to bail out forever.
 	ImGui::SetNextWindowSize(ImVec2(1280.0f, 720.0f), ImGuiCond_FirstUseEver);
 	ImGui::SetNextWindowSizeConstraints(ImVec2(320.0f, 180.0f), ImVec2(FLT_MAX, FLT_MAX));
-	ImGui::Begin("ViewPort");
+	ImGui::Begin("ViewPort", nullptr, ImGuiWindowFlags_MenuBar);
 	m_ViewportFocused = ImGui::IsWindowFocused();
+
+	if (ImGui::BeginMenuBar())
+	{
+		if (ImGui::BeginMenu("Post Processing"))
+		{
+			const auto toggle = [this](const char* label, bool& enabled)
+			{
+				if (ImGui::MenuItem(label, nullptr, &enabled))
+					m_GraphDirty = true;
+			};
+			toggle("Depth of Field", m_PostProcess.depthOfField);
+			toggle("Motion Blur", m_PostProcess.motionBlur);
+			toggle("Bloom", m_PostProcess.bloom);
+			toggle("Blur", m_PostProcess.blur);
+			ImGui::Separator();
+			toggle("Tone Mapping", m_PostProcess.toneMapping);
+			toggle("Color Grading", m_PostProcess.colorGrading);
+			toggle("Sharpen", m_PostProcess.sharpen);
+			toggle("Chromatic Aberration", m_PostProcess.chromaticAberration);
+			toggle("Vignette", m_PostProcess.vignette);
+			toggle("FXAA", m_PostProcess.fxaa);
+			ImGui::EndMenu();
+		}
+		ImGui::EndMenuBar();
+	}
 
 	if (currentcamera && m_ViewportFocused)
 	{
@@ -150,8 +177,9 @@ void VulkanExampleLayer::ExecuteRenderGraph()
 		return;
 	}
 
-	if (currentcamera && !currentcamera->skybox)
+	if (currentcamera && !currentcamera->skybox && !m_CheckedSkyboxAssets)
 	{
+		m_CheckedSkyboxAssets = true;
 		std::vector<std::string> texpaths{
 			"D:/Code/C++/Tsundere/res/texture/CubeMap/Ori/right.jpg",
 			"D:/Code/C++/Tsundere/res/texture/CubeMap/Ori/left.jpg",
@@ -160,8 +188,14 @@ void VulkanExampleLayer::ExecuteRenderGraph()
 			"D:/Code/C++/Tsundere/res/texture/CubeMap/Ori/front.jpg",
 			"D:/Code/C++/Tsundere/res/texture/CubeMap/Ori/back.jpg"
 		};
-		currentcamera->skybox = CreateRef<SkyBox>(std::move(texpaths));
-		m_GraphDirty = true;
+		if (std::all_of(texpaths.begin(), texpaths.end(), [](const std::string& path) {
+			std::error_code error;
+			return std::filesystem::is_regular_file(path, error);
+		}))
+		{
+			currentcamera->skybox = CreateRef<SkyBox>(std::move(texpaths));
+			m_GraphDirty = true;
+		}
 	}
 
 	if (m_GraphDirty
@@ -180,7 +214,9 @@ void VulkanExampleLayer::ExecuteRenderGraph()
 	m_RenderGraph.Execute(*context);
 	m_GraphFrameData->EndCameraFrame();
 
-	RHITexture2D* finalColor = m_RenderGraph.GetExportedTexture(m_GraphFinalColor);
+	RHITexture2D* finalColor = m_GraphFinalColor.id != InvalidResourceId
+		? m_RenderGraph.GetExportedTexture(m_GraphFinalColor)
+		: nullptr;
 	if (finalColor != m_FinalColorTexture)
 	{
 		if (m_FinalColorTexture)
@@ -250,14 +286,22 @@ void VulkanExampleLayer::BuildRenderGraph(uint32_t width, uint32_t height)
 		m_RenderGraph.AddPass(pass);
 	}
 
+	if (!m_PostProcessShader)
+		m_PostProcessShader = RHIShader::Create("res/shaders/PostProcess.shader");
+	std::string postProcessColor;
+	if (m_PostProcessShader && !m_PostProcessShader->GetReflection().PushConstants.empty())
+		postProcessColor = PostProcess::AddPasses(m_RenderGraph, m_PostProcessShader,
+			width, height, m_PostProcess, m_PassManager.IsPassEnabled("DeferredLight"),
+			currentcamera->GetProj());
+
 	m_RenderGraph.Compile();
 
-	m_GraphFinalColor = m_RenderGraph.GetTextureByName("DeferredLight.Light");
-
-	if (m_GraphFinalColor.id == UINT32_MAX)
-	{
-		m_GraphFinalColor = m_RenderGraph.GetTextureByName("Geometry.SceneColor");
-	}
+	m_GraphFinalColor = postProcessColor.empty()
+		? RGTextureHandle{} : m_RenderGraph.GetTextureByName(postProcessColor);
+	if (m_GraphFinalColor.id == InvalidResourceId)
+		m_GraphFinalColor = m_RenderGraph.GetTextureByName(PostProcess::SceneColor);
+	if (m_GraphFinalColor.id == InvalidResourceId)
+		m_GraphFinalColor = m_RenderGraph.GetTextureByName(PostProcess::FallbackSceneColor);
 	m_GraphVelocity = m_RenderGraph.GetTextureByName("Geometry.Velocity");
 	m_ShadowMap = m_RenderGraph.GetTextureByName("ShadowMap.ShadowVis");
 

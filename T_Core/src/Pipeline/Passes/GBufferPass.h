@@ -20,7 +20,7 @@ public:
 		m_FrameUBO = RHIBuffer::Create(BufferDesc{ sizeof(GbufferFrameUBO), BufferUsage::Uniform, true, nullptr });
 
 
-		m_GbufferShader=RHIShader::Create("D:/Code/C++/Tsundere/res/shaders/GBuffer.shader");
+		m_GbufferShader=RHIShader::Create("res/shaders/GBuffer.shader");
 
 		InitDefaultMaterialUBO();
 
