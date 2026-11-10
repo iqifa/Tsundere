@@ -2,6 +2,10 @@ solution "Tsundere"
 architecture "x64"
 configurations {"Debug","Release"}
 
+filter { "system:windows", "action:vs*" }
+    buildoptions { "/utf-8" }
+filter {}
+
 newoption
 {
     trigger = "renderer",

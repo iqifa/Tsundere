@@ -1,10 +1,13 @@
 #include"VulkanExample.h"
+#include "SkyboxSettings.h"
 #include<Core/Application.h>
 #include<Pipeline/Passes/GbufferPass.h>
 #include<Pipeline/Passes/DeferredLight.h>
 #include <Pipeline/RenderPassRegistry.h>
 #include <Platform/RHI/RHIImGuiRenderer.h>
 #include <Panels/EditorWindows.h>
+#include <Core/Assets/AssetDatabase.h>
+#include <Platform/FileDialog.h>
 #include <algorithm>
 #include <filesystem>
 
@@ -30,6 +33,20 @@ VulkanExampleLayer::VulkanExampleLayer(Ref<Scene> scene, std::string name)
 	ctx.width = 1920;
 	ctx.height = 1080;
 	m_PassManager.RebuildPasses(ctx);
+	try
+	{
+		m_SkyboxConfigPath = SkyboxSettings::ConfigPath().string();
+		if (currentcamera)
+		{
+			currentcamera->SkyboxAssetUid = SkyboxSettings::Load(m_SkyboxConfigPath);
+			m_AttemptedSkyboxAsset = currentcamera->SkyboxAssetUid;
+		}
+	}
+	catch (const std::exception& error)
+	{
+		m_SkyboxSaveStatus = error.what();
+		Warn_Core("[SkyBox settings]: {}", error.what());
+	}
 }
 
 void VulkanExampleLayer::OnUpdate()
@@ -114,6 +131,8 @@ void VulkanExampleLayer::OnImGuiRender()
 
 	ImGui::End();
 
+	DrawSkyboxSettings();
+
 	if (EditorWindows::ShadowMap())
 	{
 		ImGui::SetNextWindowSize(ImVec2(512.0f, 560.0f), ImGuiCond_FirstUseEver);
@@ -177,24 +196,52 @@ void VulkanExampleLayer::ExecuteRenderGraph()
 		return;
 	}
 
-	if (currentcamera && !currentcamera->skybox && !m_CheckedSkyboxAssets)
+	if (currentcamera && (!m_SkyboxChecked || currentcamera->SkyboxAssetUid != m_AttemptedSkyboxAsset ||
+		currentcamera->SkyboxAssetRevision != m_SkyboxAssetRevision))
 	{
-		m_CheckedSkyboxAssets = true;
-		std::vector<std::string> texpaths{
-			"D:/Code/C++/Tsundere/res/texture/CubeMap/Ori/right.jpg",
-			"D:/Code/C++/Tsundere/res/texture/CubeMap/Ori/left.jpg",
-			"D:/Code/C++/Tsundere/res/texture/CubeMap/Ori/top.jpg",
-			"D:/Code/C++/Tsundere/res/texture/CubeMap/Ori/bottom.jpg",
-			"D:/Code/C++/Tsundere/res/texture/CubeMap/Ori/front.jpg",
-			"D:/Code/C++/Tsundere/res/texture/CubeMap/Ori/back.jpg"
-		};
-		if (std::all_of(texpaths.begin(), texpaths.end(), [](const std::string& path) {
-			std::error_code error;
-			return std::filesystem::is_regular_file(path, error);
-		}))
+		const bool selectionChanged = currentcamera->SkyboxAssetUid != m_AttemptedSkyboxAsset;
+		m_SkyboxChecked = true;
+		m_AttemptedSkyboxAsset = currentcamera->SkyboxAssetUid;
+		m_SkyboxAssetRevision = currentcamera->SkyboxAssetRevision;
+		if (selectionChanged)
+			SaveSkyboxSettings();
+		m_SkyboxStatus.clear();
+		try
 		{
-			currentcamera->skybox = CreateRef<SkyBox>(std::move(texpaths));
-			m_GraphDirty = true;
+			Ref<SkyBox> replacement;
+			std::error_code fileError;
+			const auto resolved = Engine::AssetDatabase::Resolve(m_AttemptedSkyboxAsset, Engine::AssetKind::Cubemap);
+			if (m_AttemptedSkyboxAsset == 0)
+			{
+				m_SkyboxStatus = "No skybox selected.";
+				Warn_Core("[SkyBox]: no cubemap selected");
+			}
+			else if (!std::filesystem::is_regular_file(resolved, fileError))
+			{
+				m_SkyboxStatus = "Cubemap UUID not found or inaccessible: " + std::to_string(m_AttemptedSkyboxAsset);
+				Warn_Core("[SkyBox]: {} ({})", m_SkyboxStatus,
+					fileError ? fileError.message() : "file not found");
+			}
+			else
+				replacement = CreateRef<SkyBox>(resolved);
+			if (replacement || m_AttemptedSkyboxAsset == 0)
+			{
+				currentcamera->skybox = std::move(replacement);
+				m_LoadedSkyboxAsset = resolved;
+				m_GraphDirty = true;
+			}
+		}
+		catch (const std::exception& error)
+		{
+			m_SkyboxStatus = error.what();
+			if (dynamic_cast<const std::filesystem::filesystem_error*>(&error))
+			{
+				Warn_Core("[SkyBox]: {}", error.what());
+			}
+			else
+			{
+				Error_Core("[SkyBox]: failed to load {}: {}", m_AttemptedSkyboxAsset, error.what());
+			}
 		}
 	}
 
@@ -248,6 +295,73 @@ void VulkanExampleLayer::ExecuteRenderGraph()
 
 	if (shadowMap && m_ShadowMapImGuiID == ImTextureID_Invalid)
 		m_ShadowMapImGuiID = RHIImGUIRenderer::GetTextureID(shadowMap);
+}
+
+void VulkanExampleLayer::SaveSkyboxSettings()
+{
+	try
+	{
+		if (!currentcamera || m_SkyboxConfigPath.empty())
+			throw std::runtime_error("Skybox settings are unavailable");
+		SkyboxSettings::Save(m_SkyboxConfigPath, currentcamera->SkyboxAssetUid);
+		m_SkyboxSaveStatus = "Settings saved.";
+	}
+	catch (const std::exception& error)
+	{
+		m_SkyboxSaveStatus = error.what();
+		Error_Core("[SkyBox settings]: {}", error.what());
+	}
+}
+
+void VulkanExampleLayer::DrawSkyboxSettings()
+{
+	if (!EditorWindows::Skybox())
+		return;
+	ImGui::SetNextWindowSize(ImVec2(440, 240), ImGuiCond_FirstUseEver);
+	if (ImGui::Begin("Skybox", &EditorWindows::Skybox()))
+	{
+		if (currentcamera)
+		{
+			const auto select = [](uint64_t uid)
+			{
+				currentcamera->SkyboxAssetUid = uid;
+				++currentcamera->SkyboxAssetRevision;
+			};
+			const auto selected = currentcamera->SkyboxAssetUid;
+		const auto selectedPath = Engine::AssetDatabase::Resolve(selected, Engine::AssetKind::Cubemap);
+			if (ImGui::BeginCombo("Cubemap", selected == 0 ? "None" : std::filesystem::path(selectedPath).filename().string().c_str()))
+			{
+				if (ImGui::Selectable("None", selected == 0))
+					select(0);
+				for (const auto& asset : Engine::AssetDatabase::GetByKind(Engine::AssetKind::Cubemap))
+				{
+					ImGui::PushID(asset.path.c_str());
+					if (ImGui::Selectable(std::filesystem::path(asset.path).filename().string().c_str(), selected == asset.uid))
+						select(asset.uid);
+					if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", asset.path.c_str());
+					ImGui::PopID();
+				}
+				ImGui::EndCombo();
+			}
+			if (ImGui::Button("Reload"))
+				++currentcamera->SkyboxAssetRevision;
+			ImGui::SameLine();
+			if (ImGui::Button("Clear"))
+				select(0);
+			if (ImGui::Button("Save Settings"))
+				SaveSkyboxSettings();
+			if (!m_SkyboxSaveStatus.empty())
+				ImGui::TextWrapped("%s", m_SkyboxSaveStatus.c_str());
+			ImGui::Separator();
+			ImGui::TextWrapped("Active: %s", m_LoadedSkyboxAsset.empty() ? "None" : std::filesystem::path(m_LoadedSkyboxAsset).filename().string().c_str());
+			if (!m_SkyboxStatus.empty())
+				ImGui::TextWrapped("%s", m_SkyboxStatus.c_str());
+			ImGui::TextWrapped("Create reference cubemaps using Assets > Import Cubemap.");
+		}
+		else
+			ImGui::TextUnformatted("No active camera.");
+	}
+	ImGui::End();
 }
 
 void VulkanExampleLayer::BuildRenderGraph(uint32_t width, uint32_t height)

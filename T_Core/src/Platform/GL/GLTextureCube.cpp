@@ -1,4 +1,5 @@
 #include "GLTextureCube.h"
+#include "Core/Assets/CubemapAsset.h"
 #include "GLDebug.h"
 #include "Debug/Debug.h"
 #include "stb_image/stb_image.h"
@@ -12,7 +13,13 @@ GLTextureCube::GLTextureCube(unsigned int existingGLID, uint32_t size)
 GLTextureCube::GLTextureCube(const TextureCubeDesc& desc)
     : m_Size(desc.size)
 {
-    if (desc.facePaths.size() < 6)
+    Engine::CubemapAsset packed;
+    if (!desc.assetPath.empty())
+    {
+        packed = Engine::CubemapAsset::Load(desc.assetPath);
+        m_Size = packed.size;
+    }
+    if (desc.assetPath.empty() && desc.facePaths.size() < 6)
     {
         Error_Core("GLTextureCube: need 6 face paths, got {}", desc.facePaths.size());
         return;
@@ -23,6 +30,13 @@ GLTextureCube::GLTextureCube(const TextureCubeDesc& desc)
 
     for (unsigned int i = 0; i < 6; i++)
     {
+        if (!packed.pixels.empty())
+        {
+            GLCall(glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGBA8,
+                m_Size, m_Size, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                packed.pixels.data() + size_t(i) * m_Size * m_Size * 4));
+            continue;
+        }
         int w, h, ch;
         // Cubemap faces are authored for the unflipped OpenGL convention.
         // 2D loads flip vertically; sharing that flag turns the sky upside down.

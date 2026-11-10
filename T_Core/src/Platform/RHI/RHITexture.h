@@ -70,6 +70,7 @@ struct TextureCubeDesc
     std::vector<std::string> facePaths;             // 6 paths: +X, -X, +Y, -Y, +Z, -Z
     FilterMode minFilter = FilterMode::Linear;
     FilterMode magFilter = FilterMode::Linear;
+    std::string assetPath;                         // .tcubemap UUID manifest, takes precedence
 };
 
 class T_API RHITextureCube

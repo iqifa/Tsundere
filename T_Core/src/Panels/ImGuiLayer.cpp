@@ -1,6 +1,12 @@
 #include "ImGuiLayer.h"
 #include "Panels/EditorWindows.h"
 
+bool& EditorWindows::Skybox()
+{
+    static bool visible = false;
+    return visible;
+}
+
 bool& EditorWindows::ShadowMap()
 {
     static bool open = true;
@@ -57,6 +63,7 @@ namespace Engine
             {
                 ImGui::MenuItem("Console", nullptr, &EditorWindows::Console());
                 ImGui::MenuItem("Shadow Map", nullptr, &EditorWindows::ShadowMap());
+                ImGui::MenuItem("Skybox", nullptr, &EditorWindows::Skybox());
                 ImGui::EndMenu();
             }
             ImGui::EndMenuBar();

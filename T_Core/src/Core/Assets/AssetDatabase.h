@@ -13,7 +13,8 @@ enum class AssetKind : uint8_t
 	Model,
 	Texture,
 	Material,
-	Shader
+	Shader,
+	Cubemap
 };
 
 struct AssetRecord
@@ -32,6 +33,8 @@ public:
 	static void Sync(const std::filesystem::path& root);
 
 	static std::vector<AssetRecord> GetByKind(AssetKind kind);
+	static uint64_t UidForPath(const std::filesystem::path& path, AssetKind kind);
+	static std::string Resolve(uint64_t uid, AssetKind kind);
 
 	static std::string NormalizePath(const std::filesystem::path& path);
 };

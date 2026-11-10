@@ -1,4 +1,5 @@
 #include "VulkanTextureCube.h"
+#include "Core/Assets/CubemapAsset.h"
 
 #include "Debug/Debug.h"
 #include "Platform/RHI/RHIContext.h"
@@ -46,7 +47,7 @@ VulkanTextureCube::~VulkanTextureCube()
 
 void VulkanTextureCube::Create(const TextureCubeDesc& desc)
 {
-    if (desc.facePaths.size() != 6)
+    if (desc.assetPath.empty() && desc.facePaths.size() != 6)
         throw std::runtime_error("VulkanTextureCube requires exactly six face paths");
 
     auto& context = RHIContext::Get();
@@ -73,7 +74,13 @@ void VulkanTextureCube::Create(const TextureCubeDesc& desc)
     std::array<int, 6> heights{};
     std::vector<unsigned char> pixels;
 
-    try
+    if (!desc.assetPath.empty())
+    {
+        auto asset = Engine::CubemapAsset::Load(desc.assetPath);
+        m_Size = asset.size;
+        pixels = std::move(asset.pixels);
+    }
+    else try
     {
         for (uint32_t face = 0; face < 6; ++face)
         {

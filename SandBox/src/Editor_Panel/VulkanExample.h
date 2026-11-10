@@ -21,6 +21,8 @@ private:
 
 	void ExecuteRenderGraph();
 	void BuildRenderGraph(uint32_t width, uint32_t height);
+	void DrawSkyboxSettings();
+	void SaveSkyboxSettings();
 
 	glm::vec2 m_ViewPortSize{ 0.0f };
 	GLFWwindow* m_WindowHandle = nullptr;
@@ -29,7 +31,13 @@ private:
 	uint32_t m_GraphBuiltWidth = 0;
 	uint32_t m_GraphBuiltHeight = 0;
 	bool m_GraphDirty = true;
-	bool m_CheckedSkyboxAssets = false;
+	uint64_t m_AttemptedSkyboxAsset = 0;
+	std::string m_LoadedSkyboxAsset;
+	std::string m_SkyboxStatus;
+	std::string m_SkyboxConfigPath;
+	std::string m_SkyboxSaveStatus;
+	bool m_SkyboxChecked = false;
+	uint64_t m_SkyboxAssetRevision = 0;
 	PostProcess::Settings m_PostProcess;
 	Ref<RHIShader> m_PostProcessShader;
 
