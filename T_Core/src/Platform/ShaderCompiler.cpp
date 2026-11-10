@@ -62,6 +62,7 @@ namespace
 
     struct ShaderSourceFile
     {
+        bool Transparent = false;
         std::vector<ShaderStage>                     Stages;     // file order
         std::unordered_map<ShaderStage, std::string> Sections;   // same line count as the file
         std::vector<DeclaredUniform>                 Declared;   // source order, headers interleaved
@@ -134,7 +135,11 @@ namespace
         while (std::getline(stream, line))
         {
             bool marker = true;
-            if (line.find("#shader") != std::string::npos)
+            if (Trim(line.substr(0, line.find("//"))) == "#render_queue transparent")
+            {
+                out.Transparent = true;
+            }
+            else if (line.find("#shader") != std::string::npos)
             {
                 current = -1;
                 for (size_t i = 0; i < kSectionStages.size(); ++i)
@@ -643,6 +648,7 @@ CompiledShader CompileShaderFile(const std::string& filepath, ShaderTarget targe
     ShaderSourceFile file;
     if (!LoadShaderSource(resolved, file))
         return result;
+    result.Reflection.Transparent = file.Transparent;
 
     bool bypassSpirv = false;
     if (target == ShaderTarget::OpenGL)

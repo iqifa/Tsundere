@@ -97,6 +97,26 @@ struct RGFrameData
 		++m_FrameIndex;
 	}
 
+	void BeginModelFrame(const Scene& scene)
+	{
+		if (!Camera.HistoryValid || m_ModelScene != &scene || m_ModelRevision != scene.Revision)
+			m_PreviousModels.clear();
+		m_ModelScene = &scene;
+		m_ModelRevision = scene.Revision;
+		m_CurrentModels.clear();
+		for (auto [id, transform, mesh] : scene.m_Registry.view<const Transform, const MeshRender>().each())
+			if (!mesh.ModelPath.empty())
+				m_CurrentModels.emplace(id, transform.GetTransform());
+	}
+
+	glm::mat4 PreviousModel(entt::entity id, const glm::mat4& current) const
+	{
+		const auto previous = m_PreviousModels.find(id);
+		return previous == m_PreviousModels.end() ? current : previous->second;
+	}
+
+	void EndModelFrame() { m_PreviousModels.swap(m_CurrentModels); }
+
 	bool HasShadowMap = false;
 	std::vector<RGShadowSlot> ShadowSlots;
 	// Maps light entt::entity -> starting index in ShadowSlots (-1 if no shadow).
@@ -122,6 +142,11 @@ struct RGFrameData
 	unsigned int DDGIDepthAtlasID = 0;
 
 private:
+	const Scene* m_ModelScene = nullptr;
+	uint64_t m_ModelRevision = 0;
+	std::unordered_map<entt::entity, glm::mat4> m_PreviousModels;
+	std::unordered_map<entt::entity, glm::mat4> m_CurrentModels;
+
 	static float Halton(uint32_t index, uint32_t base)
 	{
 		float result = 0.0f;

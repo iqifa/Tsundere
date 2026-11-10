@@ -10,6 +10,7 @@ private:
 
 public:
 	entt::registry m_Registry;
+	uint64_t Revision = 0;
 	template<typename T>
 	void OnaddComponent(Entity& entity, T& Component) {}
 	void DestoryEntity(Entity Destory)

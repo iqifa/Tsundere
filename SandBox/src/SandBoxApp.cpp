@@ -22,9 +22,13 @@ public:
 			PushLayer(new VulkanExampleLayer(m_ActivateScene, "OpenGL- Example"));
 #endif
 		//PushLayer(new ExampleLayer(m_ActivateScene, "Example"));
-		PushLayer(new Inspect(m_ActivateScene, "Inspect"));
+		auto* inspector = new Inspect(m_ActivateScene, "Inspect");
+		PushLayer(inspector);
 		ModelEditorPanel::BindScene(m_ActivateScene);
-		PushLayer(new AssetsPanel("Assets"));
+		auto* assets = new AssetsPanel("Assets");
+		inspector->m_Assets = assets;
+		assets->OnOpenScene = [inspector](const std::string& path) { inspector->LoadScene(path); };
+		PushLayer(assets);
 		PushLayer(new ConsolePanel("Console"));
 	}
 	~SandBox() {}

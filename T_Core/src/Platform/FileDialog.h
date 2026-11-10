@@ -68,14 +68,14 @@ inline std::string OpenFileDialog(const char* filter = nullptr)
 	ofn.lpstrFilter = filter ? filter : "All Files\0*.*\0";
 	ofn.lpstrFile = szFile;
 	ofn.nMaxFile = sizeof(szFile);
-	ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+	ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
 	if (GetOpenFileNameA(&ofn))
 		return szFile;
 	return "";
 }
 
 // Generic save dialog. Returns "" when cancelled.
-inline std::string SaveFileDialog(const char* filter = nullptr)
+inline std::string SaveFileDialog(const char* filter = nullptr, const char* defaultExtension = "", const char* initialDirectory = nullptr)
 {
 	OPENFILENAMEA ofn = {};
 	char szFile[512] = "";
@@ -84,8 +84,9 @@ inline std::string SaveFileDialog(const char* filter = nullptr)
 	ofn.lpstrFilter = filter ? filter : "All Files\0*.*\0";
 	ofn.lpstrFile = szFile;
 	ofn.nMaxFile = sizeof(szFile);
-	ofn.lpstrDefExt = "";
-	ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST;
+	ofn.lpstrDefExt = defaultExtension;
+	ofn.lpstrInitialDir = initialDirectory;
+	ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
 	if (GetSaveFileNameA(&ofn))
 		return szFile;
 	return "";

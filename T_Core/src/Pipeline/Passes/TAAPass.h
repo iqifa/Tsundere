@@ -1,4 +1,5 @@
 #pragma once
+#include "Pipeline/Passes/OpaqueSceneInputs.h"
 #include "Pipeline/Passes/PassCommon.h"
 
 class TAAPass : public RenderGraphPass
@@ -85,22 +86,14 @@ public:
 		if (!m_TAAShader || !m_TAAPassDescriptSet)
 			return;
 
-		m_SceneColor = builder.ReadTexture("DeferredLight.Light");
-		if (m_SceneColor.id != InvalidResourceId)
-		{
-			m_Depth = builder.ReadTexture("Gbuffer.Depth");
-			m_Velocity = builder.ReadTexture("Gbuffer.Velocity");
-		}
-		if (m_SceneColor.id == InvalidResourceId || m_Depth.id == InvalidResourceId ||
-			m_Velocity.id == InvalidResourceId)
-		{
-			m_SceneColor = builder.ReadTexture("Geometry.SceneColor");
-			m_Depth = builder.ReadTexture("Geometry.Depth");
-			m_Velocity = builder.ReadTexture("Geometry.Velocity");
-		}
-		if (m_SceneColor.id == InvalidResourceId || m_Depth.id == InvalidResourceId ||
-			m_Velocity.id == InvalidResourceId)
+		const auto opaque = ReadOpaqueSceneInputs(builder);
+		if (!opaque.IsValid())
 			return;
+
+		const auto composite = builder.ReadTexture("Transparent.SceneColor");
+		m_SceneColor = composite.id != InvalidResourceId ? composite : opaque.color;
+		m_Depth = opaque.depth;
+		m_Velocity = opaque.velocity;
 
 		RDGTextureDesc colorDesc;
 		colorDesc.width = m_Width;

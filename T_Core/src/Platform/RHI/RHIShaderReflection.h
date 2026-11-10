@@ -36,6 +36,7 @@ struct ShaderImageBinding
 
 struct ShaderReflection
 { 
+    bool Transparent = false;
     std::vector<ShaderBlock>        UniformBlocks;
     std::vector<ShaderBlock>        StorageBlocks;
     std::vector<ShaderImageBinding> SampledImages;
@@ -64,3 +65,8 @@ private:
         return nullptr;
     }
 };
+
+inline bool IsSceneTexture(const std::string& name)
+{
+    return name == "u_OpaqueColor" || name == "u_OpaqueDepth";
+}

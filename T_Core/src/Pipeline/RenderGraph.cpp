@@ -221,7 +221,13 @@ void RenderGraph::Compile()
                             return write.resource == resourceid &&
                                 (write.access == RGAccess::RenderTarget || write.access == RGAccess::DepthWrite);
                         });
-                if (!copiesOwnAttachment)
+                const bool samplesOwnCopy = access == RGAccess::ReadSRV &&
+                    std::any_of(pass.writes.begin(), pass.writes.end(),
+                        [resourceid](const RGResourceAccess& write)
+                        {
+                            return write.resource == resourceid && write.access == RGAccess::CopyDst;
+                        });
+                if (!copiesOwnAttachment && !samplesOwnCopy)
                     Error_Core("[RenderGraph]: invalid resource id:{0} in pass {1},None Write Before Pass Read", resourceid, pass.name);
             }
 
@@ -309,6 +315,9 @@ void RenderGraph::ExecutePass(RGPass& pass, RHICommandBuffer& commandBuffer)
     // come *after* the barrier. BarrierFlags::None makes this a no-op.
     commandBuffer.ResourceBarrier(pass.barriers);
 
+    RenderGraphContext ctx(commandBuffer, *this);
+    pass.instance->BeforeRender(ctx);
+
     // A previous pass may have left these images in an attachment layout.
     // Combined image samplers require a read-only layout, so transition
     // declared SRV reads before this pass records descriptor writes.
@@ -334,8 +343,6 @@ void RenderGraph::ExecutePass(RGPass& pass, RHICommandBuffer& commandBuffer)
     }
 
     const bool hasDepth = pass.depthAttachment.has_value();
-
-    RenderGraphContext ctx(commandBuffer, *this);
 
     // No attachments at all: a compute or copy pass. Nothing to bind.
     if (pass.colorAttachments.empty() && !hasDepth)

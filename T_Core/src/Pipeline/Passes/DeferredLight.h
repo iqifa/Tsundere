@@ -12,7 +12,7 @@ public:
 		constexpr uint32_t maxLightCapicity = 128;
 		m_LightsData = RHIBuffer::Create(BufferDesc{ maxLightCapicity * sizeof(GPULight), BufferUsage::Storage, true, nullptr });
 	
-		m_DeferredLightShader = RHIShader::Create("D:/Code/C++/Tsundere/res/shaders/DeferredLight.shader");
+		m_DeferredLightShader = RHIShader::Create("res/shaders/DeferredLight.shader");
 		ValidateShaderLayout();
 
 		unsigned char white[4] = { 255, 255, 255, 255 };
@@ -85,7 +85,7 @@ public:
 		colorDesc.width = m_Width;
 		colorDesc.height = m_Height;
 		colorDesc.format = Format::RGBA8_UNORM;
-		colorDesc.usage = TextureUsage::ColorAttachment | TextureUsage::Sampled;
+		colorDesc.usage = TextureUsage::ColorAttachment | TextureUsage::Sampled | TextureUsage::TransferSrc;
 
 		m_DeferredLight = builder.CreateTexture("Light", colorDesc);
 

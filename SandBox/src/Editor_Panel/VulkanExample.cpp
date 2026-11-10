@@ -39,28 +39,32 @@ void VulkanExampleLayer::OnUpdate()
 	ExecuteRenderGraph();
 }
 
-void VulkanExampleLayer::OnImGuiRender()
+void VulkanExampleLayer::DrawSceneViewport()
 {
 	// The window stays empty until the graph is built, so ImGui would auto-fit it to 0 height
 	// (and imgui.ini would persist that), leaving OnUpdate to bail out forever.
 	ImGui::SetNextWindowSize(ImVec2(1280.0f, 720.0f), ImGuiCond_FirstUseEver);
 	ImGui::SetNextWindowSizeConstraints(ImVec2(320.0f, 180.0f), ImVec2(FLT_MAX, FLT_MAX));
-	ImGui::Begin("ViewPort");
-	m_ViewportFocused = ImGui::IsWindowFocused();
-
-	if (currentcamera && m_ViewportFocused)
+	if (!ImGui::Begin("ViewPort"))
 	{
-		ImGuiIO& io = ImGui::GetIO();
-		if (ImGui::IsMouseDown(ImGuiMouseButton_Right))
-		{
-			const float xoffset = io.MouseDelta.x;
-			const float yoffset = -io.MouseDelta.y;
-			currentcamera->ProcessMouseLook(xoffset, yoffset);
-		}
-
-		if (io.MouseWheel != 0.0f)
-			currentcamera->ProcessScroll(io.MouseWheel);
+		m_ViewportCameraControl = false;
+		m_TransformDrag.entity = entt::null;
+		ImGui::End();
+		return;
 	}
+
+	const auto toolButton = [this](const char* label, ViewportTool tool)
+	{
+		if (ImGui::Selectable(label, m_ViewportTool == tool, 0, ImGui::CalcTextSize(label)))
+			m_ViewportTool = tool;
+	};
+	toolButton("Select (Q)", ViewportTool::Select);
+	ImGui::SameLine();
+	toolButton("Move (W)", ViewportTool::Move);
+	ImGui::SameLine();
+	toolButton("Rotate (E)", ViewportTool::Rotate);
+	ImGui::SameLine();
+	toolButton("Scale (R)", ViewportTool::Scale);
 
 	const ImVec2 viewportPanelSize = ImGui::GetContentRegionAvail();
 	const glm::vec2 newViewportSize = {
@@ -77,16 +81,43 @@ void VulkanExampleLayer::OnImGuiRender()
 	}
 
 	if (m_FinalColorImGuiID != ImTextureID_Invalid &&
-		m_GraphBuiltWidth > 0 && m_GraphBuiltHeight > 0)
+		m_ViewPortSize.x > 0.0f && m_ViewPortSize.y > 0.0f)
 	{
-		ImGui::Image(
-			m_FinalColorImGuiID,
-			ImVec2(m_ViewPortSize.x, m_ViewPortSize.y),
-			ImVec2(0.0f, 1.0f),
-			ImVec2(1.0f, 0.0f));
+		ImGui::InvisibleButton("##SceneImage", viewportPanelSize);
+		const ImVec2 min = ImGui::GetItemRectMin();
+		const ImVec2 max = ImGui::GetItemRectMax();
+		ImGui::GetWindowDrawList()->AddImage(m_FinalColorImGuiID, min, max,
+			ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
+
+		const bool hovered = ImGui::IsItemHovered();
+		const bool rightDown = ImGui::IsMouseDown(ImGuiMouseButton_Right);
+		if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
+			ImGui::SetWindowFocus();
+		m_ViewportCameraControl = currentcamera && ImGui::IsWindowFocused() && rightDown &&
+			(m_ViewportCameraControl || hovered) &&
+			m_TransformDrag.entity == entt::null;
+		if (currentcamera)
+		{
+			DrawViewportTools(min, max, hovered);
+			const ImGuiIO& io = ImGui::GetIO();
+			if (m_ViewportCameraControl)
+				currentcamera->ProcessMouseLook(io.MouseDelta.x, -io.MouseDelta.y);
+			if (hovered && m_TransformDrag.entity == entt::null && io.MouseWheel != 0.0f)
+				currentcamera->ProcessScroll(io.MouseWheel);
+		}
+	}
+	else
+	{
+		m_ViewportCameraControl = false;
+		m_TransformDrag.entity = entt::null;
 	}
 
 	ImGui::End();
+}
+
+void VulkanExampleLayer::OnImGuiRender()
+{
+	DrawSceneViewport();
 
 	if (EditorWindows::ShadowMap())
 	{
@@ -147,6 +178,11 @@ void VulkanExampleLayer::OnEvent(Eventing::Event<>& event)
 
 void VulkanExampleLayer::ExecuteRenderGraph()
 {
+	if (m_SceneRevision != m_Context->Revision)
+	{
+		m_SceneRevision = m_Context->Revision;
+		m_GraphDirty = true;
+	}
 	const uint32_t width = static_cast<uint32_t>(m_ViewPortSize.x);
 	const uint32_t height = static_cast<uint32_t>(m_ViewPortSize.y);
 
@@ -181,13 +217,15 @@ void VulkanExampleLayer::ExecuteRenderGraph()
 		BuildRenderGraph(width, height);
 	}
 
-	if (m_ViewportFocused)
+	if (m_ViewportCameraControl)
 		currentcamera->ProcessKeyboard(m_WindowHandle, 0.5f);
 
 	m_GraphFrameData->CameraJitterEnabled = m_TAAOutputAvailable;
 	m_GraphFrameData->BeginCameraFrame(currentcamera->GetViewFront(),
 		currentcamera->GetProj(), width, height, currentcamera);
+	m_GraphFrameData->BeginModelFrame(*m_Context);
 	m_RenderGraph.Execute(*context);
+	m_GraphFrameData->EndModelFrame();
 	m_GraphFrameData->EndCameraFrame();
 
 	RHITexture2D* finalColor = m_GraphFinalColor.id != InvalidResourceId
@@ -267,7 +305,9 @@ void VulkanExampleLayer::BuildRenderGraph(uint32_t width, uint32_t height)
 
 	m_GraphFinalColor = m_RenderGraph.GetTextureByName("TAA.SceneColor");
 	m_TAAOutputAvailable = m_GraphFinalColor.id != InvalidResourceId;
-	if (!m_TAAOutputAvailable)
+	if (m_GraphFinalColor.id == InvalidResourceId)
+		m_GraphFinalColor = m_RenderGraph.GetTextureByName("Transparent.SceneColor");
+	if (m_GraphFinalColor.id == InvalidResourceId)
 		m_GraphFinalColor = m_RenderGraph.GetTextureByName("DeferredLight.Light");
 
 	if (m_GraphFinalColor.id == UINT32_MAX)

@@ -258,6 +258,8 @@ public:
 					Ref<Engine::Material> mat = i < meshrender.materials.size()
 						? meshrender.materials[i]
 						: meshrender.materials[0];
+					if (mat && mat->GetShader() && mat->GetShader()->GetReflection().Transparent)
+						continue;
 
 					if (mat) mat->ApplyToShader(m_ShadowMapDepthShader);
 

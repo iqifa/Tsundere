@@ -13,7 +13,8 @@ enum class AssetKind : uint8_t
 	Model,
 	Texture,
 	Material,
-	Shader
+	Shader,
+	Scene
 };
 
 struct AssetRecord

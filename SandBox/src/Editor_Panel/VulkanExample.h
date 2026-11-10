@@ -20,6 +20,22 @@ private:
 
 	void ExecuteRenderGraph();
 	void BuildRenderGraph(uint32_t width, uint32_t height);
+	void DrawSceneViewport();
+	void DrawViewportTools(const ImVec2& min, const ImVec2& max, bool hovered);
+
+	enum class ViewportTool { Select, Move, Rotate, Scale };
+	ViewportTool m_ViewportTool = ViewportTool::Move;
+	struct TransformDrag
+	{
+		entt::entity entity = entt::null;
+		uint64_t sceneRevision = 0;
+		int axis = 0;
+		Component::Transform start;
+		glm::vec2 mouseStart{ 0.0f };
+		glm::vec2 direction{ 0.0f };
+		float unitsPerPixel = 0.0f;
+	};
+	TransformDrag m_TransformDrag;
 
 	glm::vec2 m_ViewPortSize{ 0.0f };
 	GLFWwindow* m_WindowHandle = nullptr;
@@ -28,6 +44,7 @@ private:
 	uint32_t m_GraphBuiltWidth = 0;
 	uint32_t m_GraphBuiltHeight = 0;
 	bool m_GraphDirty = true;
+	uint64_t m_SceneRevision = 0;
 
 
 	Ref<RGFrameData> m_GraphFrameData;
@@ -47,7 +64,7 @@ private:
 	bool m_TAAOutputAvailable = false;
 
 
-	bool m_ViewportFocused = false;
+	bool m_ViewportCameraControl = false;
 	bool m_ShowPassManager = true;  // 是否显示 Pass 管理面板
 
 };

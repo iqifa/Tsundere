@@ -369,6 +369,7 @@ AssetsPanel::AssetEntry::Type AssetsPanel::GetAssetType(const fs::path& path)
 		return AssetEntry::Type::Model;
 	if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga" || ext == ".bmp" || ext == ".hdr")
 		return AssetEntry::Type::Texture;
+	if (ext == ".tscene") return AssetEntry::Type::Scene;
 	if (ext == ".tmat")
 		return AssetEntry::Type::Material;
 	if (ext == ".shader" || ext == ".glsl" || ext == ".vert" || ext == ".frag")
@@ -386,6 +387,7 @@ std::string AssetsPanel::GetAssetTypeIcon(AssetEntry::Type type)
 	case AssetEntry::Type::Texture: return "[IMG]";
 	case AssetEntry::Type::Material: return "[MAT]";
 	case AssetEntry::Type::Shader: return "[SHD]";
+	case AssetEntry::Type::Scene: return "[SCN]";
 	case AssetEntry::Type::Unknown: return "[?]";
 	default: return "[?]";
 	}
@@ -450,10 +452,11 @@ void AssetsPanel::ImportAsset()
 {
 	// One dialog accepting all supported asset types
 	std::string path = OpenFileDialog(
-		"Supported Assets\0*.obj;*.fbx;*.gltf;*.glb;*.pmx;*.pmd;*.png;*.jpg;*.jpeg;*.tga;*.bmp;*.hdr;*.tmat\0"
+		"Supported Assets\0*.obj;*.fbx;*.gltf;*.glb;*.pmx;*.pmd;*.png;*.jpg;*.jpeg;*.tga;*.bmp;*.hdr;*.tmat;*.tscene\0"
 		"Model Files\0*.obj;*.fbx;*.gltf;*.glb;*.pmx;*.pmd\0"
 		"Image Files\0*.png;*.jpg;*.jpeg;*.tga;*.bmp;*.hdr\0"
 		"Material Files\0*.tmat\0"
+		"Scene Files\0*.tscene\0"
 		"All Files\0*.*\0");
 	if (path.empty())
 		return;
@@ -584,6 +587,10 @@ void AssetsPanel::OpenAsset(const AssetEntry& entry)
 	{
 	case AssetEntry::Type::Directory:
 		NavigateToDirectory(entry.path);
+		break;
+
+	case AssetEntry::Type::Scene:
+		if (OnOpenScene) OnOpenScene(entry.path);
 		break;
 
 	case AssetEntry::Type::Model:

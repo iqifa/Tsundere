@@ -27,6 +27,9 @@ public:
 	// 在 RenderGraph::Execute() 时调用，资源已分配好
 	virtual void Execute(RenderGraphContext& context) = 0;
 
+	// Runs before sampled inputs transition and before attachments are bound.
+	virtual void BeforeRender(RenderGraphContext&) {}
+
 	// Runs after EndRenderPass() for graphics passes. Declare its resource
 	// accesses in Setup() alongside those used by Execute().
 	virtual void AfterRender(RenderGraphContext&) {}

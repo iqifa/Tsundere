@@ -20,7 +20,7 @@ public:
 		m_FrameUBO = RHIBuffer::Create(BufferDesc{ sizeof(GbufferFrameUBO), BufferUsage::Uniform, true, nullptr });
 
 
-		m_GbufferShader=RHIShader::Create("D:/Code/C++/Tsundere/res/shaders/GBuffer.shader");
+		m_GbufferShader=RHIShader::Create("res/shaders/GBuffer.shader");
 
 		InitDefaultMaterialUBO();
 
@@ -72,7 +72,7 @@ public:
 		depthDesc.width = m_Width;
 		depthDesc.height = m_Height;
 		depthDesc.format = Format::D24_UNORM_S8_UINT;
-		depthDesc.usage = TextureUsage::DepthStencil | TextureUsage::Sampled;
+		depthDesc.usage = TextureUsage::DepthStencil | TextureUsage::Sampled | TextureUsage::TransferSrc;
 		depthDesc.minFilter = FilterMode::Nearest;
 		depthDesc.magFilter = FilterMode::Nearest;
 
@@ -173,7 +173,7 @@ public:
 		BindGeometryDescriptors(shadowTex);
 		m_GbufferDescriptSet->Apply(0);
 
-		bool drewSomething = false;
+		bool hadReadyMesh = false;
 		m_DefaultTex->Bind(0);
 
 		//// Bind scene pipeline once before drawing all scene objects
@@ -192,16 +192,20 @@ public:
 				continue;
 
 			glm::mat4 modelMat = transform.GetTransform();
+			const glm::mat4 prevModel = m_FrameData->PreviousModel(entityID, modelMat);
 
 			for (size_t i = 0; i < model->meshes.size(); i++)
 			{
 				auto& mesh = model->meshes[i];
 				if (!mesh.IsGPUReady())
 					continue;
+				hadReadyMesh = true;
 
 				Ref<Engine::Material> mat = i < meshrender.materials.size()
 					? meshrender.materials[i]
 					: meshrender.materials[0];
+				if (mat && mat->GetShader() && mat->GetShader()->GetReflection().Transparent)
+					continue;
 
 				// Material textures override the white defaults; the shader's
 				// reflected sampler names (texture_diffuse1/...) pick the slots.
@@ -226,14 +230,13 @@ public:
 
 				m_GbufferDescriptSet->Apply(0);
 				cmd.BindDescriptorSet(m_GbufferDescriptSet, 0);
-				PushDrawModel(cmd, modelMat, modelMat);
+				PushDrawModel(cmd, modelMat, prevModel);
 
 				mesh.gpuMesh->Draw(cmd);
-				drewSomething = true;
 			}
 		}
 	
-		if (!drewSomething)
+		if (!hadReadyMesh)
 		{
 			DrawFallbackCube(cmd, shadowTex);
 		}

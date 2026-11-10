@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <vector>
 #include <string>
+#include <functional>
 
 namespace fs = std::filesystem;
 
@@ -21,7 +22,11 @@ public:
 
 	void OnImGuiRender() override;
 
-	// Set the root directory to browse (default: "res/")
+	std::function<void(const std::string&)> OnOpenScene;
+	const fs::path& GetRootDirectory() const { return m_RootDirectory; }
+	void Refresh() { RefreshCurrentDirectory(); SyncRegistry(); }
+
+	// Set the root directory to browse (default: "Assets/")
 	void SetRootDirectory(const std::string& path);
 
 private:
@@ -34,6 +39,7 @@ private:
 			Texture,
 			Material,
 			Shader,
+			Scene,
 			Unknown
 		};
 

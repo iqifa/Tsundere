@@ -320,7 +320,7 @@ void Material::InitializeParametersFromShader()
 	// Extract sampled images (textures)
 	for (const auto& sampler : refl.SampledImages)
 	{
-		if (m_Parameters.find(sampler.Name) != m_Parameters.end())
+		if (IsSceneTexture(sampler.Name) || m_Parameters.find(sampler.Name) != m_Parameters.end())
 			continue;
 
 		m_Parameters[sampler.Name] = MaterialParameter(Ref<RHITexture2D>(nullptr));
@@ -517,7 +517,8 @@ bool Material::Deserialize(const std::string& filepath)
 			}
 		}
 		for (const auto& sampler : refl.SampledImages)
-			valid.insert(sampler.Name);
+			if (!IsSceneTexture(sampler.Name))
+				valid.insert(sampler.Name);
 
 		for (auto it = m_Parameters.begin(); it != m_Parameters.end();)
 		{

@@ -44,6 +44,7 @@ std::optional<AssetKind> Classify(const std::filesystem::path& path)
 		return AssetKind::Model;
 	if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga" || ext == ".bmp" || ext == ".hdr")
 		return AssetKind::Texture;
+	if (ext == ".tscene") return AssetKind::Scene;
 	if (ext == ".tmat")
 		return AssetKind::Material;
 	if (ext == ".shader" || ext == ".glsl" || ext == ".vert" || ext == ".frag")
@@ -59,12 +60,14 @@ const char* KindToString(AssetKind kind)
 	case AssetKind::Texture: return "Texture";
 	case AssetKind::Material: return "Material";
 	case AssetKind::Shader: return "Shader";
+	case AssetKind::Scene: return "Scene";
 	}
 	return "Model";
 }
 
 bool KindFromString(const std::string& text, AssetKind& kind)
 {
+	if (text == "Scene") { kind = AssetKind::Scene; return true; }
 	if (text == "Model") { kind = AssetKind::Model; return true; }
 	if (text == "Texture") { kind = AssetKind::Texture; return true; }
 	if (text == "Material") { kind = AssetKind::Material; return true; }
