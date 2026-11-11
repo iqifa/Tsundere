@@ -9,6 +9,7 @@
 class VulkanExampleLayer :public BasePanel {
 public:
 	VulkanExampleLayer(Ref<Scene>scene, std::string name = "Example");
+	void DrawPostProcessMenu();
 
 private:
 	Ref<Scene>m_Context;

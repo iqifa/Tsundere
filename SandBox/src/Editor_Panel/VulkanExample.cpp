@@ -51,43 +51,42 @@ void VulkanExampleLayer::OnUpdate()
 	ExecuteRenderGraph();
 }
 
+void VulkanExampleLayer::DrawPostProcessMenu()
+{
+	if (ImGui::BeginMenu("Post Processing"))
+	{
+		const auto toggle = [this](const char* label, bool& enabled)
+		{
+			if (ImGui::MenuItem(label, nullptr, &enabled))
+				m_GraphDirty = true;
+		};
+		toggle("Depth of Field", m_PostProcess.depthOfField);
+		toggle("Motion Blur", m_PostProcess.motionBlur);
+		toggle("Bloom", m_PostProcess.bloom);
+		toggle("Blur", m_PostProcess.blur);
+		ImGui::Separator();
+		toggle("Tone Mapping", m_PostProcess.toneMapping);
+		toggle("Color Grading", m_PostProcess.colorGrading);
+		toggle("Sharpen", m_PostProcess.sharpen);
+		toggle("Chromatic Aberration", m_PostProcess.chromaticAberration);
+		toggle("Vignette", m_PostProcess.vignette);
+		toggle("FXAA", m_PostProcess.fxaa);
+		ImGui::EndMenu();
+	}
+}
+
 void VulkanExampleLayer::DrawSceneViewport()
 {
 	// The window stays empty until the graph is built, so ImGui would auto-fit it to 0 height
 	// (and imgui.ini would persist that), leaving OnUpdate to bail out forever.
 	ImGui::SetNextWindowSize(ImVec2(1280.0f, 720.0f), ImGuiCond_FirstUseEver);
 	ImGui::SetNextWindowSizeConstraints(ImVec2(320.0f, 180.0f), ImVec2(FLT_MAX, FLT_MAX));
-	if (!ImGui::Begin("ViewPort", nullptr, ImGuiWindowFlags_MenuBar))
+	if (!ImGui::Begin("ViewPort"))
 	{
 		m_ViewportCameraControl = false;
 		m_TransformDrag.entity = entt::null;
 		ImGui::End();
 		return;
-	}
-
-	if (ImGui::BeginMenuBar())
-	{
-		if (ImGui::BeginMenu("Post Processing"))
-		{
-			const auto toggle = [this](const char* label, bool& enabled)
-			{
-				if (ImGui::MenuItem(label, nullptr, &enabled))
-					m_GraphDirty = true;
-			};
-			toggle("Depth of Field", m_PostProcess.depthOfField);
-			toggle("Motion Blur", m_PostProcess.motionBlur);
-			toggle("Bloom", m_PostProcess.bloom);
-			toggle("Blur", m_PostProcess.blur);
-			ImGui::Separator();
-			toggle("Tone Mapping", m_PostProcess.toneMapping);
-			toggle("Color Grading", m_PostProcess.colorGrading);
-			toggle("Sharpen", m_PostProcess.sharpen);
-			toggle("Chromatic Aberration", m_PostProcess.chromaticAberration);
-			toggle("Vignette", m_PostProcess.vignette);
-			toggle("FXAA", m_PostProcess.fxaa);
-			ImGui::EndMenu();
-		}
-		ImGui::EndMenuBar();
 	}
 
 	const auto toolButton = [this](const char* label, ViewportTool tool)

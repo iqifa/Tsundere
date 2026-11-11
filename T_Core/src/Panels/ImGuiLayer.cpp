@@ -1,5 +1,6 @@
 #include "ImGuiLayer.h"
 #include "Panels/EditorWindows.h"
+#include <utility>
 
 bool& EditorWindows::Skybox()
 {
@@ -21,7 +22,7 @@ bool& EditorWindows::Console()
 
 namespace Engine
 {
-    void ShowDockSpace()
+    static void ShowDockSpace(const std::function<void()>& drawWindowMenu)
     {
         static bool fullscreen = true;
         static ImGuiDockNodeFlags dockspaceFlags = ImGuiDockNodeFlags_None;
@@ -64,6 +65,8 @@ namespace Engine
                 ImGui::MenuItem("Console", nullptr, &EditorWindows::Console());
                 ImGui::MenuItem("Shadow Map", nullptr, &EditorWindows::ShadowMap());
                 ImGui::MenuItem("Skybox", nullptr, &EditorWindows::Skybox());
+                if (drawWindowMenu)
+                    drawWindowMenu();
                 ImGui::EndMenu();
             }
             ImGui::EndMenuBar();
@@ -99,6 +102,11 @@ namespace Engine
     {
         static bool show = true;
         ImGui::ShowDemoWindow(&show);
-        ShowDockSpace();
+        ShowDockSpace(m_DrawWindowMenu);
+    }
+
+    void ImGuiLayer::SetWindowMenu(std::function<void()> drawMenu)
+    {
+        m_DrawWindowMenu = std::move(drawMenu);
     }
 }

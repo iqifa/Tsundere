@@ -4,6 +4,7 @@
 
 #include "ExternalFiles.h"
 #include "Core/Layer/LayerStack.h"
+#include <functional>
 
 namespace Engine
 {
@@ -17,8 +18,12 @@ namespace Engine
         void OnDetach() override;
         void OnUpdate() override;
         void OnImGuiRender() override;
+        void SetWindowMenu(std::function<void()> drawMenu);
 
         void BlockEvent(bool block) { (void)block; }
+
+    private:
+        std::function<void()> m_DrawWindowMenu;
     };
 }
 

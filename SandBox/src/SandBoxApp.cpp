@@ -15,12 +15,15 @@ class SandBox :public Engine::Application
 public:
 	SandBox() {
 		Ref <Scene>m_ActivateScene = CreateRef<Scene>();
-		PushLayer(new Engine::ImGuiLayer("IMGUI"));
-		#ifdef RenderAPI_Vulkan
-			PushLayer(new VulkanExampleLayer(m_ActivateScene,"VulkanExample"));
+		auto* gui = new Engine::ImGuiLayer("IMGUI");
+		PushLayer(gui);
+#ifdef RenderAPI_Vulkan
+		auto* viewport = new VulkanExampleLayer(m_ActivateScene, "VulkanExample");
 #else
-			PushLayer(new VulkanExampleLayer(m_ActivateScene, "OpenGL- Example"));
+		auto* viewport = new VulkanExampleLayer(m_ActivateScene, "OpenGL- Example");
 #endif
+		PushLayer(viewport);
+		gui->SetWindowMenu([viewport] { viewport->DrawPostProcessMenu(); });
 		//PushLayer(new ExampleLayer(m_ActivateScene, "Example"));
 		auto* inspector = new Inspect(m_ActivateScene, "Inspect");
 		PushLayer(inspector);
