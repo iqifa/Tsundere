@@ -41,7 +41,6 @@ private:
 	TransformDrag m_TransformDrag;
 
 	glm::vec2 m_ViewPortSize{ 0.0f };
-	GLFWwindow* m_WindowHandle = nullptr;
 
 
 	uint32_t m_GraphBuiltWidth = 0;

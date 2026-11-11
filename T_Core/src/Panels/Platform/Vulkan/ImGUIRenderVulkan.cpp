@@ -66,10 +66,7 @@ namespace Vulkan_ImGui
         io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
         io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-
-        // Secondary Vulkan viewports need their own swapchains and render paths.
-        // Keep them disabled until that ownership is integrated into the RHI.
-        io.ConfigFlags &= ~ImGuiConfigFlags_ViewportsEnable;
+        io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
 
         GLFWwindow* window =
             static_cast<GLFWwindow*>(app.GetWindow().GetWindow());
@@ -129,6 +126,12 @@ namespace Vulkan_ImGui
         context->BeginPresentPass();
         ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffer);
         context->EndPresentPass();
+    }
+
+    void RenderPlatformWindows()
+    {
+        ImGui::UpdatePlatformWindows();
+        ImGui::RenderPlatformWindowsDefault();
     }
 
     ImTextureID GetTextureID(RHITexture2D* texture)
@@ -216,7 +219,8 @@ struct VulkanImGuiRegisterer
             Vulkan_ImGui::End,
             Vulkan_ImGui::Shutdown,
             Vulkan_ImGui::GetTextureID,
-            Vulkan_ImGui::ReleaseTexture
+            Vulkan_ImGui::ReleaseTexture,
+            Vulkan_ImGui::RenderPlatformWindows
         });
     }
 };

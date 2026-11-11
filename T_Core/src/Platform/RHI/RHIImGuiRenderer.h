@@ -23,10 +23,11 @@ public:
 		ShutdownFunc       Shutdown;
 		GetTextureIDFunc   GetTextureID;
 		ReleaseTextureFunc ReleaseTexture;
+		EndFunc            RenderPlatformWindows;
 	};
 
 	// �����޸� 1��ʹ�� C++17 inline static��ֱ����ͷ�ļ���ɶ����ұ�֤�� DLL ����
-	inline static APIFunctions s_API = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
+	inline static APIFunctions s_API{};
 
 	static void Register(const APIFunctions& funcs) { s_API = funcs; }
 
@@ -41,6 +42,11 @@ public:
 	}
 	static void Begin(Engine::Application& app, float& m_Time) { if (s_API.Begin) s_API.Begin(app, m_Time); }
 	static void End() { if (s_API.End) s_API.End(); }
+	static void RenderPlatformWindows()
+	{
+		if (s_API.RenderPlatformWindows)
+			s_API.RenderPlatformWindows();
+	}
 	static ImTextureID GetTextureID(RHITexture2D* texture)
 	{
 		return s_API.GetTextureID ? s_API.GetTextureID(texture) : ImTextureID_Invalid;

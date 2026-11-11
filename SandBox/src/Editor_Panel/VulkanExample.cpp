@@ -18,13 +18,6 @@ VulkanExampleLayer::VulkanExampleLayer(Ref<Scene> scene, std::string name)
 	this->m_Context = scene;
 	m_SelectedContext = null;
 
-	auto& app = Engine::Application::Get();
-	m_WindowHandle = static_cast<GLFWwindow*>(app.GetWindow().GetWindow());
-
-	if (!m_WindowHandle) {
-		Error_Core("ExampleLayer: �޷��� Application ��ȡ�����ھ����");
-	}
-
 	m_GraphFrameData = CreateRef<RGFrameData>();
 
 	// 初始化 Pass 管理器
@@ -145,7 +138,12 @@ void VulkanExampleLayer::DrawSceneViewport()
 			DrawViewportTools(min, max, hovered);
 			const ImGuiIO& io = ImGui::GetIO();
 			if (m_ViewportCameraControl)
+			{
 				currentcamera->ProcessMouseLook(io.MouseDelta.x, -io.MouseDelta.y);
+				auto* window = static_cast<GLFWwindow*>(ImGui::GetWindowViewport()->PlatformHandle);
+				if (window)
+					currentcamera->ProcessKeyboard(window, 0.5f);
+			}
 			if (hovered && m_TransformDrag.entity == entt::null && io.MouseWheel != 0.0f)
 				currentcamera->ProcessScroll(io.MouseWheel);
 		}
@@ -297,9 +295,6 @@ void VulkanExampleLayer::ExecuteRenderGraph()
 	{
 		BuildRenderGraph(width, height);
 	}
-
-	if (m_ViewportCameraControl)
-		currentcamera->ProcessKeyboard(m_WindowHandle, 0.5f);
 
 	m_GraphFrameData->CameraJitterEnabled = m_TAAOutputAvailable;
 	m_GraphFrameData->BeginCameraFrame(currentcamera->GetViewFront(),

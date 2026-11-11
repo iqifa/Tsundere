@@ -52,15 +52,17 @@ namespace Engine {
 			// Phase 1: Dispatch queued load requests to worker thread
 			ResourceLoader::DispatchQueuedLoads();
 
-			// Phase 2: Normal frame. A minimized or out-of-date swapchain does not
-			// start a command buffer; skip recording until EndFrame can present.
 			RHIRenderer::BeginFrame();
-			if (RHIRenderer::IsFrameActive())
+			const bool frameActive = RHIRenderer::IsFrameActive();
+			if (frameActive)
 			{
 				for (auto layer : layerStack.GetLayerSnapshot())
-				{
 					layer->OnUpdate();
-				}
+			}
+
+			const bool renderUI = frameActive || ImGui::GetPlatformIO().Viewports.Size > 1;
+			if (renderUI)
+			{
 				RHIImGUIRenderer::Begin(*this, m_Time);
 				for (auto layer : layerStack.GetLayerSnapshot())
 				{
@@ -68,7 +70,14 @@ namespace Engine {
 				}
 				RHIImGUIRenderer::End();
 			}
+
+			// A minimized main window may wait for input in EndFrame.
+			if (renderUI && !frameActive)
+				RHIImGUIRenderer::RenderPlatformWindows();
 			RHIRenderer::EndFrame();
+			// Detached panels may sample textures produced by this frame's main submission.
+			if (renderUI && frameActive)
+				RHIImGUIRenderer::RenderPlatformWindows();
 		}
 
 		// GPU objects live in layers and static caches. Their destructors must
