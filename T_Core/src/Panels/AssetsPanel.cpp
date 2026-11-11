@@ -69,26 +69,7 @@ void AssetsPanel::OnImGuiRender()
 {
 	ImGui::Begin("Assets");
 
-	// Toolbar
-	if (ImGui::Button("Import"))
-		ImportAsset();
-
-	ImGui::SameLine();
-	if (ImGui::Button("New Material"))
-		CreateMaterialAsset();
-	ImGui::SameLine();
-	if (ImGui::Button("Import Cubemap"))
-		ImGui::OpenPopup("Import Cubemap");
-	DrawCubemapImport();
-	if (currentcamera && currentcamera->SkyboxAssetUid != 0)
-	{
-		ImGui::SameLine();
-		if (ImGui::Button("Clear Skybox"))
-		{
-			currentcamera->SkyboxAssetUid = 0;
-			++currentcamera->SkyboxAssetRevision;
-		}
-	}
+	bool openCubemapImport = false;
 
 	ImGui::SameLine();
 	if (ImGui::Button("Refresh"))
@@ -134,17 +115,35 @@ void AssetsPanel::OnImGuiRender()
 		ImGui::Separator();
 		DrawAssetGrid();
 
-		// Blank-area context menu: create new assets here
 		if (ImGui::BeginPopupContextWindow("##assetsBlankCtx", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems))
 		{
 			if (ImGui::MenuItem("New Material"))
 				CreateMaterialAsset();
 			if (ImGui::MenuItem("Import Asset..."))
 				ImportAsset();
+			openCubemapImport = ImGui::MenuItem("Import Cubemap...");
+
+			ImGui::Separator();
+			if (ImGui::MenuItem("Refresh"))
+			{
+				SyncRegistry();
+				RefreshCurrentDirectory();
+			}
+			if (currentcamera && currentcamera->SkyboxAssetUid != 0 && ImGui::MenuItem("Clear Skybox"))
+			{
+				currentcamera->SkyboxAssetUid = 0;
+				++currentcamera->SkyboxAssetRevision;
+			}
+
 			ImGui::EndPopup();
 		}
 	}
 	ImGui::EndChild();
+
+	// Open and draw the modal from the Assets window's popup scope.
+	if (openCubemapImport)
+		ImGui::OpenPopup("Import Cubemap");
+	DrawCubemapImport();
 
 	ImGui::End();
 }
