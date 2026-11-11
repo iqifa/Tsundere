@@ -84,7 +84,7 @@ public:
 		RDGTextureDesc colorDesc;
 		colorDesc.width = m_Width;
 		colorDesc.height = m_Height;
-		colorDesc.format = Format::RGBA8_UNORM;
+		colorDesc.format = Format::RGBA16F;
 		colorDesc.usage = TextureUsage::ColorAttachment | TextureUsage::Sampled | TextureUsage::TransferSrc;
 
 		m_DeferredLight = builder.CreateTexture("Light", colorDesc);

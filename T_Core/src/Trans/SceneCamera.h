@@ -41,6 +41,8 @@ public:
 	void ProcessScroll(float delta);
 	float m_AspectRatio = 1.125f;
 	void RenderSkyBox(RHICommandBuffer& commandBuffer);
+	uint64_t SkyboxAssetUid = 0;
+	uint64_t SkyboxAssetRevision = 0;
 private:
 	glm::vec3 cameraPos;
 	glm::vec3 cameraTarget;

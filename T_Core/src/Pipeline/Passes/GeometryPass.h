@@ -9,6 +9,7 @@ public:
 	GeometryPass(Ref<Scene> scene, Ref<RGFrameData> frameData)
 		: m_Scene(scene), m_FrameData(frameData)
 	{
+		// 初始化 Shader 和资源
 		m_LitShader = RHIShader::Create("res/shaders/Lit.shader");
 		InitFallbackGeometry();
 		m_GeometryDescriptorSet = RHIDescriptorSet::Create();

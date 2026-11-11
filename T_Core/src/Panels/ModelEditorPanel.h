@@ -453,7 +453,7 @@ private:
 			return false;
 		}
 
-		m_PreviewShader = RHIShader::Create("D:/Code/C++/Tsundere/res/shaders/ModelPreview.shader");
+		m_PreviewShader = RHIShader::Create("res/shaders/ModelPreview.shader");
 		m_PreviewCameraUBO = RHIBuffer::Create({
 			sizeof(PreviewCameraUBO), BufferUsage::Uniform, true, nullptr });
 		m_PreviewDescriptors = RHIDescriptorSet::Create();

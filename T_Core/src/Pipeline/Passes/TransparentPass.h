@@ -3,6 +3,7 @@
 #include "Pipeline/Passes/ForwardMeshRenderer.h"
 #include "Pipeline/Passes/OpaqueSceneInputs.h"
 #include "Pipeline/RenderPassRegistry.h"
+#include <cstring>
 
 class TransparentPass : public RenderGraphPass
 {
@@ -41,11 +42,25 @@ public:
 		m_OpaqueDepth = builder.ReadTexture(opaque.depthName, RGAccess::CopySrc);
 		m_ShadowMap = builder.ReadTexture("ShadowMap.Depth");
 
+		const bool hdrColor = opaque.colorName &&
+			std::strcmp(opaque.colorName, "DeferredLight.Light") == 0;
 		RDGTextureDesc color;
 		color.width = m_Width;
 		color.height = m_Height;
-		color.format = Format::RGBA8_UNORM;
+		color.format = hdrColor ? Format::RGBA16F : Format::RGBA8_UNORM;
 		color.usage = TextureUsage::ColorAttachment | TextureUsage::Sampled | TextureUsage::TransferDst;
+
+		PipelineDesc pipeDesc;
+		pipeDesc.cullMode = CullMode::Back;
+		pipeDesc.depthTest = true;
+		pipeDesc.depthWrite = false;
+		pipeDesc.srcBlend = BlendFactor::SrcAlpha;
+		pipeDesc.dstBlend = BlendFactor::OneMinusSrcAlpha;
+		pipeDesc.pushConstantSize = sizeof(DrawPushConstants);
+		pipeDesc.renderingSignature.colorFormats = { color.format };
+		pipeDesc.renderingSignature.depthFormat = Format::D24_UNORM_S8_UINT;
+		m_MeshRenderer.ConfigurePipeline(std::move(pipeDesc));
+
 		m_SceneColor = builder.CreateTexture("SceneColor", color);
 		builder.WriteTexture(m_SceneColor, RGAccess::CopyDst);
 		builder.SetColorOutput(0, m_SceneColor, RGLoadOp::Load);

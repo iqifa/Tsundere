@@ -4,6 +4,7 @@
 #include<Pipeline/RenderPass.h>
 #include<Pipeline/RenderGraph.h>
 #include<Pipeline/RenderPassManager.h>
+#include <Pipeline/Passes/PostProcessPass.h>
 
 class VulkanExampleLayer :public BasePanel {
 public:
@@ -22,6 +23,8 @@ private:
 	void BuildRenderGraph(uint32_t width, uint32_t height);
 	void DrawSceneViewport();
 	void DrawViewportTools(const ImVec2& min, const ImVec2& max, bool hovered);
+	void DrawSkyboxSettings();
+	void SaveSkyboxSettings();
 
 	enum class ViewportTool { Select, Move, Rotate, Scale };
 	ViewportTool m_ViewportTool = ViewportTool::Move;
@@ -45,6 +48,15 @@ private:
 	uint32_t m_GraphBuiltHeight = 0;
 	bool m_GraphDirty = true;
 	uint64_t m_SceneRevision = 0;
+	uint64_t m_AttemptedSkyboxAsset = 0;
+	std::string m_LoadedSkyboxAsset;
+	std::string m_SkyboxStatus;
+	std::string m_SkyboxConfigPath;
+	std::string m_SkyboxSaveStatus;
+	bool m_SkyboxChecked = false;
+	uint64_t m_SkyboxAssetRevision = 0;
+	PostProcess::Settings m_PostProcess;
+	Ref<RHIShader> m_PostProcessShader;
 
 
 	Ref<RGFrameData> m_GraphFrameData;

@@ -6,6 +6,9 @@
 #include "Panels/ModelEditorPanel.h"
 #include "Panels/MaterialEditorPanel.h"
 #include "Panels/TextureViewerPanel.h"
+#include "Core/Assets/CubemapAsset.h"
+#include <set>
+#include "Trans/SceneCamera.h"
 #include <algorithm>
 #include <cctype>
 
@@ -50,16 +53,16 @@ AssetsPanel::AssetsPanel(const std::string& name)
 		m_RootDirectory = FindProjectRoot();
 		m_CurrentDirectory = m_RootDirectory;
 	}
-	RefreshCurrentDirectory();
 	SyncRegistry();
+	RefreshCurrentDirectory();
 }
 
 void AssetsPanel::SetRootDirectory(const std::string& path)
 {
 	m_RootDirectory = path;
 	m_CurrentDirectory = m_RootDirectory;
-	RefreshCurrentDirectory();
 	SyncRegistry();
+	RefreshCurrentDirectory();
 }
 
 void AssetsPanel::OnImGuiRender()
@@ -73,12 +76,25 @@ void AssetsPanel::OnImGuiRender()
 	ImGui::SameLine();
 	if (ImGui::Button("New Material"))
 		CreateMaterialAsset();
+	ImGui::SameLine();
+	if (ImGui::Button("Import Cubemap"))
+		ImGui::OpenPopup("Import Cubemap");
+	DrawCubemapImport();
+	if (currentcamera && currentcamera->SkyboxAssetUid != 0)
+	{
+		ImGui::SameLine();
+		if (ImGui::Button("Clear Skybox"))
+		{
+			currentcamera->SkyboxAssetUid = 0;
+			++currentcamera->SkyboxAssetRevision;
+		}
+	}
 
 	ImGui::SameLine();
 	if (ImGui::Button("Refresh"))
 	{
-		RefreshCurrentDirectory();
 		SyncRegistry();
+		RefreshCurrentDirectory();
 	}
 
 	ImGui::SameLine();
@@ -372,6 +388,8 @@ AssetsPanel::AssetEntry::Type AssetsPanel::GetAssetType(const fs::path& path)
 	if (ext == ".tscene") return AssetEntry::Type::Scene;
 	if (ext == ".tmat")
 		return AssetEntry::Type::Material;
+	if (ext == ".tcubemap")
+		return AssetEntry::Type::Cubemap;
 	if (ext == ".shader" || ext == ".glsl" || ext == ".vert" || ext == ".frag")
 		return AssetEntry::Type::Shader;
 
@@ -388,6 +406,7 @@ std::string AssetsPanel::GetAssetTypeIcon(AssetEntry::Type type)
 	case AssetEntry::Type::Material: return "[MAT]";
 	case AssetEntry::Type::Shader: return "[SHD]";
 	case AssetEntry::Type::Scene: return "[SCN]";
+	case AssetEntry::Type::Cubemap: return "[CUBE]";
 	case AssetEntry::Type::Unknown: return "[?]";
 	default: return "[?]";
 	}
@@ -405,11 +424,23 @@ void AssetsPanel::RefreshCurrentDirectory()
 	if (!fs::exists(m_CurrentDirectory) || !fs::is_directory(m_CurrentDirectory))
 		return;
 
+	std::set<fs::path> cubemapFaces;
+	for (const auto& asset : fs::recursive_directory_iterator(m_RootDirectory, fs::directory_options::skip_permission_denied))
+	{
+		if (!asset.is_regular_file() || GetAssetType(asset.path()) != AssetEntry::Type::Cubemap) continue;
+		try
+		{
+			for (const auto& face : Engine::CubemapAsset::References(asset.path().string()))
+				if (!face.empty()) cubemapFaces.insert(fs::weakly_canonical(fs::u8path(face)));
+		}
+		catch (const std::exception&) { /* Invalid manifests must not hide images. */ }
+	}
 	for (const auto& entry : fs::directory_iterator(m_CurrentDirectory))
 	{
 		if (!m_ShowHiddenFiles && entry.path().filename().string()[0] == '.')
 			continue;
 
+		if (cubemapFaces.count(fs::weakly_canonical(entry.path()))) continue;
 		std::string ext = entry.path().extension().string();
 		std::transform(ext.begin(), ext.end(), ext.begin(),
 			[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
@@ -448,15 +479,64 @@ void AssetsPanel::NavigateToDirectory(const fs::path& directory)
 	}
 }
 
+void AssetsPanel::DrawCubemapImport()
+{
+	if (!ImGui::BeginPopupModal("Import Cubemap", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+		return;
+	ImGui::InputText("Name", m_CubemapName, sizeof(m_CubemapName));
+	const char* labels[] = { "+X Right", "-X Left", "+Y Top", "-Y Bottom", "+Z Front", "-Z Back" };
+	for (size_t face = 0; face < m_CubemapFaces.size(); ++face)
+	{
+		if (ImGui::Button(labels[face]))
+		{
+			const std::string selected = OpenFileDialog("Images (RGBA8 import)\0*.png;*.jpg;*.jpeg;*.bmp;*.tga\0");
+			if (!selected.empty())
+				m_CubemapFaces[face] = selected;
+		}
+		ImGui::SameLine();
+		ImGui::TextUnformatted(m_CubemapFaces[face].empty() ? "Select face" : fs::path(m_CubemapFaces[face]).filename().string().c_str());
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", m_CubemapFaces[face].c_str());
+	}
+	ImGui::TextUnformatted("Six equal square images. Saved as texture UUIDs. Select images already imported into Assets.");
+	if (!m_CubemapError.empty())
+		ImGui::TextWrapped("%s", m_CubemapError.c_str());
+	if (ImGui::Button("Import"))
+	{
+		try
+		{
+			const std::string name(m_CubemapName);
+			if (name.empty() || name == "." || name == ".." || name.find_first_of("/\\:") != std::string::npos)
+				throw std::runtime_error("Enter a valid asset name");
+			const auto path = m_CurrentDirectory / (name + ".tcubemap");
+			SyncRegistry();
+			Engine::CubemapAsset::Import(m_CubemapFaces, path.string());
+			m_CubemapError.clear();
+			SyncRegistry();
+			RefreshCurrentDirectory();
+			ImGui::CloseCurrentPopup();
+		}
+		catch (const std::exception& error)
+		{
+			m_CubemapError = error.what();
+			Error_Core("[Cubemap import]: {}", error.what());
+		}
+	}
+	ImGui::SameLine();
+	if (ImGui::Button("Cancel"))
+		ImGui::CloseCurrentPopup();
+	ImGui::EndPopup();
+}
+
 void AssetsPanel::ImportAsset()
 {
 	// One dialog accepting all supported asset types
 	std::string path = OpenFileDialog(
-		"Supported Assets\0*.obj;*.fbx;*.gltf;*.glb;*.pmx;*.pmd;*.png;*.jpg;*.jpeg;*.tga;*.bmp;*.hdr;*.tmat;*.tscene\0"
+		"Supported Assets\0*.obj;*.fbx;*.gltf;*.glb;*.pmx;*.pmd;*.png;*.jpg;*.jpeg;*.tga;*.bmp;*.hdr;*.tmat;*.tscene;*.tcubemap\0"
 		"Model Files\0*.obj;*.fbx;*.gltf;*.glb;*.pmx;*.pmd\0"
 		"Image Files\0*.png;*.jpg;*.jpeg;*.tga;*.bmp;*.hdr\0"
 		"Material Files\0*.tmat\0"
 		"Scene Files\0*.tscene\0"
+		"Cubemap Files\0*.tcubemap\0"
 		"All Files\0*.*\0");
 	if (path.empty())
 		return;
@@ -470,7 +550,12 @@ void AssetsPanel::ImportAsset()
 		// Destination folder may have been deleted while browsing
 		std::error_code ec;
 		fs::create_directories(m_CurrentDirectory, ec);
-		fs::copy_file(sourcePath, destPath, fs::copy_options::overwrite_existing);
+		if (GetAssetType(sourcePath) == AssetEntry::Type::Cubemap)
+		{
+			const auto faces = Engine::CubemapAsset::References(sourcePath.string());
+			Engine::CubemapAsset::Import(faces, destPath.string());
+		}
+		else fs::copy_file(sourcePath, destPath, fs::copy_options::overwrite_existing);
 		Info_Core("Imported asset: {0}", destPath.string());
 
 		// Load asset based on type
@@ -490,8 +575,9 @@ void AssetsPanel::ImportAsset()
 				Info_Core("Loaded material asset: {0}", destPath.string());
 		}
 
-		RefreshCurrentDirectory();
 		SyncRegistry();
+
+		RefreshCurrentDirectory();
 	}
 	catch (const std::exception& e)
 	{
@@ -525,8 +611,8 @@ void AssetsPanel::CreateMaterialAsset()
 	}
 
 	Info_Core("Created material: {0}", target.string());
-	RefreshCurrentDirectory();
 	SyncRegistry();
+	RefreshCurrentDirectory();
 }
 
 void AssetsPanel::DeleteAsset(const std::string& path)
@@ -544,8 +630,8 @@ void AssetsPanel::DeleteAsset(const std::string& path)
 		}
 
 		Info_Core("Deleted asset: {0}", path);
-		RefreshCurrentDirectory();
 		SyncRegistry();
+		RefreshCurrentDirectory();
 	}
 	catch (const std::exception& e)
 	{
@@ -572,8 +658,8 @@ void AssetsPanel::RenameAsset(const std::string& oldPath, const std::string& new
 		}
 
 		Info_Core("Renamed asset: {0} -> {1}", oldPath, newPath.string());
-		RefreshCurrentDirectory();
 		SyncRegistry();
+		RefreshCurrentDirectory();
 	}
 	catch (const std::exception& e)
 	{
@@ -599,6 +685,13 @@ void AssetsPanel::OpenAsset(const AssetEntry& entry)
 
 	case AssetEntry::Type::Texture:
 		TextureViewerPanel::Open(entry.path);
+		break;
+	case AssetEntry::Type::Cubemap:
+		if (currentcamera)
+		{
+			currentcamera->SkyboxAssetUid = Engine::AssetDatabase::UidForPath(entry.path, Engine::AssetKind::Cubemap);
+			++currentcamera->SkyboxAssetRevision;
+		}
 		break;
 
 	case AssetEntry::Type::Material:

@@ -8,7 +8,8 @@
 #ifdef RenderAPI_Vulkan
 Ref<RHIPipeline> RHIPipeline::Create(const PipelineDesc& desc)
 {
-	return CreateRef<VulkanPipeline>(desc);
+	auto pipeline = CreateRef<VulkanPipeline>(desc);
+	return pipeline->GetPipeline() != VK_NULL_HANDLE ? pipeline : nullptr;
 }
 #endif
 

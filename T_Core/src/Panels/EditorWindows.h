@@ -8,4 +8,5 @@ struct T_API EditorWindows
 {
 	static bool& ShadowMap();
 	static bool& Console();
+	static bool& Skybox();
 };

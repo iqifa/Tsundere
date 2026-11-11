@@ -47,6 +47,8 @@ std::optional<AssetKind> Classify(const std::filesystem::path& path)
 	if (ext == ".tscene") return AssetKind::Scene;
 	if (ext == ".tmat")
 		return AssetKind::Material;
+	if (ext == ".tcubemap")
+		return AssetKind::Cubemap;
 	if (ext == ".shader" || ext == ".glsl" || ext == ".vert" || ext == ".frag")
 		return AssetKind::Shader;
 	return std::nullopt;
@@ -61,6 +63,7 @@ const char* KindToString(AssetKind kind)
 	case AssetKind::Material: return "Material";
 	case AssetKind::Shader: return "Shader";
 	case AssetKind::Scene: return "Scene";
+	case AssetKind::Cubemap: return "Cubemap";
 	}
 	return "Model";
 }
@@ -72,6 +75,7 @@ bool KindFromString(const std::string& text, AssetKind& kind)
 	if (text == "Texture") { kind = AssetKind::Texture; return true; }
 	if (text == "Material") { kind = AssetKind::Material; return true; }
 	if (text == "Shader") { kind = AssetKind::Shader; return true; }
+	if (text == "Cubemap") { kind = AssetKind::Cubemap; return true; }
 	return false;
 }
 
@@ -265,6 +269,22 @@ void AssetDatabase::Sync(const std::filesystem::path& root)
 
 	std::unique_lock lock(s_Mutex);
 	s_Records.swap(next);
+}
+
+uint64_t AssetDatabase::UidForPath(const std::filesystem::path& path, AssetKind kind)
+{
+	const auto normalized = NormalizePath(path);
+	std::shared_lock lock(s_Mutex);
+	for (const auto& [uid, record] : s_Records)
+		if (record.kind == kind && record.path == normalized) return uid;
+	return 0;
+}
+
+std::string AssetDatabase::Resolve(uint64_t uid, AssetKind kind)
+{
+	std::shared_lock lock(s_Mutex);
+	const auto found = s_Records.find(uid);
+	return found != s_Records.end() && found->second.kind == kind ? found->second.path : std::string{};
 }
 
 std::vector<AssetRecord> AssetDatabase::GetByKind(AssetKind kind)

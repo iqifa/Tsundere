@@ -36,7 +36,11 @@ struct SkyBox
     Ref<RHIDescriptorSet> m_DescriptorSet;
 
     SkyBox() = default;
+    explicit SkyBox(const std::string& assetPath)
+        : SkyBox(std::vector<std::string>{}, assetPath) {}
     explicit SkyBox(std::vector<std::string> vec)
+        : SkyBox(std::move(vec), "") {}
+    SkyBox(std::vector<std::string> vec, const std::string& assetPath)
         : texpaths(std::move(vec))
     {
         static const float skyboxVertices[] = {
@@ -55,9 +59,9 @@ struct SkyBox
         };
 
         m_Cmp = RHITextureCube::Create({ 0, Format::RGBA8_UNORM, texpaths,
-                                         FilterMode::Linear, FilterMode::Linear });
-        m_Shader = RHIShader::Create("D:/Code/C++/Tsundere/res/shaders/SkyBox.shader");
-        m_ColorOnlyShader = RHIShader::Create("D:/Code/C++/Tsundere/res/shaders/SkyBoxColor.shader");
+                                         FilterMode::Linear, FilterMode::Linear, assetPath });
+        m_Shader = RHIShader::Create("res/shaders/SkyBox.shader");
+        m_ColorOnlyShader = RHIShader::Create("res/shaders/SkyBoxColor.shader");
         m_VertexBuffer = RHIBuffer::Create({
             static_cast<uint32_t>(sizeof(skyboxVertices)), BufferUsage::Vertex,
             false, skyboxVertices });
@@ -92,6 +96,8 @@ struct SkyBox
         m_Pipeline = builder.CreatePipeline(shader, layout, &desc);
         if (m_Pipeline)
             m_Pipeline->SetupVertexFormat(m_VertexBuffer);
+        else
+            Error_Core("[SkyBox]: pipeline creation failed for shader {}", shader->GetPath());
         return m_Pipeline != nullptr;
     }
 

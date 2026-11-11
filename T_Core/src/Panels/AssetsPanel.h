@@ -11,6 +11,7 @@
 #include <vector>
 #include <string>
 #include <functional>
+#include <array>
 
 namespace fs = std::filesystem;
 
@@ -40,6 +41,7 @@ private:
 			Material,
 			Shader,
 			Scene,
+			Cubemap,
 			Unknown
 		};
 
@@ -64,6 +66,10 @@ private:
 	void NavigateToDirectory(const fs::path& directory);
 
 	void ImportAsset();
+	void DrawCubemapImport();
+	std::array<std::string, 6> m_CubemapFaces;
+	char m_CubemapName[128] = "Skybox";
+	std::string m_CubemapError;
 	void CreateMaterialAsset();
 	void DeleteAsset(const std::string& path);
 	void RenameAsset(const std::string& oldPath, const std::string& newName);

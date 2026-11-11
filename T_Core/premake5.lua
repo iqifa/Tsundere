@@ -96,8 +96,8 @@ project "T_Core"
     end
 
 
-    filter{ "system:windows", "action:vs2022" }
-        buildoptions{"/utf-8","/MDd","/FS"}
+    filter{ "system:windows", "action:vs*" }
+        buildoptions{"/MDd","/FS"}
     filter{}
     defines
     {
@@ -109,11 +109,9 @@ project "T_Core"
 
 
     postbuildcommands{
-        ("{COPY} %{cfg.targetdir} ../bin"),
-        "{COPY} ../Dependence/lib/GLEW/glew32.dll ../bin",
-        "{COPY} ../Dependence/lib/assimp/" .. (ASSIMP_LIB or "assimp-vc143-mtd") .. ".dll ../bin",
-        "{COPY} " .. (VULKAN_SDK_ROOT or "C:/VulkanSDK/1.4.357.0") .. "/Bin/shaderc_shared.dll ../bin",
-        "{COPY} " .. (VULKAN_SDK_ROOT or "C:/VulkanSDK/1.4.357.0") .. "/Bin/spirv-cross-c-shared.dll ../bin"
+        '{COPYDIR} "%{cfg.targetdir}" "../bin"',
+        '{COPYFILE} "../Dependence/lib/GLEW/glew32.dll" "../bin"',
+        '{COPYFILE} "../Dependence/lib/assimp/' .. (ASSIMP_LIB or "assimp-vc143-mtd") .. '.dll" "../bin"',
+        '{COPYFILE} "' .. (VULKAN_SDK_ROOT or "C:/VulkanSDK/1.4.357.0") .. '/Bin/shaderc_shared.dll" "../bin"',
+        '{COPYFILE} "' .. (VULKAN_SDK_ROOT or "C:/VulkanSDK/1.4.357.0") .. '/Bin/spirv-cross-c-shared.dll" "../bin"'
     }
-
-    

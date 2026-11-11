@@ -323,9 +323,11 @@ void VulkanCommandBuffer::EndRenderPass()
 
 void VulkanCommandBuffer::BindPipeline(Ref<RHIPipeline> pipeline)
 {
+    m_CurrentPipeline = VK_NULL_HANDLE;
+    m_CurrentPipelineLayout = VK_NULL_HANDLE;
     auto* p = pipeline ? dynamic_cast<VulkanPipeline*>(pipeline.get()) : nullptr;
     VkCommandBuffer command = Cmd();
-    if (!p || command == VK_NULL_HANDLE) return;
+    if (!p || p->GetPipeline() == VK_NULL_HANDLE || command == VK_NULL_HANDLE) return;
     p->Bind();
     m_CurrentPipeline = p->GetPipeline();
     m_CurrentPipelineLayout = p->GetPipelineLayout();
@@ -397,8 +399,8 @@ void VulkanCommandBuffer::PushConstants(const void* data, uint32_t size)
         size,
         data);
 }
-void VulkanCommandBuffer::Draw(uint32_t count, uint32_t first) { if (Cmd()) vkCmdDraw(Cmd(), count, 1, first, 0); }
-void VulkanCommandBuffer::DrawIndexed(uint32_t count, uint32_t first) { if (Cmd() && m_CurrentIndexBuffer) vkCmdDrawIndexed(Cmd(), count, 1, first, 0, 0); }
+void VulkanCommandBuffer::Draw(uint32_t count, uint32_t first) { if (Cmd() && m_CurrentPipeline) vkCmdDraw(Cmd(), count, 1, first, 0); }
+void VulkanCommandBuffer::DrawIndexed(uint32_t count, uint32_t first) { if (Cmd() && m_CurrentPipeline && m_CurrentIndexBuffer) vkCmdDrawIndexed(Cmd(), count, 1, first, 0, 0); }
 void VulkanCommandBuffer::DrawFullscreenQuad() { Draw(3, 0); }
 void VulkanCommandBuffer::Dispatch(uint32_t x, uint32_t y, uint32_t z) { if (Cmd()) vkCmdDispatch(Cmd(), x, y, z); }
 void VulkanCommandBuffer::ResourceBarrier() {}
