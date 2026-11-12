@@ -1,6 +1,7 @@
 #pragma once
 #include<Pipeline/Passes/PassCommon.h>
 #include "Pipeline/RenderPassRegistry.h"
+#include "Pipeline/Passes/ForwardMeshRenderer.h"
 #include "Scene/Vertex.h"
 #include "Core/MaterialLibrary.h"
 #include <cstddef>
@@ -63,7 +64,7 @@ public:
 		colorDesc.width = m_Width;
 		colorDesc.height = m_Height;
 		colorDesc.format = Format::RGBA8_UNORM;
-		colorDesc.usage = TextureUsage::ColorAttachment | TextureUsage::Sampled;
+		colorDesc.usage = TextureUsage::ColorAttachment | TextureUsage::Sampled | TextureUsage::TransferSrc;
 
 		RDGTextureDesc velocityDesc = colorDesc;
 		velocityDesc.format = Format::RG16F;
@@ -83,17 +84,20 @@ public:
 		m_Velocity = builder.CreateTexture("Velocity", velocityDesc);
 		m_Depth = builder.CreateTexture("Depth", depthDesc);
 		m_Normal = builder.CreateTexture("Normal", normalDesc);
-		m_Specular = builder.CreateTexture("Specular", colorDesc);
+		m_MetallicRoughness = builder.CreateTexture("MetallicRoughness", velocityDesc);
 
 		builder.SetColorOutput(0, m_Normal, RGLoadOp::Clear, { 0.0f,0.0f,0.0f,1.0f });
 		builder.SetColorOutput(1, m_SceneColor, RGLoadOp::Clear, { 1.0f,0.0f,0.0f,1.0f });
-		builder.SetColorOutput(2, m_Specular, RGLoadOp::Clear, { 0.0f,0.0f,0.0f,1.0f });
+		builder.SetColorOutput(2, m_MetallicRoughness, RGLoadOp::Clear, { 0.0f,0.0f,0.0f,1.0f });
 		builder.SetColorOutput(3, m_Velocity, RGLoadOp::Clear, { 0.0f, 0.0f, 0.0f, 0.0f });
+		m_Emissive = builder.CreateTexture("Emissive", normalDesc);
+		builder.SetColorOutput(4, m_Emissive, RGLoadOp::Clear, { 0,0,0,0 });
+		builder.Export(m_Emissive);
 		builder.SetDepthOutput(m_Depth, RGLoadOp::Clear, 1.0f);
 
 		builder.Export(m_SceneColor);
 		builder.Export(m_Normal);
-		builder.Export(m_Specular);
+		builder.Export(m_MetallicRoughness);
 		builder.Export(m_Velocity);
 		builder.Export(m_Depth);
 		
@@ -116,6 +120,12 @@ public:
 		}
 
 		// Create pipeline for scene meshes (7-attribute vertex format with BoneIDs/Weights)
+		PipelineDesc materialDesc = m_CubePipelineDesc;
+		materialDesc.renderingSignature.colorFormats = {
+			Format::RGBA16F, Format::RGBA8_UNORM, Format::RG16F, Format::RG16F, Format::RGBA16F };
+		materialDesc.renderingSignature.depthFormat = Format::D24_UNORM_S8_UINT;
+		m_MaterialRenderer.ConfigurePipeline(std::move(materialDesc));
+
 		if (!m_ScenePipeline)
 		{
 			VertexLayout sceneLayout;
@@ -156,7 +166,7 @@ public:
 
 		//currentcamera->RenderSkyBox(cmd);
 
-		GbufferFrameUBO fubo;
+		GbufferFrameUBO fubo{};
 		fubo.hasNormalMap = 0;
 		m_FrameUBO->Upload(&fubo, sizeof(fubo));
 
@@ -176,12 +186,7 @@ public:
 		bool hadReadyMesh = false;
 		m_DefaultTex->Bind(0);
 
-		//// Bind scene pipeline once before drawing all scene objects
-		if (m_ScenePipeline)
-		{
-			cmd.BindPipeline(m_ScenePipeline);
-		}
-
+		m_MaterialRenderer.UploadFrame(*m_Scene, *m_FrameData, shadowTex);
 		for (auto [entityID, transform, meshrender] : m_Scene->m_Registry.view<Component::Transform, Component::MeshRender>().each())
 		{
 			if (meshrender.ModelPath.empty() || meshrender.materials.empty())
@@ -204,8 +209,20 @@ public:
 				Ref<Engine::Material> mat = i < meshrender.materials.size()
 					? meshrender.materials[i]
 					: meshrender.materials[0];
-				if (mat && mat->GetShader() && mat->GetShader()->GetReflection().Transparent)
+				if (mat && mat->GetShader())
+				{
+					const auto& reflection = mat->GetShader()->GetReflection();
+					if (reflection.Transparent || reflection.RenderPass == MaterialRenderPass::Forward)
+						continue;
+					if (reflection.RenderPass == MaterialRenderPass::GBuffer)
+					{
+						m_MaterialRenderer.Draw(cmd, *mesh.gpuMesh, mat, modelMat, prevModel, { shadowTex });
+						continue;
+					}
+				}
+				if (!m_ScenePipeline)
 					continue;
+				cmd.BindPipeline(m_ScenePipeline);
 
 				// Material textures override the white defaults; the shader's
 				// reflected sampler names (texture_diffuse1/...) pick the slots.
@@ -224,7 +241,7 @@ public:
 					m_GbufferDescriptSet->BindUniformBuffer(3, matUBO);
 
 				// Normal-map presence must match what is actually bound.
-				GbufferFrameUBO fubo;
+				GbufferFrameUBO fubo{};
 				fubo.hasNormalMap = normal ? 1 : 0;
 				m_FrameUBO->Upload(&fubo, sizeof(fubo));
 
@@ -258,8 +275,7 @@ private:
 	std::unordered_map<const Engine::Material*, MaterialUBOEntry> m_MaterialUBOs;
 
 	// Identity material parameters for draws without a material block: white
-	// base color, no tint/tiling, roughness 0.5 (legacy shininess 32). Keeps
-	// the GBuffer outputs byte-identical to the pre-material behaviour.
+	// base color, unit tiling, roughness 0.5, metallic 0, emissive 0.
 	Ref<RHIBuffer> m_DefaultMaterialUBO;
 	std::vector<char> m_DefaultMaterialBytes;
 
@@ -275,7 +291,8 @@ private:
 	RGTextureHandle m_Velocity;
 	RGTextureHandle m_Depth;
 	RGTextureHandle m_Normal;
-	RGTextureHandle m_Specular;
+	RGTextureHandle m_MetallicRoughness;
+	RGTextureHandle m_Emissive;
 
 
 
@@ -285,6 +302,7 @@ private:
 	Ref<RHIBuffer> m_CubeVB;
 	Ref<RHIBuffer> m_CubeIB;
 	Ref<RHIPipeline> m_CubePipeline;
+	ForwardMeshRenderer m_MaterialRenderer{ true };
 	Ref<RHIPipeline> m_ScenePipeline;  // Pipeline for scene meshes (7-attribute format)
 	VertexLayout m_CubeVertexLayout;
 	PipelineDesc m_CubePipelineDesc;
@@ -441,8 +459,8 @@ private:
 				if (!tex && sampler.Name.find("specular") != std::string::npos)
 				{
 					tex = findByRole("specular");
-					if (!tex) tex = findByRole("metallic");
-					if (!tex) tex = findByRole("roughness");
+
+
 				}
 				if (!tex && sampler.Name.find("normal") != std::string::npos)
 				{
@@ -475,6 +493,14 @@ private:
 			std::vector<char> packed;
 			if (mat->PackMaterialBlock(m_GbufferShader->GetReflection(), packed) > 0)
 			{
+                // Legacy materials may omit any built-in parameter. Preserve defaults
+                // for missing values instead of zeroing baseColor/tiling/roughness.
+                for (const auto& block : m_GbufferShader->GetReflection().UniformBlocks)
+                    if (block.Binding == 3)
+                        for (const auto& member : block.Members)
+                            if (!mat->GetParameter(member.Name) && member.Offset + member.Size <= m_DefaultMaterialBytes.size())
+                                std::memcpy(packed.data() + member.Offset,
+                                    m_DefaultMaterialBytes.data() + member.Offset, member.Size);
 				auto& entry = m_MaterialUBOs[mat.get()];
 				if (!entry.buffer || entry.size != packed.size() ||
 					std::memcmp(entry.bytes.data(), packed.data(), packed.size()) != 0)

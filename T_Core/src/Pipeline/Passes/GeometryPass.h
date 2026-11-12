@@ -119,7 +119,8 @@ public:
 			[&](const Ref<RHIMesh>& mesh, const Ref<Engine::Material>& material,
 				const glm::mat4& model, const glm::mat4& previous)
 			{
-				if (!material->GetShader()->GetReflection().Transparent)
+				const auto& reflection = material->GetShader()->GetReflection();
+				if (!reflection.Transparent && reflection.RenderPass != MaterialRenderPass::GBuffer)
 					m_MeshRenderer.Draw(cmd, *mesh, material, model, previous, textures);
 			});
 		if (!hadReadyMesh && m_CubePipeline)

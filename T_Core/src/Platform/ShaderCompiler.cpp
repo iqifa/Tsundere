@@ -10,6 +10,7 @@
 #endif
 #include <Windows.h>
 
+#include <algorithm>
 #include <array>
 #include <cstring>
 #include <filesystem>
@@ -63,6 +64,9 @@ namespace
     struct ShaderSourceFile
     {
         bool Transparent = false;
+        MaterialRenderPass RenderPass = MaterialRenderPass::Legacy;
+        DeferredShadingModel ShadingModel = DeferredShadingModel::DefaultLit;
+        bool HasShadingModel = false;
         std::vector<ShaderStage>                     Stages;     // file order
         std::unordered_map<ShaderStage, std::string> Sections;   // same line count as the file
         std::vector<DeclaredUniform>                 Declared;   // source order, headers interleaved
@@ -135,9 +139,33 @@ namespace
         while (std::getline(stream, line))
         {
             bool marker = true;
-            if (Trim(line.substr(0, line.find("//"))) == "#render_queue transparent")
+            const auto directive = Trim(line.substr(0, line.find("//")));
+            if (directive == "#render_queue transparent")
             {
                 out.Transparent = true;
+            }
+            else if (directive.rfind("#render_pass", 0) == 0)
+            {
+                if (out.RenderPass != MaterialRenderPass::Legacy ||
+                    (directive != "#render_pass forward" && directive != "#render_pass gbuffer"))
+                {
+                    Error_Core("Shader '{}': invalid or duplicate render pass: {}", filepath, directive);
+                    return false;
+                }
+                out.RenderPass = directive == "#render_pass forward"
+                    ? MaterialRenderPass::Forward : MaterialRenderPass::GBuffer;
+            }
+            else if (directive.rfind("#shading_model", 0) == 0)
+            {
+                if (out.HasShadingModel ||
+                    (directive != "#shading_model default_lit" && directive != "#shading_model unlit"))
+                {
+                    Error_Core("Shader '{}': invalid or duplicate shading model: {}", filepath, directive);
+                    return false;
+                }
+                out.HasShadingModel = true;
+                out.ShadingModel = directive == "#shading_model unlit"
+                    ? DeferredShadingModel::Unlit : DeferredShadingModel::DefaultLit;
             }
             else if (line.find("#shader") != std::string::npos)
             {
@@ -281,9 +309,13 @@ namespace
     }
 
     bool CompileToSpirv(shaderc_compiler_t compiler, ShaderStage stage, const std::string& source,
-                        const std::string& filepath, ShaderTarget target, std::vector<uint32_t>& out)
+                        const std::string& filepath, ShaderTarget target, std::vector<uint32_t>& out,
+                        DeferredShadingModel shadingModel)
     {
         shaderc_compile_options_t options = shaderc_compile_options_initialize();
+        constexpr char modelMacro[] = "TS_SHADING_MODEL";
+        const char model = shadingModel == DeferredShadingModel::Unlit ? '1' : '0';
+        shaderc_compile_options_add_macro_definition(options, modelMacro, sizeof(modelMacro) - 1, &model, 1);
         if (target == ShaderTarget::OpenGL)
         {
             // layout(push_constant) is rejected by the OpenGL shaderc client.
@@ -495,6 +527,15 @@ namespace
 
     void ReflectModule(const StageModule& module, ShaderReflection& out)
     {
+        if (module.Stage == ShaderStage::Fragment)
+        {
+            auto [outputs, count] = GetResources(module, SPVC_RESOURCE_TYPE_STAGE_OUTPUT);
+            for (size_t i = 0; i < count; ++i)
+                out.FragmentOutputs.push_back({
+                    spvc_compiler_get_decoration(module.Compiler, outputs[i].id, SpvDecorationLocation),
+                    TypeName(module.Compiler, outputs[i].type_id) });
+        }
+
         auto [ubos, uboCount] = GetResources(module, SPVC_RESOURCE_TYPE_UNIFORM_BUFFER);
         for (size_t i = 0; i < uboCount; ++i)
             AppendUnique(out.UniformBlocks, ReflectBlock(module.Compiler, ubos[i]));
@@ -648,7 +689,18 @@ CompiledShader CompileShaderFile(const std::string& filepath, ShaderTarget targe
     ShaderSourceFile file;
     if (!LoadShaderSource(resolved, file))
         return result;
+    if ((file.HasShadingModel && file.RenderPass != MaterialRenderPass::GBuffer) ||
+        (file.Transparent && file.RenderPass == MaterialRenderPass::GBuffer) ||
+        (file.RenderPass != MaterialRenderPass::Legacy &&
+            (file.Sections.count(ShaderStage::Compute) ||
+             !file.Sections.count(ShaderStage::Vertex) || !file.Sections.count(ShaderStage::Fragment))))
+    {
+        Error_Core("Shader '{}': incompatible render pass, queue, shading model or stages", filepath);
+        return result;
+    }
     result.Reflection.Transparent = file.Transparent;
+    result.Reflection.RenderPass = file.RenderPass;
+    result.Reflection.ShadingModel = file.ShadingModel;
 
     bool bypassSpirv = false;
     if (target == ShaderTarget::OpenGL)
@@ -660,6 +712,11 @@ CompiledShader CompileShaderFile(const std::string& filepath, ShaderTarget targe
 
     if (bypassSpirv)
     {
+        if (file.RenderPass != MaterialRenderPass::Legacy)
+        {
+            Error_Core("Shader '{}': render pass declarations require SPIR-V reflection", filepath);
+            return result;
+        }
         result.Glsl     = file.Sections;
         result.Success  = true;
         return result;
@@ -670,7 +727,7 @@ CompiledShader CompileShaderFile(const std::string& filepath, ShaderTarget targe
     for (ShaderStage stage : file.Stages)
     {
         std::vector<uint32_t> spirv;
-        if (CompileToSpirv(compiler, stage, file.Sections[stage], resolved, target, spirv))
+        if (CompileToSpirv(compiler, stage, file.Sections[stage], resolved, target, spirv, file.ShadingModel))
             result.Spirv[stage] = std::move(spirv);
         else
             ok = false;
@@ -724,6 +781,27 @@ CompiledShader CompileShaderFile(const std::string& filepath, ShaderTarget targe
 
     for (const auto& module : modules)
         ReflectModule(module, result.Reflection);
+    if (file.RenderPass != MaterialRenderPass::Legacy)
+    {
+        const std::vector<std::string> expected = file.RenderPass == MaterialRenderPass::GBuffer
+            ? std::vector<std::string>{ "vec4", "vec4", "vec2", "vec2", "vec4" }
+            : file.Transparent ? std::vector<std::string>{ "vec4" }
+                               : std::vector<std::string>{ "vec4", "vec2" };
+        const auto& outputs = result.Reflection.FragmentOutputs;
+        bool valid = outputs.size() == expected.size();
+        for (uint32_t slot = 0; valid && slot < expected.size(); ++slot)
+        {
+            valid = std::any_of(outputs.begin(), outputs.end(), [&](const auto& output)
+            {
+                return output.Location == slot && output.Type == expected[slot];
+            });
+        }
+        if (!valid)
+        {
+            Error_Core("Shader '{}': fragment outputs do not match its declared render pass", filepath);
+            return result;
+        }
+    }
     result.Success  = true;
     return result;
 }

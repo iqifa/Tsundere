@@ -43,7 +43,8 @@ public:
 		m_ShadowMap = builder.ReadTexture("ShadowMap.Depth");
 
 		const bool hdrColor = opaque.colorName &&
-			std::strcmp(opaque.colorName, "DeferredLight.Light") == 0;
+			(std::strcmp(opaque.colorName, "DeferredLight.Light") == 0 ||
+			 std::strcmp(opaque.colorName, "ForwardOpaque.SceneColor") == 0);
 		RDGTextureDesc color;
 		color.width = m_Width;
 		color.height = m_Height;

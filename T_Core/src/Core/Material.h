@@ -102,11 +102,12 @@ public:
 	void ApplyToShader(Ref<RHIShader> shader) const;
 
 	// Pack scalar/vector parameters into the shader's material-parameter UBO
-	// layout (first UniformBlock with binding >= 3, std140 offsets). The
+	// layout (selected binding, or first binding >= 3 by default; std140). The
 	// buffer is resized to the block's declared size; returns that size, or
 	// 0 when the shader has no material block. Passes upload the packed
 	// bytes through a descriptor set on the block's binding.
-	size_t PackMaterialBlock(const ShaderReflection& refl, std::vector<char>& out) const;
+	size_t PackMaterialBlock(const ShaderReflection& refl, std::vector<char>& out,
+		uint32_t binding = UINT32_MAX) const;
 
 private:
 	std::string m_Name;

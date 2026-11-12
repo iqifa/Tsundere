@@ -14,6 +14,7 @@ static vector<string> ModlePaths = {
 static vector<string> ShaderPaths
 {
 	"res/shaders/Lit.shader",
+	"res/shaders/GBuffer.shader",
 	"res/shaders/Transparent.shader",
 	"res/shaders/Lamber.shader",
 	"res/shaders/MaterialTest.shader",

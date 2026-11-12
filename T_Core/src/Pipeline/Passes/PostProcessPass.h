@@ -139,11 +139,11 @@ namespace PostProcess
 
 		if (settings.depthOfField)
 			append("DepthOfField", Effect::DepthOfField,
-				deferred ? "Gbuffer.Depth" : "Geometry.Depth",
+				deferred ? "ForwardOpaque.Depth" : "Geometry.Depth",
 				{projection[2][2], projection[3][2]});
 		if (settings.motionBlur)
 			append("MotionBlur", Effect::MotionBlur,
-				deferred ? "Gbuffer.Velocity" : "Geometry.Velocity");
+				deferred ? "ForwardOpaque.Velocity" : "Geometry.Velocity");
 
 		if (settings.bloom)
 		{

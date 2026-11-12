@@ -24,6 +24,9 @@ inline OpaqueSceneInputs ReadOpaqueSceneInputs(RenderGraphBuilder& builder)
 		return OpaqueSceneInputs{ color, depth, builder.ReadTexture(color),
 			builder.ReadTexture(depth), builder.ReadTexture(velocity) };
 	};
+	const auto mixed = read("ForwardOpaque.SceneColor", "ForwardOpaque.Depth", "ForwardOpaque.Velocity");
+	if (mixed.IsValid())
+		return mixed;
 	const auto deferred = read("DeferredLight.Light", "Gbuffer.Depth", "Gbuffer.Velocity");
 	if (deferred.IsValid())
 		return deferred;

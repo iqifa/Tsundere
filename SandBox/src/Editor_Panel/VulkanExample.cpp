@@ -3,6 +3,7 @@
 #include<Core/Application.h>
 #include<Pipeline/Passes/GbufferPass.h>
 #include<Pipeline/Passes/DeferredLight.h>
+#include <string_view>
 #include <Pipeline/Passes/TAAPass.h>
 #include <Pipeline/RenderPassRegistry.h>
 #include <Platform/RHI/RHIImGuiRenderer.h>
@@ -437,18 +438,30 @@ void VulkanExampleLayer::BuildRenderGraph(uint32_t width, uint32_t height)
 
 	// 从 Pass 管理器获取启用的 Pass
 	auto passes = m_PassManager.GetEnabledPasses();
+	const bool deferred = m_PassManager.IsPassEnabled("Gbuffer") &&
+		m_PassManager.IsPassEnabled("DeferredLight");
 	for (auto& pass : passes)
 	{
+		const std::string_view name = pass->GetName();
+		if ((deferred && name == "Geometry") ||
+			(!deferred && (name == "Gbuffer" || name == "DeferredLight")))
+			continue;
 		if (auto geometry = std::dynamic_pointer_cast<GeometryPass>(pass))
 			geometry->SetSampleCount(m_GeometryMSAAEnabled ? 4 : 1);
 		m_RenderGraph.AddPass(pass);
+		if (name == "DeferredLight")
+		{
+			auto forward = CreateRef<ForwardOpaquePass>(m_Context, m_GraphFrameData);
+			forward->SetViewportSize(width, height);
+			m_RenderGraph.AddPass(forward);
+		}
 	}
 
 	if (!m_PostProcessShader)
 		m_PostProcessShader = RHIShader::Create("res/shaders/PostProcess.shader");
 	const char* postSource = "Geometry.SceneColor";
-	if (m_PassManager.IsPassEnabled("DeferredLight"))
-		postSource = "DeferredLight.Light";
+	if (deferred)
+		postSource = "ForwardOpaque.SceneColor";
 	if (m_PassManager.IsPassEnabled("Transparent"))
 		postSource = "Transparent.SceneColor";
 	if (m_PassManager.IsPassEnabled("TAA"))
@@ -456,7 +469,7 @@ void VulkanExampleLayer::BuildRenderGraph(uint32_t width, uint32_t height)
 	std::string postProcessColor;
 	if (m_PostProcessShader && !m_PostProcessShader->GetReflection().PushConstants.empty())
 		postProcessColor = PostProcess::AddPasses(m_RenderGraph, m_PostProcessShader,
-			width, height, m_PostProcess, m_PassManager.IsPassEnabled("DeferredLight"),
+			width, height, m_PostProcess, deferred,
 			currentcamera->GetProj(), postSource);
 
 	m_RenderGraph.Compile();
@@ -470,10 +483,10 @@ void VulkanExampleLayer::BuildRenderGraph(uint32_t width, uint32_t height)
 	if (m_GraphFinalColor.id == InvalidResourceId)
 		m_GraphFinalColor = m_RenderGraph.GetTextureByName("Transparent.SceneColor");
 	if (m_GraphFinalColor.id == InvalidResourceId)
-		m_GraphFinalColor = m_RenderGraph.GetTextureByName("DeferredLight.Light");
+		m_GraphFinalColor = m_RenderGraph.GetTextureByName("ForwardOpaque.SceneColor");
 	if (m_GraphFinalColor.id == InvalidResourceId)
 		m_GraphFinalColor = m_RenderGraph.GetTextureByName("Geometry.SceneColor");
-	m_GraphVelocity = m_RenderGraph.GetTextureByName("Geometry.Velocity");
+	m_GraphVelocity = m_RenderGraph.GetTextureByName(deferred ? "ForwardOpaque.Velocity" : "Geometry.Velocity");
 	m_ShadowMap = m_RenderGraph.GetTextureByName("ShadowMap.ShadowVis");
 
 	m_GraphBuiltWidth = width;

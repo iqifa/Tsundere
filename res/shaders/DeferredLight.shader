@@ -21,11 +21,10 @@ layout(location = 0) in vec2 v_TexCoord;
 
 layout(location = 0) out vec4 o_Color;
 
-layout(binding = 10) uniform sampler2D u_GBufferNormal;
-layout(binding = 11) uniform sampler2D u_GBufferAlbedo;
-layout(binding = 12) uniform sampler2D u_GBufferSpecular;
+#define TS_GBUFFER_READ
+#include "include/GBuffer.glsl"
+#include "include/DeferredPBR.glsl"
 layout(binding = 13) uniform sampler2D u_Depth;
-// layout(binding = 14) uniform samplerCube u_Skybox;
 
 layout(std140, binding = 0) uniform PerPass_DeferredLighting
 {
@@ -50,31 +49,26 @@ void main(){
     if (depth >= 1.0)
         discard;
 
-    vec4 clipPos = vec4(v_TexCoord * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
-    vec4 worldPos = u_InvViewProjNoTrans * clipPos;
-    worldPos /= worldPos.w;
+    vec3 worldPos = GBufferWorldPosition(v_TexCoord, depth, u_InvViewProjNoTrans);
 
-    vec4 albedo   = texture(u_GBufferAlbedo, v_TexCoord);
-    vec4 specData = texture(u_GBufferSpecular, v_TexCoord);
-
+    GBufferSurface g = ReadGBuffer(ivec2(gl_FragCoord.xy));
+    if (g.shadingModel == TS_UNLIT) {
+        o_Color = vec4(g.baseColor + g.emissive, 1.0);
+        return;
+    }
     Surface surf;
-    surf.P             = worldPos.xyz;
-    surf.N             = normalize(texture(u_GBufferNormal, v_TexCoord).rgb);
-    surf.V             = normalize(u_ViewPos.xyz - worldPos.xyz);
-    surf.diffuseColor  = albedo.rgb;
-    surf.specularColor = specData.rgb;
-    // GBuffer stores shininess in RGBA8 alpha as shininess/255.
-    surf.shininess     = specData.a * 255.0;
-
-    vec3 result = vec3(0.0);
-    int count = int(u_LightCounts + 0.5);
-    for (int i = 0; i < count; ++i)
-    {
+    surf.P = worldPos;
+    surf.N = g.normal;
+    surf.V = normalize(u_ViewPos.xyz - worldPos);
+    surf.diffuseColor = g.baseColor * (1.0 - g.metallic);
+    surf.specularColor = mix(vec3(0.04), g.baseColor, g.metallic);
+    surf.shininess = 1.0;
+    vec3 result = g.emissive + EvaluateAmbient(surf, u_Ambient.rgb) * g.ao;
+    int count = min(int(u_LightCounts + 0.5), lights.length());
+    for (int i = 0; i < count; ++i) {
         LightSample ls;
         if (SampleLight(lights[i], surf, ls))
-            result += ShadeBRDF(surf, ls);
+            result += ShadeMetallicRoughness(surf, ls, g.roughness);
     }
-    result += EvaluateAmbient(surf, u_Ambient.rgb);
-
     o_Color = vec4(result, 1.0);
 }

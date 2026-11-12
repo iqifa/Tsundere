@@ -1,3 +1,4 @@
+#render_pass forward
 #shader vertex
 #version 420 core
 

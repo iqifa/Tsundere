@@ -34,9 +34,21 @@ struct ShaderImageBinding
     uint32_t    Binding = 0;
 };
 
+enum class MaterialRenderPass { Legacy, Forward, GBuffer };
+enum class DeferredShadingModel { DefaultLit = 0, Unlit = 1 };
+
+struct ShaderFragmentOutput
+{
+    uint32_t Location;
+    std::string Type;
+};
+
 struct ShaderReflection
 { 
     bool Transparent = false;
+    MaterialRenderPass RenderPass = MaterialRenderPass::Legacy;
+    DeferredShadingModel ShadingModel = DeferredShadingModel::DefaultLit;
+    std::vector<ShaderFragmentOutput> FragmentOutputs;
     std::vector<ShaderBlock>        UniformBlocks;
     std::vector<ShaderBlock>        StorageBlocks;
     std::vector<ShaderImageBinding> SampledImages;

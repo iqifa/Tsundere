@@ -165,7 +165,7 @@ Ref<RHITexture2D> Material::GetTexture(const std::string& name) const
 
 size_t Material::PackMaterialBlock(
 	const ShaderReflection& refl,
-	std::vector<char>& out) const
+	std::vector<char>& out, uint32_t binding) const
 {
 	out.clear();
 
@@ -174,7 +174,7 @@ size_t Material::PackMaterialBlock(
 	const ShaderBlock* materialBlock = nullptr;
 	for (const auto& block : refl.UniformBlocks)
 	{
-		if (block.Binding >= 3)
+		if (block.Set == 0 && block.Binding >= 3 && (binding == UINT32_MAX || binding == block.Binding))
 		{
 			materialBlock = &block;
 			break;
@@ -297,7 +297,7 @@ void Material::InitializeParametersFromShader()
 			// Keep tint and tiling neutral. UV offsets and emissive strength
 			// start at zero so a new material shows its texture under scene lighting.
 			case MaterialParameter::Type::Float:
-				m_Parameters[member.Name] = MaterialParameter(member.Name == "u_EmissiveStrength" ? 0.0f : 0.5f);
+				m_Parameters[member.Name] = MaterialParameter((member.Name == "u_EmissiveStrength" || member.Name == "u_Metallic") ? 0.0f : 0.5f);
 				break;
 			case MaterialParameter::Type::Vec2:
 				m_Parameters[member.Name] = MaterialParameter(glm::vec2(member.Name == "u_Offset" ? 0.0f : 1.0f));

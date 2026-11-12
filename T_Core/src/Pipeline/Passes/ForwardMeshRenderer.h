@@ -2,9 +2,10 @@
 #include "Pipeline/Passes/PassCommon.h"
 #include "Scene/Vertex.h"
 #include <cstddef>
+#include <algorithm>
 #include <unordered_map>
 
-// Draws meshes with the forward material shader interface for either Pass.
+// Draws material shaders using the selected pass interface.
 class ForwardMeshRenderer
 {
 public:
@@ -15,10 +16,20 @@ public:
 		RHITexture2D* opaqueDepth = nullptr;
 	};
 
-	ForwardMeshRenderer()
+	explicit ForwardMeshRenderer(bool gbuffer = false) : m_GBuffer(gbuffer)
 	{
 		m_CameraUBO = RHIBuffer::Create(BufferDesc{ sizeof(CameraUBO), BufferUsage::Uniform, true, nullptr });
-		m_FrameUBO = RHIBuffer::Create(BufferDesc{ sizeof(GeometryFrameUBO), BufferUsage::Uniform, true, nullptr });
+		if (m_GBuffer)
+		{
+			const GBufferDrawUBO withoutNormal{ 0, {} };
+			const GBufferDrawUBO withNormal{ 1, {} };
+			m_FrameUBO = RHIBuffer::Create(BufferDesc{
+				sizeof(GBufferDrawUBO), BufferUsage::Uniform, true, &withoutNormal });
+			m_NormalMapUBO = RHIBuffer::Create(BufferDesc{
+				sizeof(GBufferDrawUBO), BufferUsage::Uniform, true, &withNormal });
+		}
+		else
+			m_FrameUBO = RHIBuffer::Create(BufferDesc{ sizeof(GeometryFrameUBO), BufferUsage::Uniform, true, nullptr });
 
 		// 创建默认纹理
 		unsigned char white[4] = { 255, 255, 255, 255 };
@@ -51,6 +62,13 @@ public:
 	void UploadFrame(Scene& scene, const RGFrameData& frameData, RHITexture2D* shadowTex)
 	{
 		const auto& frameCamera = frameData.Camera;
+		CameraUBO camera;
+		camera.jitteredViewProj = frameCamera.JitteredViewProj;
+		camera.viewProj = frameCamera.ViewProj;
+		camera.prevViewProj = frameCamera.PrevViewProj;
+		m_CameraUBO->Upload(&camera, sizeof(camera));
+		if (m_GBuffer)
+			return;
 		glm::vec3 lightDir = glm::vec3(-0.5f, -1.0f, -0.5f);
 		glm::vec3 lightColor = glm::vec3(1.0f);
 		float ambientStrength = 0.1f;
@@ -80,12 +98,6 @@ public:
 		fubo.u_LightSize = 50.0f;
 		fubo.hasNormalMap = 0;
 		m_FrameUBO->Upload(&fubo, sizeof(fubo));
-
-		CameraUBO camera;
-		camera.jitteredViewProj = frameCamera.JitteredViewProj;
-		camera.viewProj = frameCamera.ViewProj;
-		camera.prevViewProj = frameCamera.PrevViewProj;
-		m_CameraUBO->Upload(&camera, sizeof(camera));
 	}
 
 	void BindFrameDescriptors(RHIDescriptorSet& descriptors) const
@@ -105,8 +117,10 @@ public:
 		cmd.BindPipeline(state->pipeline);
 		material->ApplyToShader(state->shader);
 		BindMaterialDescriptors(*state, material, textures);
-		cmd.BindDescriptorSet(state->descriptors, 0);
-		PushDrawModel(cmd, model, prevModel);
+		if (state->hasDescriptors)
+			cmd.BindDescriptorSet(state->descriptors, 0);
+		if (!state->shader->GetReflection().PushConstants.empty())
+			PushDrawModel(cmd, model, prevModel);
 		mesh.Draw(cmd);
 	}
 
@@ -140,10 +154,24 @@ public:
 	}
 
 private:
+	struct GBufferDrawUBO
+	{
+		int32_t hasNormalMap;
+		int32_t padding[3];
+	};
+	bool m_GBuffer;
+
 	struct MaterialUBOEntry
 	{
 		Ref<RHIBuffer> buffer;
 		std::vector<char> bytes;
+	};
+
+	struct MaterialBlockState
+	{
+		Ref<RHIBuffer> defaultMaterialUBO;
+		std::unordered_map<const Engine::Material*, MaterialUBOEntry> materialUBOs;
+		uint32_t materialBlockSize = 0;
 	};
 
 	struct ShaderState
@@ -151,9 +179,8 @@ private:
 		Ref<RHIShader> shader;
 		Ref<RHIPipeline> pipeline;
 		Ref<RHIDescriptorSet> descriptors;
-		Ref<RHIBuffer> defaultMaterialUBO;
-		std::unordered_map<const Engine::Material*, MaterialUBOEntry> materialUBOs;
-		uint32_t materialBlockSize = 0;
+		std::unordered_map<uint32_t, MaterialBlockState> materialBlocks;
+		bool hasDescriptors = false;
 	};
 
 	ShaderState* GetShaderState(const Ref<RHIShader>& shader)
@@ -166,44 +193,58 @@ private:
 		const ShaderReflection& reflection = shader->GetReflection();
 		const ShaderBlock* frameBlock = reflection.FindUniformBlock(1);
 		const ShaderBlock* cameraBlock = reflection.FindUniformBlock(2);
-		const bool validLayout = frameBlock && frameBlock->Size == sizeof(GeometryFrameUBO) &&
-			cameraBlock && cameraBlock->Size == sizeof(CameraUBO) &&
-			!reflection.PushConstants.empty() &&
-			reflection.PushConstants[0].Size >= sizeof(DrawPushConstants) &&
-			reflection.StorageBlocks.empty() && reflection.StorageImages.empty();
+        const auto memberAt = [](const ShaderBlock* block, uint32_t offset, const char* type) {
+            if (!block) return true;
+            return std::any_of(block->Members.begin(), block->Members.end(), [&](const auto& member) {
+                return member.Offset == offset && member.Type == type;
+            });
+        };
+        const ShaderBlock* push = reflection.PushConstants.empty() ? nullptr : &reflection.PushConstants[0];
+		const bool validLayout = (m_GBuffer ? (!frameBlock || frameBlock->Size == sizeof(GBufferDrawUBO))
+			: (frameBlock && frameBlock->Size == sizeof(GeometryFrameUBO))) &&
+			(m_GBuffer ? (!cameraBlock || cameraBlock->Size == sizeof(CameraUBO))
+			 : (cameraBlock && cameraBlock->Size == sizeof(CameraUBO))) &&
+			((m_GBuffer && reflection.PushConstants.empty()) ||
+			 (!reflection.PushConstants.empty() && reflection.PushConstants[0].Size == sizeof(DrawPushConstants))) &&
+			reflection.StorageBlocks.empty() && reflection.StorageImages.empty() &&
+            memberAt(cameraBlock, 0, "mat4") && memberAt(cameraBlock, 64, "mat4") &&
+            memberAt(cameraBlock, 128, "mat4") && memberAt(push, 0, "mat4") && memberAt(push, 64, "mat4") &&
+            (!m_GBuffer || memberAt(frameBlock, 0, "int"));
 		if (!validLayout)
 		{
-			Error_Core("ForwardMeshRenderer: material shader '{}' does not implement the forward camera/frame/push-constant interface", shader->GetPath());
+			Error_Core("ForwardMeshRenderer: material shader '{}' does not implement the pass camera/frame/push-constant interface", shader->GetPath());
 			m_RejectedShaders.emplace(shader.get(), shader);
 			return nullptr;
 		}
 
 		ShaderState state;
 		state.shader = shader;
+		state.hasDescriptors = !reflection.UniformBlocks.empty() || !reflection.SampledImages.empty();
 		state.descriptors = RHIDescriptorSet::Create();
 		if (!state.descriptors)
 			return nullptr;
-		BindFrameDescriptors(*state.descriptors);
+		BindDeclaredFrameDescriptors(state);
 		for (const auto& block : reflection.UniformBlocks)
 		{
 			if (block.Set == 0 && (block.Binding == 1 || block.Binding == 2))
 				continue;
-			if (block.Set != 0 || block.Binding != 3 || block.Size == 0 ||
-				state.materialBlockSize != 0)
+			if (block.Set != 0 || block.Binding < 3 || block.Size == 0)
 			{
 				Error_Core("ForwardMeshRenderer: material shader '{}' has an unsupported uniform block binding", shader->GetPath());
 				m_RejectedShaders.emplace(shader.get(), shader);
 				return nullptr;
 			}
-			state.materialBlockSize = block.Size;
+			auto& materialBlock = state.materialBlocks[block.Binding];
+			materialBlock.materialBlockSize = block.Size;
 			std::vector<char> zero(block.Size, 0);
-			state.defaultMaterialUBO = RHIBuffer::Create(BufferDesc{
+			materialBlock.defaultMaterialUBO = RHIBuffer::Create(BufferDesc{
 				block.Size, BufferUsage::Uniform, true, zero.data() });
-			state.descriptors->BindUniformBuffer(3, state.defaultMaterialUBO);
+			state.descriptors->BindUniformBuffer(block.Binding, materialBlock.defaultMaterialUBO);
 		}
 		for (const auto& image : reflection.SampledImages)
 		{
 			if (image.Set != 0 || image.Binding < 10 || image.Type != "sampler2D" ||
+                reflection.FindUniformBlock(image.Binding) ||
 				(!reflection.Transparent && IsSceneTexture(image.Name)))
 			{
 				Error_Core("ForwardMeshRenderer: material shader '{}' has an unsupported sampler", shader->GetPath());
@@ -216,7 +257,9 @@ private:
 		state.descriptors->Apply(0);
 		PipelineDesc desc = m_PipelineDesc;
 		desc.shader = shader;
-		desc.descriptorSets = { state.descriptors };
+		desc.pushConstantSize = reflection.PushConstants.empty() ? 0 : sizeof(DrawPushConstants);
+		desc.descriptorSets.clear();
+		if (state.hasDescriptors) desc.descriptorSets.push_back(state.descriptors);
 		state.pipeline = RHIPipeline::Create(desc);
 		if (!state.pipeline)
 			return nullptr;
@@ -224,12 +267,13 @@ private:
 		return &it->second;
 	}
 
-	Ref<RHIBuffer> AcquireMaterialUBO(ShaderState& state, const Ref<Engine::Material>& mat)
+	Ref<RHIBuffer> AcquireMaterialUBO(ShaderState& shaderState, uint32_t binding, const Ref<Engine::Material>& mat)
 	{
+		auto& state = shaderState.materialBlocks.at(binding);
 		if (state.materialBlockSize == 0)
 			return nullptr;
 		std::vector<char> packed;
-		if (!mat || mat->PackMaterialBlock(state.shader->GetReflection(), packed) != state.materialBlockSize)
+		if (!mat || mat->PackMaterialBlock(shaderState.shader->GetReflection(), packed, binding) != state.materialBlockSize)
 			return state.defaultMaterialUBO;
 		auto& entry = state.materialUBOs[mat.get()];
 		if (!entry.buffer || entry.bytes != packed)
@@ -244,13 +288,25 @@ private:
 		return entry.buffer;
 	}
 
+    void BindDeclaredFrameDescriptors(ShaderState& state) const
+    {
+        const auto& reflection = state.shader->GetReflection();
+        if (reflection.FindUniformBlock(1)) state.descriptors->BindUniformBuffer(1, m_FrameUBO);
+        if (reflection.FindUniformBlock(2)) state.descriptors->BindUniformBuffer(2, m_CameraUBO);
+    }
+
 	void BindMaterialDescriptors(ShaderState& state, const Ref<Engine::Material>& mat,
 		const Textures& textures)
 	{
 		state.descriptors->Reset();
-		BindFrameDescriptors(*state.descriptors);
-		if (state.materialBlockSize != 0)
-			state.descriptors->BindUniformBuffer(3, AcquireMaterialUBO(state, mat));
+		BindDeclaredFrameDescriptors(state);
+		if (m_GBuffer)
+			for (const auto& image : state.shader->GetReflection().SampledImages)
+				if (state.shader->GetReflection().FindUniformBlock(1) &&
+					image.Name == "texture_normal1" && mat->GetTexture(image.Name))
+					state.descriptors->BindUniformBuffer(1, m_NormalMapUBO);
+		for (const auto& [binding, block] : state.materialBlocks)
+			state.descriptors->BindUniformBuffer(binding, AcquireMaterialUBO(state, binding, mat));
 		for (const auto& image : state.shader->GetReflection().SampledImages)
 		{
 			RHITexture2D* texture = image.Name == "u_ShadowMap" && textures.shadow
@@ -285,6 +341,7 @@ private:
 
 	Ref<RHIBuffer> m_CameraUBO;
 	Ref<RHIBuffer> m_FrameUBO;
+	Ref<RHIBuffer> m_NormalMapUBO;
 	Ref<RHITexture2D> m_DefaultTex;
 	PipelineDesc m_PipelineDesc;
 	std::unordered_map<const RHIShader*, ShaderState> m_ShaderStates;

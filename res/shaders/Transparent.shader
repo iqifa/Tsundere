@@ -1,3 +1,4 @@
+#render_pass forward
 #render_queue transparent
 #shader vertex
 #version 430 core
