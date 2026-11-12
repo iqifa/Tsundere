@@ -5,6 +5,7 @@
 #include<Pipeline/RenderGraph.h>
 #include<Pipeline/RenderPassManager.h>
 #include <Pipeline/Passes/PostProcessPass.h>
+#include <Pipeline/Passes/ViewportPreviewPass.h>
 
 class VulkanExampleLayer :public BasePanel {
 public:
@@ -60,6 +61,11 @@ private:
 	bool m_ShowPostProcessPanel = false;
 	int m_PostProcessSelection = 0;
 	Ref<RHIShader> m_PostProcessShader;
+    Ref<RHIShader> m_ViewportPreviewShader;
+    Ref<ViewportPreviewPass> m_ViewportConvertPass;
+    int m_ViewportOutput = 0, m_ViewportFormat = 4, m_ViewportChannel = 0;
+    glm::vec2 m_ViewportRange{0.0f, 1.0f};
+    std::string m_ViewportRequestedSource;
 
 
 	Ref<RGFrameData> m_GraphFrameData;

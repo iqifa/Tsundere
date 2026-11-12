@@ -14,6 +14,27 @@
 #include <filesystem>
 
 
+namespace
+{
+    constexpr const char* PreviewLabels[] = {"Final color", "Scene color (before post)", "World normal + model",
+        "Base color + AO", "Metallic / roughness", "Velocity", "Emissive", "Depth"};
+    constexpr const char* PreviewFormats[] = {"RGBA8 UNORM", "R8 UNORM", "R16F", "RG16F", "RGBA16F", "RGBA32F"};
+    constexpr Format PreviewFormatValues[] = {Format::RGBA8_UNORM, Format::R8_UNORM, Format::R16F,
+        Format::RG16F, Format::RGBA16F, Format::RGBA32F};
+    const char* PreviewFormatName(Format f)
+    {
+        for (int i = 0; i < IM_ARRAYSIZE(PreviewFormatValues); ++i)
+            if (f == PreviewFormatValues[i]) return PreviewFormats[i];
+        switch (f) {
+        case Format::D24_UNORM_S8_UINT: return "D24S8";
+        case Format::D32_SFLOAT: return "D32F";
+        case Format::D32_SFLOAT_S8_UINT: return "D32FS8";
+        case Format::RGBA8_SRGB: return "RGBA8 sRGB";
+        default: return "Unavailable";
+        }
+    }
+}
+
 VulkanExampleLayer::VulkanExampleLayer(Ref<Scene> scene, std::string name)
 {
 	this->m_Context = scene;
@@ -156,6 +177,32 @@ void VulkanExampleLayer::DrawSceneViewport()
 	toolButton("Rotate (E)", ViewportTool::Rotate);
 	ImGui::SameLine();
 	toolButton("Scale (R)", ViewportTool::Scale);
+
+    if (ImGui::Button("Post processing...")) m_ShowPostProcessPanel = true;
+    bool previewChanged = false;
+    ImGui::SetNextItemWidth(190);
+    previewChanged |= ImGui::Combo("Output", &m_ViewportOutput, PreviewLabels, IM_ARRAYSIZE(PreviewLabels));
+    if (ImGui::GetContentRegionAvail().x > 620) ImGui::SameLine();
+    ImGui::SetNextItemWidth(135);
+    previewChanged |= ImGui::Combo("Format", &m_ViewportFormat, PreviewFormats, IM_ARRAYSIZE(PreviewFormats));
+    ImGui::SetNextItemWidth(120);
+    previewChanged |= ImGui::Combo("Channel", &m_ViewportChannel, "RGB\0RGBA\0R\0G\0B\0A\0");
+    if (ImGui::GetContentRegionAvail().x > 620) ImGui::SameLine();
+    ImGui::SetNextItemWidth(180);
+    previewChanged |= ImGui::DragFloat2("Display range", &m_ViewportRange.x, 0.01f);
+    if (m_ViewportRange.y <= m_ViewportRange.x) m_ViewportRange.y = m_ViewportRange.x + 0.001f;
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Map this data range to black/white. Use -1..1 for signed normals or velocity. Does not change stored data.");
+    if (previewChanged) m_GraphDirty = true;
+    if (m_ViewportConvertPass)
+    {
+        ImGui::TextWrapped("Source: %s (%s) -> %s", m_ViewportConvertPass->SourceName().c_str(),
+            PreviewFormatName(m_ViewportConvertPass->SourceFormat()), PreviewFormats[m_ViewportFormat]);
+        if (m_ViewportOutput != 0 && m_ViewportConvertPass->SourceName() != m_ViewportRequestedSource)
+            ImGui::TextUnformatted("Selected output unavailable; showing final color.");
+    }
+    if (m_ViewportFormat <= 1) ImGui::TextUnformatted("UNORM clamps to [0,1] and quantizes to 8 bits.");
+    if (m_ViewportFormat == 1 || m_ViewportFormat == 2)
+        ImGui::TextUnformatted("R-only storage: G/B sample as 0, alpha as 1. Select R for grayscale.");
 
 	const ImVec2 viewportPanelSize = ImGui::GetContentRegionAvail();
 	const glm::vec2 newViewportSize = {
@@ -527,6 +574,21 @@ void VulkanExampleLayer::BuildRenderGraph(uint32_t width, uint32_t height)
 			width, height, m_PostProcess, deferred,
 			currentcamera->GetProj(), postSource);
 
+    if (!m_ViewportPreviewShader) m_ViewportPreviewShader = RHIShader::Create("res/shaders/ViewportPreview.shader");
+    const char* previewSources[] = {"", deferred ? "ForwardOpaque.SceneColor" : "Geometry.SceneColor",
+        "Gbuffer.Normal", "Gbuffer.SceneColor", "Gbuffer.MetallicRoughness",
+        deferred ? "ForwardOpaque.Velocity" : "Geometry.Velocity", "Gbuffer.Emissive",
+        deferred ? "ForwardOpaque.Depth" : "Geometry.Depth"};
+    m_ViewportRequestedSource = previewSources[m_ViewportOutput];
+    m_ViewportConvertPass = CreateRef<ViewportPreviewPass>("ViewportStorage", m_ViewportPreviewShader,
+        std::vector<std::string>{m_ViewportRequestedSource, postProcessColor, "TAA.SceneColor",
+            "Transparent.SceneColor", "ForwardOpaque.SceneColor", "Geometry.SceneColor"},
+        PreviewFormatValues[m_ViewportFormat], glm::vec4(-1, 0, 1, 0), width, height);
+    m_RenderGraph.AddPass(m_ViewportConvertPass);
+    m_RenderGraph.AddPass(CreateRef<ViewportPreviewPass>("ViewportDisplay", m_ViewportPreviewShader,
+        std::vector<std::string>{"ViewportStorage.Color"}, Format::RGBA16F,
+        glm::vec4(static_cast<float>(m_ViewportChannel), m_ViewportRange.x, m_ViewportRange.y, 0), width, height));
+
 	m_RenderGraph.Compile();
 
 	const auto taaColor = m_RenderGraph.GetTextureByName("TAA.SceneColor");
@@ -541,6 +603,8 @@ void VulkanExampleLayer::BuildRenderGraph(uint32_t width, uint32_t height)
 		m_GraphFinalColor = m_RenderGraph.GetTextureByName("ForwardOpaque.SceneColor");
 	if (m_GraphFinalColor.id == InvalidResourceId)
 		m_GraphFinalColor = m_RenderGraph.GetTextureByName("Geometry.SceneColor");
+    const auto previewColor = m_RenderGraph.GetTextureByName("ViewportDisplay.Color");
+    if (previewColor.id != InvalidResourceId) m_GraphFinalColor = previewColor;
 	m_GraphVelocity = m_RenderGraph.GetTextureByName(deferred ? "ForwardOpaque.Velocity" : "Geometry.Velocity");
 	m_ShadowMap = m_RenderGraph.GetTextureByName("ShadowMap.ShadowVis");
 
