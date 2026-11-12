@@ -21,3 +21,4 @@ res/texture/
 /res/model/
 /Assets/
 .vscode/
+*.log
