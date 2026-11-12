@@ -9,6 +9,7 @@
 #include "Platform/FileDialog.h"
 #include "Core/Assets/AssetDatabase.h"
 #include "Panels/MeshFilePath.h"
+#include "Panels/AssetPicker.h"
 #include "Debug/Debug.h"
 #include "HeadLine.h"
 #include <algorithm>
@@ -44,7 +45,7 @@ inline void DrawMaterialFields(Ref<Engine::Material> mat)
 	std::string pendingShaderPath;
 
 	if (!mat->GetAssetPath().empty())
-		ImGui::TextDisabled("Asset: %s", mat->GetAssetPath().c_str());
+		ImGui::TextDisabled("Asset: %s", AssetPicker::Name(mat->GetAssetPath()).c_str());
 
 	{
 		std::string shaderPath = mat->GetShader() ? mat->GetShader()->GetPath() : "";
@@ -201,42 +202,14 @@ inline void DrawMaterialFields(Ref<Engine::Material> mat)
 
 			ImGui::SameLine();
 			ImGui::BeginGroup();
-			if (ImGui::BeginCombo("##TexCombo", tex ? "(assigned)" : "(none)"))
+			const auto picked = AssetPicker::Texture("##TexCombo", tex ? tex->GetPath() : "", true);
+			if (!picked.empty())
 			{
-				std::unordered_set<std::string> seen;
-				auto addTexture = [&](const std::string& path, const char* id, Ref<RHITexture2D> loaded)
+				if (auto assigned = TextureLibiary::Get(picked))
 				{
-					const std::string key = Engine::AssetDatabase::NormalizePath(path);
-					if (!seen.insert(key).second)
-						return;
-					ImGui::PushID(id);
-					const bool selected = tex
-						&& key == Engine::AssetDatabase::NormalizePath(tex->GetPath());
-					const std::string display = path.substr(path.find_last_of("/\\") + 1);
-					if (ImGui::Selectable(display.c_str(), selected))
-					{
-						Ref<RHITexture2D> assigned = loaded ? loaded : TextureLibiary::Get(path);
-						if (assigned)
-						{
-							mat->SetTexture(name, assigned);
-							SaveMaterialAsset(mat);
-						}
-					}
-					if (selected)
-						ImGui::SetItemDefaultFocus();
-					ImGui::PopID();
-				};
-
-				for (const auto& record : Engine::AssetDatabase::GetByKind(Engine::AssetKind::Texture))
-				{
-					char uidLabel[32];
-					std::snprintf(uidLabel, sizeof(uidLabel), "%llu",
-						static_cast<unsigned long long>(record.uid));
-					addTexture(record.path, uidLabel, nullptr);
+					mat->SetTexture(name, assigned);
+					SaveMaterialAsset(mat);
 				}
-				for (auto& [path, texture] : TextureLibiary::Entries())
-					addTexture(path, path.c_str(), texture);
-				ImGui::EndCombo();
 			}
 			ImGui::SameLine();
 			if (ImGui::Button("Browse"))
@@ -403,7 +376,7 @@ inline void RenderMaterialInspector(Entity& entity)
 		}
 		else
 		{
-			ImGui::Text("Model not loaded: %s", meshRender.ModelPath.c_str());
+			ImGui::Text("Model not loaded: %s", AssetPicker::Name(meshRender.ModelPath).c_str());
 		}
 
 		ImGui::Unindent();

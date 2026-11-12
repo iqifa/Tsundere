@@ -75,80 +75,149 @@ void VulkanExampleLayer::OnUpdate()
 
 void VulkanExampleLayer::DrawPostProcessMenu()
 {
-	if (ImGui::BeginMenu("Post Processing"))
-	{
-		ImGui::MenuItem("Parameters...", nullptr, &m_ShowPostProcessPanel);
-		ImGui::Separator();
-		const auto toggle = [this](const char* label, bool& enabled, int effect)
-		{
-			if (ImGui::MenuItem(label, nullptr, &enabled))
-            {
-                m_GraphDirty = true;
-                m_PostProcessSelection = effect;
-            }
-		};
-		toggle("Depth of Field", m_PostProcess.depthOfField, 2);
-		toggle("Motion Blur", m_PostProcess.motionBlur, 3);
-		toggle("Bloom", m_PostProcess.bloom, 0);
-		toggle("Blur", m_PostProcess.blur, 1);
-		ImGui::Separator();
-		toggle("Tone Mapping", m_PostProcess.toneMapping, 4);
-		toggle("Color Grading", m_PostProcess.colorGrading, 5);
-		toggle("Sharpen", m_PostProcess.sharpen, 6);
-		toggle("Chromatic Aberration", m_PostProcess.chromaticAberration, 7);
-		toggle("Vignette", m_PostProcess.vignette, 8);
-		toggle("FXAA", m_PostProcess.fxaa, 9);
-		ImGui::EndMenu();
-	}
+	ImGui::MenuItem("Post Processing", nullptr, &m_ShowPostProcessPanel);
 }
 
 void VulkanExampleLayer::DrawPostProcessPanel()
 {
     if (!m_ShowPostProcessPanel) return;
-    ImGui::SetNextWindowSize(ImVec2(420, 390), ImGuiCond_FirstUseEver);
-    if (ImGui::Begin("Post Processing Parameters", &m_ShowPostProcessPanel))
+    ImGui::SetNextWindowSize(ImVec2(520, 360), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin("Post Processing", &m_ShowPostProcessPanel))
     {
         const char* effects[] = {"Bloom", "Blur", "Depth of Field", "Motion Blur", "Tone Mapping",
             "Color Grading", "Sharpen", "Chromatic Aberration", "Vignette", "FXAA"};
-        ImGui::Combo("Effect", &m_PostProcessSelection, effects, IM_ARRAYSIZE(effects));
         auto& s = m_PostProcess;
         bool* enabled[] = {&s.bloom, &s.blur, &s.depthOfField, &s.motionBlur, &s.toneMapping,
             &s.colorGrading, &s.sharpen, &s.chromaticAberration, &s.vignette, &s.fxaa};
-        bool changed = ImGui::Checkbox("Enabled", enabled[m_PostProcessSelection]);
-        const auto slider = [&](const char* label, float& value, float lo, float hi) {
-            changed |= ImGui::SliderFloat(label, &value, lo, hi);
-        };
-        ImGui::Separator();
-        switch (m_PostProcessSelection)
+        bool changed = false;
+        if (ImGui::BeginTable("EffectsAndParameters", 2,
+            ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV))
         {
-        case 0:
-            slider("Threshold", s.bloomThreshold, 0, 10); slider("Soft knee", s.bloomKnee, 0, 2);
-            slider("Intensity", s.bloomStrength, 0, 3); slider("Radius (half-res pixels)", s.bloomRadius, 0, 8); break;
-        case 1: slider("Radius (pixels)", s.blurRadius, 0, 8); break;
-        case 2:
-            slider("Focus distance", s.focusDistance, 0.01f, 100); slider("Focus range", s.focusRange, 0.01f, 2);
-            slider("Max radius (pixels)", s.dofRadius, 0, 32); break;
-        case 3:
-            slider("Shutter strength", s.motionStrength, 0, 2); slider("Max trail (pixels)", s.motionMaxPixels, 0, 64); break;
-        case 4: slider("Exposure (EV)", s.exposure, -8, 8); slider("Display gamma", s.gamma, 0.1f, 4); break;
-        case 5:
-            slider("Saturation", s.saturation, 0, 2);
-            changed |= ImGui::ColorEdit3("Tint", &s.colorTint.x, ImGuiColorEditFlags_Float); break;
-        case 6: slider("Strength", s.sharpenStrength, 0, 2); break;
-        case 7: slider("Offset (pixels)", s.aberrationPixels, 0, 10); break;
-        case 8:
-            slider("Strength", s.vignetteStrength, 0, 1); slider("Inner radius", s.vignetteInner, 0, 1.4f);
-            slider("Outer radius", s.vignetteOuter, 0.01f, 2);
-            s.vignetteOuter = std::max(s.vignetteOuter, s.vignetteInner + 0.001f); break;
-        case 9:
-            slider("Relative threshold", s.fxaaThreshold, 0, 0.5f);
-            slider("Minimum threshold", s.fxaaMinThreshold, 0, 0.25f); slider("Max span (pixels)", s.fxaaSpan, 1, 16); break;
+            ImGui::TableSetupColumn("Effects", ImGuiTableColumnFlags_WidthFixed);
+            ImGui::TableSetupColumn("Parameters", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            for (int effect = 0; effect < IM_ARRAYSIZE(effects); ++effect)
+            {
+                ImGui::PushID(effect);
+                changed |= ImGui::Checkbox("##Enabled", enabled[effect]);
+                ImGui::SetItemTooltip("Toggle %s", effects[effect]);
+                ImGui::SameLine();
+                if (ImGui::Selectable(effects[effect], m_PostProcessSelection == effect))
+                    m_PostProcessSelection = effect;
+                ImGui::PopID();
+            }
+
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(effects[m_PostProcessSelection]);
+            ImGui::Separator();
+            ImGui::PushID(m_PostProcessSelection);
+            const auto slider = [&](const char* label, float& value, float lo, float hi)
+            {
+                ImGui::TextUnformatted(label);
+                ImGui::PushID(label);
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                changed |= ImGui::SliderFloat("##Value", &value, lo, hi);
+                ImGui::PopID();
+            };
+            switch (m_PostProcessSelection)
+            {
+            case 0:
+                slider("Threshold", s.bloomThreshold, 0, 10); slider("Soft knee", s.bloomKnee, 0, 2);
+                slider("Intensity", s.bloomStrength, 0, 3); slider("Radius (half-res pixels)", s.bloomRadius, 0, 8); break;
+            case 1: slider("Radius (pixels)", s.blurRadius, 0, 8); break;
+            case 2:
+                slider("Focus distance", s.focusDistance, 0.01f, 100); slider("Focus range", s.focusRange, 0.01f, 2);
+                slider("Max radius (pixels)", s.dofRadius, 0, 32); break;
+            case 3:
+                slider("Shutter strength", s.motionStrength, 0, 2); slider("Max trail (pixels)", s.motionMaxPixels, 0, 64); break;
+            case 4: slider("Exposure (EV)", s.exposure, -8, 8); slider("Display gamma", s.gamma, 0.1f, 4); break;
+            case 5:
+                slider("Saturation", s.saturation, 0, 2);
+                ImGui::TextUnformatted("Tint");
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                changed |= ImGui::ColorEdit3("##Tint", &s.colorTint.x, ImGuiColorEditFlags_Float); break;
+            case 6: slider("Strength", s.sharpenStrength, 0, 2); break;
+            case 7: slider("Offset (pixels)", s.aberrationPixels, 0, 10); break;
+            case 8:
+                slider("Strength", s.vignetteStrength, 0, 1); slider("Inner radius", s.vignetteInner, 0, 1.4f);
+                slider("Outer radius", s.vignetteOuter, 0.01f, 2);
+                s.vignetteOuter = std::max(s.vignetteOuter, s.vignetteInner + 0.001f); break;
+            case 9:
+                slider("Relative threshold", s.fxaaThreshold, 0, 0.5f);
+                slider("Minimum threshold", s.fxaaMinThreshold, 0, 0.25f); slider("Max span (pixels)", s.fxaaSpan, 1, 16); break;
+            }
+            ImGui::PopID();
+            ImGui::EndTable();
         }
+        ImGui::Separator();
         if (ImGui::Button("Reset all parameters")) { s = PostProcess::Settings{}; changed = true; }
         if (changed) m_GraphDirty = true;
-        ImGui::TextWrapped("Changes apply to the next frame. Enable the effect to see its result.");
     }
     ImGui::End();
+}
+
+void VulkanExampleLayer::DrawViewportPreviewControls()
+{
+	const auto previewLabel = std::string("Preview: ") + PreviewLabels[m_ViewportOutput] + "###PreviewSettings";
+	if (ImGui::Button(previewLabel.c_str()))
+		ImGui::OpenPopup("Viewport Preview");
+
+	const bool fallback = m_ViewportConvertPass && m_ViewportOutput != 0 &&
+		m_ViewportConvertPass->SourceName() != m_ViewportRequestedSource;
+	if (fallback)
+		ImGui::SetItemTooltip("Selected output unavailable. Showing final color.");
+
+	ImGui::SetNextWindowSize(ImVec2(ImGui::GetFontSize() * 27.0f, 0.0f), ImGuiCond_Always);
+	if (!ImGui::BeginPopup("Viewport Preview"))
+		return;
+
+	bool changed = false;
+	if (ImGui::BeginTable("PreviewFields", 2, ImGuiTableFlags_SizingFixedFit))
+	{
+		ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed);
+		ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
+		const auto field = [](const char* label)
+		{
+			ImGui::TableNextRow();
+			ImGui::TableNextColumn();
+			ImGui::AlignTextToFramePadding();
+			ImGui::TextUnformatted(label);
+			ImGui::TableNextColumn();
+			ImGui::SetNextItemWidth(-FLT_MIN);
+		};
+
+		field("Output");
+		changed |= ImGui::Combo("##Output", &m_ViewportOutput, PreviewLabels, IM_ARRAYSIZE(PreviewLabels));
+		field("Format");
+		changed |= ImGui::Combo("##Format", &m_ViewportFormat, PreviewFormats, IM_ARRAYSIZE(PreviewFormats));
+		if (m_ViewportFormat <= 1)
+			ImGui::SetItemTooltip("UNORM clamps to [0, 1] and stores 8 bits per channel.");
+		field("Channel");
+		changed |= ImGui::Combo("##Channel", &m_ViewportChannel, "RGB\0RGBA\0R\0G\0B\0A\0");
+		if (m_ViewportFormat == 1 || m_ViewportFormat == 2)
+			ImGui::SetItemTooltip("This format stores R only. Select R for grayscale.");
+		field("Display range");
+		changed |= ImGui::DragFloat2("##DisplayRange", &m_ViewportRange.x, 0.01f);
+		ImGui::SetItemTooltip("Maps these values to black and white. Use -1 to 1 for signed data.");
+		ImGui::EndTable();
+	}
+
+	if (m_ViewportRange.y <= m_ViewportRange.x)
+		m_ViewportRange.y = m_ViewportRange.x + 0.001f;
+	if (changed)
+		m_GraphDirty = true;
+
+	if (m_ViewportConvertPass)
+	{
+		ImGui::Separator();
+		ImGui::TextDisabled("Source");
+		ImGui::TextWrapped("%s (%s) -> %s", m_ViewportConvertPass->SourceName().c_str(),
+			PreviewFormatName(m_ViewportConvertPass->SourceFormat()), PreviewFormats[m_ViewportFormat]);
+		if (fallback)
+			ImGui::TextWrapped("Selected output unavailable. Showing final color.");
+	}
+	ImGui::EndPopup();
 }
 
 void VulkanExampleLayer::DrawSceneViewport()
@@ -178,31 +247,7 @@ void VulkanExampleLayer::DrawSceneViewport()
 	ImGui::SameLine();
 	toolButton("Scale (R)", ViewportTool::Scale);
 
-    if (ImGui::Button("Post processing...")) m_ShowPostProcessPanel = true;
-    bool previewChanged = false;
-    ImGui::SetNextItemWidth(190);
-    previewChanged |= ImGui::Combo("Output", &m_ViewportOutput, PreviewLabels, IM_ARRAYSIZE(PreviewLabels));
-    if (ImGui::GetContentRegionAvail().x > 620) ImGui::SameLine();
-    ImGui::SetNextItemWidth(135);
-    previewChanged |= ImGui::Combo("Format", &m_ViewportFormat, PreviewFormats, IM_ARRAYSIZE(PreviewFormats));
-    ImGui::SetNextItemWidth(120);
-    previewChanged |= ImGui::Combo("Channel", &m_ViewportChannel, "RGB\0RGBA\0R\0G\0B\0A\0");
-    if (ImGui::GetContentRegionAvail().x > 620) ImGui::SameLine();
-    ImGui::SetNextItemWidth(180);
-    previewChanged |= ImGui::DragFloat2("Display range", &m_ViewportRange.x, 0.01f);
-    if (m_ViewportRange.y <= m_ViewportRange.x) m_ViewportRange.y = m_ViewportRange.x + 0.001f;
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Map this data range to black/white. Use -1..1 for signed normals or velocity. Does not change stored data.");
-    if (previewChanged) m_GraphDirty = true;
-    if (m_ViewportConvertPass)
-    {
-        ImGui::TextWrapped("Source: %s (%s) -> %s", m_ViewportConvertPass->SourceName().c_str(),
-            PreviewFormatName(m_ViewportConvertPass->SourceFormat()), PreviewFormats[m_ViewportFormat]);
-        if (m_ViewportOutput != 0 && m_ViewportConvertPass->SourceName() != m_ViewportRequestedSource)
-            ImGui::TextUnformatted("Selected output unavailable; showing final color.");
-    }
-    if (m_ViewportFormat <= 1) ImGui::TextUnformatted("UNORM clamps to [0,1] and quantizes to 8 bits.");
-    if (m_ViewportFormat == 1 || m_ViewportFormat == 2)
-        ImGui::TextUnformatted("R-only storage: G/B sample as 0, alpha as 1. Select R for grayscale.");
+	DrawViewportPreviewControls();
 
 	const ImVec2 viewportPanelSize = ImGui::GetContentRegionAvail();
 	const glm::vec2 newViewportSize = {
@@ -483,7 +528,6 @@ void VulkanExampleLayer::DrawSkyboxSettings()
 					ImGui::PushID(asset.path.c_str());
 					if (ImGui::Selectable(std::filesystem::path(asset.path).filename().string().c_str(), selected == asset.uid))
 						select(asset.uid);
-					if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", asset.path.c_str());
 					ImGui::PopID();
 				}
 				ImGui::EndCombo();

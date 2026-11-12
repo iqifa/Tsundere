@@ -107,7 +107,6 @@ private:
 		}
 
 		ImGui::TextUnformatted(FileName(m_SelectedPath).c_str());
-		ImGui::TextWrapped("%s", m_SelectedPath.c_str());
 
 		Ref<Model> model = My_map::GetModel(m_SelectedPath);
 		if (!model)

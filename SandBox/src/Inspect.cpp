@@ -1,6 +1,7 @@
 #include "Inspect.h"
 #include "Platform/FileDialog.h"
 #include "Scene/SceneSerializer.h"
+#include "Panels/AssetPicker.h"
 
 Inspect::Inspect(Ref<Scene> scene, std::string name) : BasePanel(name)
 {
@@ -85,26 +86,12 @@ void Inspect::OnImGuiRender()
 	ImGui::Begin("Hire");
 	if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false))
 		SaveScene(ImGui::GetIO().KeyShift);
-	if (ImGui::Button("Save Scene")) SaveScene();
-	ImGui::SameLine();
-	if (ImGui::Button("Save As...")) SaveScene(true);
-	ImGui::SameLine();
-	if (ImGui::Button("Load Scene"))
-		ImGui::OpenPopup("Load scene?");
-	if (ImGui::BeginPopupModal("Load scene?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+	if (!m_SceneFile.empty())
 	{
-		ImGui::TextUnformatted("Loading replaces the current scene. Save any changes first.");
-		if (ImGui::Button("Load"))
-		{
-			const auto path = OpenFileDialog("Tsundere Scene\0*.tscene\0");
-			LoadScene(path);
-			ImGui::CloseCurrentPopup();
-		}
-		ImGui::SameLine();
-		if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
-		ImGui::EndPopup();
+		const auto registeredPath = Engine::AssetDatabase::Resolve(m_SceneAssetUid, Engine::AssetKind::Scene);
+		const auto name = AssetPicker::Name(registeredPath.empty() ? m_SceneFile : registeredPath);
+		ImGui::TextWrapped("%s", name.c_str());
 	}
-	if (!m_SceneFile.empty()) ImGui::TextWrapped("%s", m_SceneFile.c_str());
 	if (!m_SceneFileError.empty()) ImGui::TextWrapped("%s", m_SceneFileError.c_str());
 	ImGui::Separator();
 

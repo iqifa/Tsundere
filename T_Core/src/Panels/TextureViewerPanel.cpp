@@ -26,7 +26,6 @@ void TextureViewerPanel::OnImGuiRender()
 
 	const std::string name = m_Path.substr(m_Path.find_last_of("/\\") + 1);
 	ImGui::TextUnformatted(name.c_str());
-	ImGui::TextWrapped("%s", m_Path.c_str());
 
 	if (!m_Texture || m_Texture->GetWidth() == 0 || m_Texture->GetHeight() == 0)
 	{

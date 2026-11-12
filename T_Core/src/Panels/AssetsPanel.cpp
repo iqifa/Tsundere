@@ -6,6 +6,7 @@
 #include "Panels/ModelEditorPanel.h"
 #include "Panels/MaterialEditorPanel.h"
 #include "Panels/TextureViewerPanel.h"
+#include "Panels/AssetPicker.h"
 #include "Core/Assets/CubemapAsset.h"
 #include <set>
 #include "Trans/SceneCamera.h"
@@ -99,11 +100,7 @@ void AssetsPanel::OnImGuiRender()
 
 	ImGui::BeginChild("##assetright", ImVec2(0, 0), true);
 	{
-		// Breadcrumb navigation
-		std::string relativePath = fs::relative(m_CurrentDirectory, m_RootDirectory).string();
-		if (relativePath.empty() || relativePath == ".")
-			relativePath = "Root";
-		ImGui::Text("Path: %s", relativePath.c_str());
+		ImGui::Text("Folder: %s", m_CurrentDirectory.filename().string().c_str());
 
 		if (m_CurrentDirectory != m_RootDirectory)
 		{
@@ -266,7 +263,6 @@ void AssetsPanel::DrawAssetGrid()
 		{
 			ImGui::BeginTooltip();
 			ImGui::TextUnformatted(asset.name.c_str());
-			ImGui::TextUnformatted(asset.path.c_str());
 			ImGui::EndTooltip();
 		}
 
@@ -348,7 +344,7 @@ void AssetsPanel::DrawAssetContextMenu(const AssetEntry& entry)
 {
 	if (ImGui::BeginPopupContextItem("##assetcontext"))
 	{
-		if (ImGui::MenuItem("Open"))
+		if (ImGui::MenuItem(entry.type == AssetEntry::Type::Texture ? "Preview" : "Open"))
 			OpenAsset(entry);
 
 		ImGui::Separator();
@@ -486,15 +482,19 @@ void AssetsPanel::DrawCubemapImport()
 	const char* labels[] = { "+X Right", "-X Left", "+Y Top", "-Y Bottom", "+Z Front", "-Z Back" };
 	for (size_t face = 0; face < m_CubemapFaces.size(); ++face)
 	{
-		if (ImGui::Button(labels[face]))
+		ImGui::PushID(static_cast<int>(face));
+		ImGui::SetNextItemWidth(220.0f);
+		const auto picked = AssetPicker::Texture(labels[face], m_CubemapFaces[face]);
+		if (!picked.empty())
+			m_CubemapFaces[face] = picked;
+		ImGui::SameLine();
+		if (ImGui::Button("Browse..."))
 		{
 			const std::string selected = OpenFileDialog("Images (RGBA8 import)\0*.png;*.jpg;*.jpeg;*.bmp;*.tga\0");
 			if (!selected.empty())
 				m_CubemapFaces[face] = selected;
 		}
-		ImGui::SameLine();
-		ImGui::TextUnformatted(m_CubemapFaces[face].empty() ? "Select face" : fs::path(m_CubemapFaces[face]).filename().string().c_str());
-		if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", m_CubemapFaces[face].c_str());
+		ImGui::PopID();
 	}
 	ImGui::TextUnformatted("Six equal square images. Saved as texture UUIDs. Select images already imported into Assets.");
 	if (!m_CubemapError.empty())

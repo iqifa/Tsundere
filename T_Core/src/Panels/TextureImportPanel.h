@@ -64,12 +64,6 @@ public:
 			std::string display = path.substr(path.find_last_of("/\\") + 1);
 			ImGui::TextUnformatted(display.c_str());
 			ImGui::Text("%d x %d", (int)tex->GetWidth(), (int)tex->GetHeight());
-			if (ImGui::IsItemHovered())
-			{
-				ImGui::BeginTooltip();
-				ImGui::TextUnformatted(path.c_str());
-				ImGui::EndTooltip();
-			}
 			ImGui::EndGroup();
 
 			ImGui::PopID();

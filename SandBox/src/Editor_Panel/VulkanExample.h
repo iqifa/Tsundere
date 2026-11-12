@@ -24,6 +24,7 @@ private:
 	void ExecuteRenderGraph();
 	void BuildRenderGraph(uint32_t width, uint32_t height);
 	void DrawSceneViewport();
+	void DrawViewportPreviewControls();
 	void DrawPostProcessPanel();
 	void DrawViewportTools(const ImVec2& min, const ImVec2& max, bool hovered);
 	void DrawSkyboxSettings();
