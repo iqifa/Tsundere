@@ -4,10 +4,12 @@
 layout(push_constant) uniform PostProcessSettings
 {
     vec4 settings;
+    vec4 controls;
 } pc;
 
 layout(location = 0) out vec2 v_UV;
 layout(location = 1) flat out vec4 v_Settings;
+layout(location = 2) flat out vec4 v_Controls;
 
 void main()
 {
@@ -15,6 +17,7 @@ void main()
     v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
     gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
     v_Settings = pc.settings;
+    v_Controls = pc.controls;
 }
 
 #shader fragment
@@ -22,6 +25,7 @@ void main()
 
 layout(location = 0) in vec2 v_UV;
 layout(location = 1) flat in vec4 v_Settings;
+layout(location = 2) flat in vec4 v_Controls;
 layout(location = 0) out vec4 o_Color;
 
 layout(binding = 0) uniform sampler2D u_Input;
@@ -42,8 +46,8 @@ const int FXAA = 10;
 
 vec3 ExtractHighlights(vec3 color)
 {
-    const float threshold = 0.8;
-    const float knee = 0.2;
+    float threshold = v_Controls.x;
+    float knee = max(v_Controls.y, 0.0001);
     float brightness = max(color.r, max(color.g, color.b));
     float soft = clamp(brightness - threshold + knee, 0.0, 2.0 * knee);
     soft = soft * soft / (4.0 * knee);
@@ -80,9 +84,9 @@ float ViewDepth(vec2 uv)
 
 vec3 ApplyDepthOfField(vec3 center, vec2 texel)
 {
-    const float focusDistance = 3.0;
+    float focusDistance = v_Controls.x;
     float depth = ViewDepth(v_UV);
-    float radius = 8.0 * smoothstep(0.12, 0.65, abs(depth - focusDistance) / depth);
+    float radius = v_Controls.z * smoothstep(0.0, max(v_Controls.y, 0.0001), abs(depth - focusDistance) / max(depth, 0.0001));
     if (radius < 0.5)
         return center;
 
@@ -105,18 +109,18 @@ vec3 ApplyDepthOfField(vec3 center, vec2 texel)
 
 vec3 ApplyMotionBlur(vec3 center, vec2 texel)
 {
-    vec2 centerVelocity = texture(u_Auxiliary, v_UV).xy * 0.5;
+    vec2 centerVelocity = texture(u_Auxiliary, v_UV).xy * v_Controls.x;
     float speed = length(centerVelocity / texel);
     if (speed < 0.5)
         return center;
 
-    vec2 velocity = centerVelocity * min(1.0, 16.0 / speed);
+    vec2 velocity = centerVelocity * min(1.0, v_Controls.y / speed);
     vec3 color = center;
     float weight = 1.0;
     for (int i = 1; i <= 6; ++i)
     {
         vec2 uv = v_UV - velocity * (float(i) / 6.0);
-        vec2 neighborVelocity = texture(u_Auxiliary, uv).xy * 0.5;
+        vec2 neighborVelocity = texture(u_Auxiliary, uv).xy * v_Controls.x;
         if (length((neighborVelocity - centerVelocity) / texel) < 2.0)
         {
             color += texture(u_Input, uv).rgb;
@@ -135,12 +139,12 @@ vec3 ApplyFXAA(vec3 center, vec2 texel)
     float middle = Luminance(clamp(center, 0.0, 1.0));
     float low = min(middle, min(min(nw, ne), min(sw, se)));
     float high = max(middle, max(max(nw, ne), max(sw, se)));
-    if (high - low < max(0.0312, high * 0.125))
+    if (high - low < max(v_Controls.y, high * v_Controls.x))
         return center;
 
     vec2 direction = vec2(sw + se - nw - ne, nw + sw - ne - se);
     float bias = max((nw + ne + sw + se) / 32.0, 1.0 / 128.0);
-    direction = clamp(direction / (min(abs(direction.x), abs(direction.y)) + bias), -8.0, 8.0);
+    direction = clamp(direction / (min(abs(direction.x), abs(direction.y)) + bias), -v_Controls.z, v_Controls.z);
     vec2 span = direction * texel;
     vec3 inner = 0.5 * (texture(u_Input, v_UV - span / 6.0).rgb +
                         texture(u_Input, v_UV + span / 6.0).rgb);
@@ -177,7 +181,7 @@ void main()
     switch (effect)
     {
     case Composite:
-        color += texture(u_Auxiliary, v_UV).rgb * 0.35;
+        color += texture(u_Auxiliary, v_UV).rgb * v_Controls.x;
         break;
     case DepthOfField:
         color = ApplyDepthOfField(color, texel);
@@ -187,12 +191,12 @@ void main()
         break;
     case ToneMapping:
         // Compress scene-linear HDR and encode it for the viewport's UNORM output.
-        color = max(color, vec3(0.0));
+        color = max(color, vec3(0.0)) * exp2(v_Controls.x);
         color = color / (1.0 + color);
-        color = pow(color, vec3(1.0 / 2.2));
+        color = pow(color, vec3(1.0 / max(v_Controls.y, 0.01)));
         break;
     case ColorGrading:
-        color = mix(vec3(Luminance(color)), color, 1.15) * vec3(1.05, 1.0, 0.93);
+        color = mix(vec3(Luminance(color)), color, v_Controls.w) * v_Controls.rgb;
         color = max(color, vec3(0.0));
         break;
     case Sharpen:
@@ -201,19 +205,19 @@ void main()
                        + texture(u_Input, v_UV - vec2(texel.x, 0)).rgb
                        + texture(u_Input, v_UV + vec2(0, texel.y)).rgb
                        + texture(u_Input, v_UV - vec2(0, texel.y)).rgb;
-        color = max(color + 0.25 * (color - neighbors * 0.25), vec3(0.0));
+        color = max(color + v_Controls.x * (color - neighbors * 0.25), vec3(0.0));
         break;
     }
     case ChromaticAberration:
     {
         vec2 radial = (v_UV - 0.5) * 2.0;
-        vec2 offset = radial * dot(radial, radial) * texel * 1.5;
+        vec2 offset = radial * dot(radial, radial) * texel * v_Controls.x;
         color.r = texture(u_Input, v_UV + offset).r;
         color.b = texture(u_Input, v_UV - offset).b;
         break;
     }
     case Vignette:
-        color *= 1.0 - 0.45 * smoothstep(0.35, 1.3, length((v_UV - 0.5) * 2.0));
+        color *= 1.0 - v_Controls.x * smoothstep(v_Controls.y, max(v_Controls.z, v_Controls.y + 0.0001), length((v_UV - 0.5) * 2.0));
         break;
     case FXAA:
         color = ApplyFXAA(color, texel);

@@ -23,6 +23,7 @@ private:
 	void ExecuteRenderGraph();
 	void BuildRenderGraph(uint32_t width, uint32_t height);
 	void DrawSceneViewport();
+	void DrawPostProcessPanel();
 	void DrawViewportTools(const ImVec2& min, const ImVec2& max, bool hovered);
 	void DrawSkyboxSettings();
 	void SaveSkyboxSettings();
@@ -56,6 +57,8 @@ private:
 	bool m_SkyboxChecked = false;
 	uint64_t m_SkyboxAssetRevision = 0;
 	PostProcess::Settings m_PostProcess;
+	bool m_ShowPostProcessPanel = false;
+	int m_PostProcessSelection = 0;
 	Ref<RHIShader> m_PostProcessShader;
 
 

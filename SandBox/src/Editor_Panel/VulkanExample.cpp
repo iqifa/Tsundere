@@ -56,24 +56,78 @@ void VulkanExampleLayer::DrawPostProcessMenu()
 {
 	if (ImGui::BeginMenu("Post Processing"))
 	{
-		const auto toggle = [this](const char* label, bool& enabled)
+		ImGui::MenuItem("Parameters...", nullptr, &m_ShowPostProcessPanel);
+		ImGui::Separator();
+		const auto toggle = [this](const char* label, bool& enabled, int effect)
 		{
 			if (ImGui::MenuItem(label, nullptr, &enabled))
-				m_GraphDirty = true;
+            {
+                m_GraphDirty = true;
+                m_PostProcessSelection = effect;
+            }
 		};
-		toggle("Depth of Field", m_PostProcess.depthOfField);
-		toggle("Motion Blur", m_PostProcess.motionBlur);
-		toggle("Bloom", m_PostProcess.bloom);
-		toggle("Blur", m_PostProcess.blur);
+		toggle("Depth of Field", m_PostProcess.depthOfField, 2);
+		toggle("Motion Blur", m_PostProcess.motionBlur, 3);
+		toggle("Bloom", m_PostProcess.bloom, 0);
+		toggle("Blur", m_PostProcess.blur, 1);
 		ImGui::Separator();
-		toggle("Tone Mapping", m_PostProcess.toneMapping);
-		toggle("Color Grading", m_PostProcess.colorGrading);
-		toggle("Sharpen", m_PostProcess.sharpen);
-		toggle("Chromatic Aberration", m_PostProcess.chromaticAberration);
-		toggle("Vignette", m_PostProcess.vignette);
-		toggle("FXAA", m_PostProcess.fxaa);
+		toggle("Tone Mapping", m_PostProcess.toneMapping, 4);
+		toggle("Color Grading", m_PostProcess.colorGrading, 5);
+		toggle("Sharpen", m_PostProcess.sharpen, 6);
+		toggle("Chromatic Aberration", m_PostProcess.chromaticAberration, 7);
+		toggle("Vignette", m_PostProcess.vignette, 8);
+		toggle("FXAA", m_PostProcess.fxaa, 9);
 		ImGui::EndMenu();
 	}
+}
+
+void VulkanExampleLayer::DrawPostProcessPanel()
+{
+    if (!m_ShowPostProcessPanel) return;
+    ImGui::SetNextWindowSize(ImVec2(420, 390), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin("Post Processing Parameters", &m_ShowPostProcessPanel))
+    {
+        const char* effects[] = {"Bloom", "Blur", "Depth of Field", "Motion Blur", "Tone Mapping",
+            "Color Grading", "Sharpen", "Chromatic Aberration", "Vignette", "FXAA"};
+        ImGui::Combo("Effect", &m_PostProcessSelection, effects, IM_ARRAYSIZE(effects));
+        auto& s = m_PostProcess;
+        bool* enabled[] = {&s.bloom, &s.blur, &s.depthOfField, &s.motionBlur, &s.toneMapping,
+            &s.colorGrading, &s.sharpen, &s.chromaticAberration, &s.vignette, &s.fxaa};
+        bool changed = ImGui::Checkbox("Enabled", enabled[m_PostProcessSelection]);
+        const auto slider = [&](const char* label, float& value, float lo, float hi) {
+            changed |= ImGui::SliderFloat(label, &value, lo, hi);
+        };
+        ImGui::Separator();
+        switch (m_PostProcessSelection)
+        {
+        case 0:
+            slider("Threshold", s.bloomThreshold, 0, 10); slider("Soft knee", s.bloomKnee, 0, 2);
+            slider("Intensity", s.bloomStrength, 0, 3); slider("Radius (half-res pixels)", s.bloomRadius, 0, 8); break;
+        case 1: slider("Radius (pixels)", s.blurRadius, 0, 8); break;
+        case 2:
+            slider("Focus distance", s.focusDistance, 0.01f, 100); slider("Focus range", s.focusRange, 0.01f, 2);
+            slider("Max radius (pixels)", s.dofRadius, 0, 32); break;
+        case 3:
+            slider("Shutter strength", s.motionStrength, 0, 2); slider("Max trail (pixels)", s.motionMaxPixels, 0, 64); break;
+        case 4: slider("Exposure (EV)", s.exposure, -8, 8); slider("Display gamma", s.gamma, 0.1f, 4); break;
+        case 5:
+            slider("Saturation", s.saturation, 0, 2);
+            changed |= ImGui::ColorEdit3("Tint", &s.colorTint.x, ImGuiColorEditFlags_Float); break;
+        case 6: slider("Strength", s.sharpenStrength, 0, 2); break;
+        case 7: slider("Offset (pixels)", s.aberrationPixels, 0, 10); break;
+        case 8:
+            slider("Strength", s.vignetteStrength, 0, 1); slider("Inner radius", s.vignetteInner, 0, 1.4f);
+            slider("Outer radius", s.vignetteOuter, 0.01f, 2);
+            s.vignetteOuter = std::max(s.vignetteOuter, s.vignetteInner + 0.001f); break;
+        case 9:
+            slider("Relative threshold", s.fxaaThreshold, 0, 0.5f);
+            slider("Minimum threshold", s.fxaaMinThreshold, 0, 0.25f); slider("Max span (pixels)", s.fxaaSpan, 1, 16); break;
+        }
+        if (ImGui::Button("Reset all parameters")) { s = PostProcess::Settings{}; changed = true; }
+        if (changed) m_GraphDirty = true;
+        ImGui::TextWrapped("Changes apply to the next frame. Enable the effect to see its result.");
+    }
+    ImGui::End();
 }
 
 void VulkanExampleLayer::DrawSceneViewport()
@@ -160,6 +214,7 @@ void VulkanExampleLayer::DrawSceneViewport()
 void VulkanExampleLayer::OnImGuiRender()
 {
 	DrawSceneViewport();
+	DrawPostProcessPanel();
 
 	DrawSkyboxSettings();
 
