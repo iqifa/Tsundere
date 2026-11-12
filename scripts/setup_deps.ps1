@@ -183,25 +183,8 @@ if (-not (Test-Present "$Vender\imgui\imgui.h" 'imgui')) {
               "$src\backends\imgui_impl_opengl3_loader.h", "$src\backends\imgui_impl_vulkan.*" $dst
 }
 
-# ImGui 1.92.3 transitions every new viewport image before acquisition.
-# Let the render pass (or dynamic rendering) transition only the acquired image.
-$imguiVulkanPath = "$Vender\imgui\imgui_impl_vulkan.cpp"
-$imguiVulkanSource = [IO.File]::ReadAllText($imguiVulkanPath)
-$viewportFix = '    // Backbuffers are transitioned by the render pass or dynamic rendering after acquisition.'
-if (-not $imguiVulkanSource.Contains($viewportFix)) {
-    $initialTransitions = '(?ms)^    // FIXME: to submit the command buffer, we need a queue\..*?(?=^})'
-    $dynamicTransition = '            barrier.oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;'
-    if ([regex]::Matches($imguiVulkanSource, $initialTransitions).Count -ne 1 -or
-        -not $imguiVulkanSource.Contains($dynamicTransition)) {
-        throw "Cannot apply the viewport swapchain fix to $imguiVulkanPath"
-    }
-    $lineBreak = if ($imguiVulkanSource.Contains("`r`n")) { "`r`n" } else { "`n" }
-    $imguiVulkanSource = [regex]::Replace($imguiVulkanSource, $initialTransitions, $viewportFix + $lineBreak)
-    $imguiVulkanSource = $imguiVulkanSource.Replace($dynamicTransition,
-        '            // This pass clears the image, including on its first use after swapchain creation.' + $lineBreak +
-        '            barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;')
-    [IO.File]::WriteAllText($imguiVulkanPath, $imguiVulkanSource)
-}
+# Apply the same patch used by incremental MSBuild builds.
+& (Join-Path $ProjectRoot 'scripts/patch_imgui_vulkan.ps1') -SourcePath "$Vender\imgui\imgui_impl_vulkan.cpp"
 
 Write-Step "glm $($V.Glm)"
 if (-not (Test-Present "$Vender\glm\glm.hpp" 'glm')) {

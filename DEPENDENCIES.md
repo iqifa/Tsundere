@@ -189,3 +189,15 @@ SandBox 链接报几十个 `LNK2019 ImGui::...`。
 | assimp 编译报 zlib 错误 | `ASSIMP_BUILD_ZLIB=ON`,用 assimp 自带 zlib(否则可能链到 Anaconda 里架构不对的 `z.lib`) |
 | 找不到 `assimp/config.h` | 只拷了源码头文件,漏了 build 目录生成的 `config.h`、`revision.h`(脚本自动处理) |
 | premake WARNING "no assimp import library" | `Dependence/lib/assimp/` 为空,跑 `setup_deps.bat -BuildAssimp` |
+
+### ImGui Vulkan 独立窗口补丁
+
+`Directory.Build.targets` 在 T_Core 的 MSBuild 构建前自动执行
+`scripts/patch_imgui_vulkan.ps1`；依赖安装也调用同一脚本。已有依赖无需重新下载。
+补丁移除 ImGui 1.92.3 在交换链创建/重建时对全部未 acquire 图像的提前布局转换。
+实际转换由 acquire 后的 render pass 完成；dynamic rendering 的清屏路径从
+UNDEFINED 转换，覆盖新交换链首帧。重复执行不改写文件，未知源码版本会停止构建并报错。
+
+验证：先构建 Debug，再运行 `tests\RunVulkanViewportSwapchainTests.cmd`。
+测试直接调用实际 DLL 中的 ImGui 交换链 helper，创建和两次重建交换链，执行 12 次
+acquire/render/present，并要求 Khronos Validation 不报告错误或未 acquire 的图像访问。

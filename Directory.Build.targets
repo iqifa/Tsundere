@@ -1,0 +1,7 @@
+<Project>
+  <!-- Also repairs already-installed dependencies when setup_deps is skipped. -->
+  <Target Name="PatchImGuiVulkanViewport" BeforeTargets="PrepareForBuild"
+          Condition="'$(MSBuildProjectName)' == 'T_Core'">
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)scripts\patch_imgui_vulkan.ps1&quot; -SourcePath &quot;$(MSBuildThisFileDirectory)T_Core\vender\imgui\imgui_impl_vulkan.cpp&quot;" />
+  </Target>
+</Project>
