@@ -10,6 +10,7 @@
 #include "Core/Assets/CubemapAsset.h"
 #include <set>
 #include "Trans/SceneCamera.h"
+#include "Scene/SceneSerializer.h"
 #include <algorithm>
 #include <cctype>
 
@@ -114,6 +115,8 @@ void AssetsPanel::OnImGuiRender()
 
 		if (ImGui::BeginPopupContextWindow("##assetsBlankCtx", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems))
 		{
+			if (ImGui::MenuItem("New Empty Scene"))
+				CreateSceneAsset();
 			if (ImGui::MenuItem("New Material"))
 				CreateMaterialAsset();
 			if (ImGui::MenuItem("Import Asset..."))
@@ -582,6 +585,33 @@ void AssetsPanel::ImportAsset()
 	{
 		Error_Core("Failed to import asset: {0}", e.what());
 	}
+}
+
+void AssetsPanel::CreateSceneAsset()
+{
+	std::error_code ec;
+	fs::create_directories(m_CurrentDirectory, ec);
+	if (ec)
+	{
+		Error_Core("Failed to create scene directory: {0}", ec.message());
+		return;
+	}
+	const fs::path base = m_CurrentDirectory / "NewScene";
+	fs::path target = base.string() + ".tscene";
+	int suffix = 0;
+	while (fs::exists(target))
+		target = base.string() + "_" + std::to_string(++suffix) + ".tscene";
+
+	Scene emptyScene;
+	std::string error;
+	if (!SceneSerializer::Save(emptyScene, target.string(), error))
+	{
+		Error_Core("Failed to create scene: {0}", error);
+		return;
+	}
+	SyncRegistry();
+	RefreshCurrentDirectory();
+	Info_Core("Created empty scene: {0}", target.string());
 }
 
 void AssetsPanel::CreateMaterialAsset()

@@ -71,6 +71,7 @@ private:
 	char m_CubemapName[128] = "Skybox";
 	std::string m_CubemapError;
 	void CreateMaterialAsset();
+	void CreateSceneAsset();
 	void DeleteAsset(const std::string& path);
 	void RenameAsset(const std::string& oldPath, const std::string& newName);
 	void OpenAsset(const AssetEntry& entry);
