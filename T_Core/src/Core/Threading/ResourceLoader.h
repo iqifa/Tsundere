@@ -367,8 +367,9 @@ inline void ResourceLoader::ExecuteModelLoad(AsyncLoadRequest& req)
 		aiProcess_GenSmoothNormals |
 		aiProcess_FlipUVs |
 		aiProcess_CalcTangentSpace |
-		aiProcess_ConvertToLeftHanded |
-		aiProcess_FixInfacingNormals);
+		aiProcess_ConvertToLeftHanded);
+	// Preserve authored normals and winding. FixInfacingNormals guesses from
+	// bounding boxes and reverses valid interior/planar meshes (e.g. Sponza).
 
 	if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode)
 	{
