@@ -1,4 +1,5 @@
 #include "Material.h"
+#include "Core/MaterialResourcePath.h"
 #include "Platform/RHI/RHITextureLibrary.h"
 #include "Debug/Debug.h"
 #include <algorithm>
@@ -426,7 +427,7 @@ bool Material::Deserialize(const std::string& filepath)
 			shaderPath.erase(0, shaderPath.find_first_not_of(" \t"));
 			shaderPath.erase(shaderPath.find_last_not_of(" \t\r\n") + 1);
 			if (!shaderPath.empty())
-				m_Shader = ShaderLibiray::Get(shaderPath);
+				m_Shader = ShaderLibiray::Get(ResolveMaterialResourcePath(filepath, shaderPath));
 		}
 		else if (line.find("[Parameters]") == 0)
 		{
@@ -487,7 +488,7 @@ bool Material::Deserialize(const std::string& filepath)
 				texPath.erase(texPath.find_last_not_of(" \t\r\n") + 1);
 				if (!texPath.empty())
 				{
-					Ref<RHITexture2D> tex = TextureLibiary::Get(texPath);
+					Ref<RHITexture2D> tex = TextureLibiary::Get(ResolveMaterialResourcePath(filepath, texPath));
 					SetTexture(paramName, tex);
 				}
 			}
