@@ -62,6 +62,10 @@ Ref<RHITexture2D> TextureLibiary::Load(const std::string& filepath)
 	desc.height = static_cast<uint32_t>(height);
 	desc.pixelData = pixels;
 	desc.dataChannels = 4;
+	// Model/material UVs can tile beyond [0,1]. Clamping file textures stretches
+	// their edge texels across walls (notably Sponza's repeating brickwork).
+	desc.wrapS = WrapMode::Repeat;
+	desc.wrapT = WrapMode::Repeat;
 	desc.filePath = filepath;
 
 	Ref<RHITexture2D> tex;
