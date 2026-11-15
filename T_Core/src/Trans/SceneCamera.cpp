@@ -1,4 +1,5 @@
 #include"SceneCamera.h"
+#include <cmath>
 
 using namespace glm;
 const vec3 WorldUp = vec3(0.0f,1.0f,0.0f);
@@ -68,9 +69,17 @@ mat4 SceneCamera::GetViewFront()
 
 mat4 SceneCamera::GetProj()
 {
-	mat4 proj_fru=glm::frustum(-3.0f, 3.0f, 3.0f, 3.0f, 0.1f, 100.0f);
-	mat4 proj_psp=glm::perspective(radians(fov), m_AspectRatio, 0.1f, 100.0f);
-	return proj_psp;
+	return glm::perspective(radians(fov), m_AspectRatio, near_plan, far_plane);
+}
+
+bool SceneCamera::SetClipPlanes(float nearPlane, float farPlane)
+{
+	if (!std::isfinite(nearPlane) || !std::isfinite(farPlane) || nearPlane <= 0.0f || farPlane <= nearPlane)
+		return false;
+	near_plan = nearPlane;
+	far_plane = farPlane;
+	m_PrevSkyValid = false;
+	return true;
 }
 
 void SceneCamera::ProcessKeyboard(GLFWwindow* window, float speed)

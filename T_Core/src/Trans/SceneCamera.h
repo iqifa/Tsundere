@@ -33,8 +33,11 @@ public:
 	glm::vec3 getTarget();
 	glm::vec3 getFront();
 	float getFov() { return fov; }
-	float getFar() { return far_plane; }
-	float getNear() { return near_plan; }
+	float getFar() const { return far_plane; }
+	float getNear() const { return near_plan; }
+	bool SetClipPlanes(float nearPlane, float farPlane);
+	static constexpr float DefaultNear = 0.1f;
+	static constexpr float DefaultFar = 1000.0f;
 
 	void ProcessKeyboard(GLFWwindow* window, float speed);
 	void ProcessMouseLook(float dx, float dy, bool constrainPitch = true);
@@ -49,7 +52,7 @@ private:
 	glm::vec3 cameraFront;
 	glm::vec3 cameraUp;
 	float yaw=90.0f, pitch=0.0f, roll = 0.0f,fov=45.0f;
-	float far_plane = 1000.0f, near_plan = 1.0f;
+	float far_plane = DefaultFar, near_plan = DefaultNear;
 	float sensitive=0.1f;
 
 	// Previous frame's rotation-only proj*view for the skybox, so SkyBox.shader

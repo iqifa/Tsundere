@@ -24,6 +24,7 @@ namespace Engine
 
     private:
         std::function<void()> m_DrawWindowMenu;
+        bool m_ShowPreferences = false;
     };
 }
 
