@@ -1,5 +1,7 @@
 #include "MaterialLibrary.h"
 #include "Debug/Debug.h"
+#include "Platform/RHI/RHIShader.h"
+#include <cmath>
 
 namespace Engine {
 
@@ -48,6 +50,34 @@ Ref<Material> MaterialLibrary::Get(const std::string& filepath)
 Ref<Material> MaterialLibrary::CreateDefault(const std::string& name, Ref<RHIShader> shader)
 {
 	Ref<Material> material = CreateRef<Material>(name, shader);
+	return material;
+}
+
+glm::vec3 MaterialLibrary::DefaultMeshColor(int index)
+{
+	const float h = std::fmod(static_cast<float>(index) * 0.61803398875f, 1.0f);
+	const float s = 0.55f;
+	const float v = 0.86f;
+	const float c = v * s;
+	const float x = c * (1.0f - std::fabs(std::fmod(h * 6.0f, 2.0f) - 1.0f));
+	const float m = v - c;
+	glm::vec3 rgb(0.0f);
+	switch (static_cast<int>(h * 6.0f) % 6)
+	{
+	case 0: rgb = glm::vec3(c, x, 0.0f); break;
+	case 1: rgb = glm::vec3(x, c, 0.0f); break;
+	case 2: rgb = glm::vec3(0.0f, c, x); break;
+	case 3: rgb = glm::vec3(0.0f, x, c); break;
+	case 4: rgb = glm::vec3(x, 0.0f, c); break;
+	default: rgb = glm::vec3(c, 0.0f, x); break;
+	}
+	return rgb + glm::vec3(m);
+}
+
+Ref<Material> MaterialLibrary::CreateModelDefault(int meshIndex)
+{
+	auto material = CreateDefault("ModelPreview", ShaderLibiray::Get("res/shaders/SceneModelPreview.shader"));
+	material->SetVec4("u_BaseColor", glm::vec4(DefaultMeshColor(meshIndex), 1.0f));
 	return material;
 }
 

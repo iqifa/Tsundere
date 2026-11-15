@@ -1,6 +1,7 @@
 #pragma once
 #include "Pipeline/Passes/PassCommon.h"
 #include "Scene/Vertex.h"
+#include "Core/MaterialLibrary.h"
 #include <cstddef>
 #include <algorithm>
 #include <unordered_map>
@@ -130,11 +131,21 @@ public:
 		bool hadReadyMesh = false;
 		for (auto [id, transform, renderer] : scene.m_Registry.view<Transform, MeshRender>().each())
 		{
-			if (renderer.ModelPath.empty() || renderer.materials.empty())
+			if (renderer.ModelPath.empty())
 				continue;
 			const auto model = My_map::GetModel(renderer.ModelPath);
 			if (!model || model->meshes.empty())
 				continue;
+
+			// Populate defaults after asynchronous model loading, even with the inspector closed.
+			const size_t oldCount = renderer.materials.size();
+			if (oldCount < model->meshes.size())
+				renderer.materials.resize(model->meshes.size());
+			for (size_t i = 0; i < model->meshes.size(); ++i)
+				if (!renderer.materials[i])
+					renderer.materials[i] = oldCount && renderer.materials[0]
+						&& renderer.materials[0]->GetName() != "ModelPreview"
+						? renderer.materials[0] : Engine::MaterialLibrary::CreateModelDefault(static_cast<int>(i));
 
 			const glm::mat4 current = transform.GetTransform();
 			const glm::mat4 previous = frameData.PreviousModel(id, current);

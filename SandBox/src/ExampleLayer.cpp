@@ -116,11 +116,7 @@ ExampleLayer::ExampleLayer(Ref<Scene>scene, std::string name) : BasePanel(name)
 		auto& mr = testEntity.AddComponent<MeshRender>();
 		mr.ModelPath = My_map::GetModelPaths().front();
 
-		Ref<RHIShader> litShader = ShaderLibiray::Get("res/shaders/Lit.shader");
-		Ref<Engine::Material> sharedMat = Engine::MaterialLibrary::CreateDefault("TestShared", litShader);
-		sharedMat->SetVec4("u_BaseColor", vec4(1.0f, 1.0f, 1.0f, 1.0f));
-		sharedMat->SetFloat("u_Roughness", 0.5f);
-		sharedMat->SetFloat("u_Metallic", 0.0f);
+		Ref<Engine::Material> sharedMat = Engine::MaterialLibrary::CreateModelDefault();
 		mr.materials.push_back(sharedMat);
 
 		Info_Core("MaterialTest entity created: model={0} shared material ready", mr.ModelPath);

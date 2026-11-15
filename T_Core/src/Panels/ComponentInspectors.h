@@ -211,8 +211,7 @@ inline void RenderMeshRenderInspector(Entity& entity)
 	ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - btnW_minus - btnW_plus - 4);
 	if (ImGui::SmallButton("+"))
 	{
-		meshrender.materials.push_back(Engine::MaterialLibrary::CreateDefault(
-			"Material", ShaderLibiray::Get("res/shaders/Lamber.shader")));
+		meshrender.materials.push_back(Engine::MaterialLibrary::CreateModelDefault());
 		BVHBuilder::MarkActiveDirty();
 	}
 	ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - btnW_minus);
@@ -296,8 +295,7 @@ inline void RenderMeshRenderInspector(Entity& entity)
 			for (size_t i = 0; i < meshCount; i++)
 			{
 				if (!meshrender.materials[i])
-					meshrender.materials[i] = Engine::MaterialLibrary::CreateDefault(
-						"Material", ShaderLibiray::Get("res/shaders/Lamber.shader"));
+					meshrender.materials[i] = Engine::MaterialLibrary::CreateModelDefault(static_cast<int>(i));
 			}
 		}
 
@@ -349,8 +347,7 @@ inline void AddMeshRenderComponent(Entity& entity)
 	if (!entity.HasComponent<MeshRender>())
 	{
 		auto& mr = entity.AddComponent<MeshRender>();
-		mr.materials.push_back(Engine::MaterialLibrary::CreateDefault(
-			"Material", ShaderLibiray::Get("res/shaders/Lamber.shader")));
+		mr.materials.push_back(Engine::MaterialLibrary::CreateModelDefault());
 		Info_Core("AddComponent: MeshRender with default material");
 		BVHBuilder::MarkActiveDirty();
 	}
@@ -361,8 +358,7 @@ inline void AddMaterialToMeshRender(Entity& entity)
 	if (entity.HasComponent<MeshRender>())
 	{
 		auto& mr = entity.GetComponent<MeshRender>();
-		mr.materials.push_back(Engine::MaterialLibrary::CreateDefault(
-			"Material", ShaderLibiray::Get("res/shaders/Lamber.shader")));
+		mr.materials.push_back(Engine::MaterialLibrary::CreateModelDefault());
 		Info_Core("AddComponent: Material added to MeshRender");
 		BVHBuilder::MarkActiveDirty();
 	}

@@ -286,8 +286,7 @@ inline void RenderMaterialInspector(Entity& entity)
 				{
 					if (!meshRender.materials[i])
 					{
-						Ref<RHIShader> defaultShader = ShaderLibiray::Get("res/shaders/Lamber.shader");
-						meshRender.materials[i] = Engine::MaterialLibrary::CreateDefault("DefaultMaterial", defaultShader);
+						meshRender.materials[i] = Engine::MaterialLibrary::CreateModelDefault(static_cast<int>(i));
 					}
 				}
 			}
@@ -343,8 +342,7 @@ inline void RenderMaterialInspector(Entity& entity)
 						ImGui::Text("No material assigned");
 						if (ImGui::Button("Create Material"))
 						{
-							Ref<RHIShader> defaultShader = ShaderLibiray::Get("res/shaders/Lamber.shader");
-							meshRender.materials[i] = Engine::MaterialLibrary::CreateDefault("Material", defaultShader);
+							meshRender.materials[i] = Engine::MaterialLibrary::CreateModelDefault(static_cast<int>(i));
 						}
 						ImGui::TreePop();
 						ImGui::PopID();

@@ -53,6 +53,7 @@ try {
     Engine::Log::Init();
     for (auto target : {ShaderTarget::Vulkan, ShaderTarget::OpenGL})
         for (const char* path : {"res/shaders/GBuffer.shader", "res/shaders/DeferredLight.shader",
+             "res/shaders/SceneModelPreview.shader",
              "tests/shaders/GBufferProcedural.shader", "tests/shaders/GBufferPackedInput.shader"})
             Require(CompileShaderFile(path,target).Success,path);
     // Reject the old four-target ABI, a wrong type, and an extra target.

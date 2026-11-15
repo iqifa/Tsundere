@@ -1,4 +1,5 @@
 #pragma once
+#include "Core/MaterialLibrary.h"
 #include "Core/Layer/Layer.h"
 #include "ExternalFiles.h"
 #include "Panels/MeshFilePath.h"
@@ -500,33 +501,13 @@ private:
 		return true;
 	}
 
-	static glm::vec3 DefaultMeshColor(int index)
-	{
-		const float h = std::fmod(static_cast<float>(index) * 0.61803398875f, 1.0f);
-		const float s = 0.55f;
-		const float v = 0.86f;
-		const float c = v * s;
-		const float x = c * (1.0f - std::fabs(std::fmod(h * 6.0f, 2.0f) - 1.0f));
-		const float m = v - c;
-		glm::vec3 rgb(0.0f);
-		switch (static_cast<int>(h * 6.0f) % 6)
-		{
-		case 0: rgb = glm::vec3(c, x, 0.0f); break;
-		case 1: rgb = glm::vec3(x, c, 0.0f); break;
-		case 2: rgb = glm::vec3(0.0f, c, x); break;
-		case 3: rgb = glm::vec3(0.0f, x, c); break;
-		case 4: rgb = glm::vec3(x, 0.0f, c); break;
-		default: rgb = glm::vec3(c, 0.0f, x); break;
-		}
-		return rgb + glm::vec3(m);
-	}
 
 	void EnsureMeshColors(const Model& model)
 	{
 		if (m_MeshColors.size() > model.meshes.size())
 			m_MeshColors.resize(model.meshes.size());
 		while (m_MeshColors.size() < model.meshes.size())
-			m_MeshColors.push_back(DefaultMeshColor(static_cast<int>(m_MeshColors.size())));
+			m_MeshColors.push_back(Engine::MaterialLibrary::DefaultMeshColor(static_cast<int>(m_MeshColors.size())));
 	}
 
 	void FitPreviewCamera(const glm::vec3& boundsMin, const glm::vec3& boundsMax)

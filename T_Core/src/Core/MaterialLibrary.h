@@ -23,6 +23,9 @@ public:
 	// Create a new material with the given shader
 	static Ref<Material> CreateDefault(const std::string& name, Ref<RHIShader> shader);
 
+	static glm::vec3 DefaultMeshColor(int index);
+	static Ref<Material> CreateModelDefault(int meshIndex = 0);
+
 	// Add material to cache
 	static void Add(const std::string& filepath, Ref<Material> material);
 
