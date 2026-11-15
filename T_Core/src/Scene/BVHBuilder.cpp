@@ -1,189 +1,176 @@
 #include "BVHBuilder.h"
 
+#include <chrono>
+#include <exception>
+#include <string>
+
 BVHBuilder* BVHBuilder::s_ActiveInstance = nullptr;
 
-void BVHBuilder::GatherTriangles(Ref<Scene> scene)
+BVHBuilder::~BVHBuilder()
 {
-	m_BuildTriangles.clear();
-	m_GPUTriangles.clear();
-	m_BVHNodes.clear();
+	if (s_ActiveInstance == this)
+		s_ActiveInstance = nullptr;
+}
+
+void BVHBuilder::GatherScene(const Scene& scene)
+{
+	auto snapshot = std::make_shared<SceneSnapshot>();
+
+	// Mesh 地址在本次调用期间稳定（主线程独占 Model），足够用来去重。
+	std::unordered_map<const Mesh*, uint32_t> meshLookup;
 
 	for (auto [entityID, transform, meshrender] :
-		scene->m_Registry.view<Component::Transform, Component::MeshRender>().each())
+		scene.m_Registry.view<const Component::Transform, const Component::MeshRender>().each())
 	{
 		if (meshrender.ModelPath.empty())
 			continue;
 
-		Ref<Model> model = My_map::GetModel(meshrender.ModelPath);
+		const Ref<Model> model = My_map::GetModel(meshrender.ModelPath);
 		if (!model || model->meshes.empty())
-			continue;
+			continue; // 还在加载：CompleteModelLoad 会重新标脏
 
-		glm::mat4 worldMat = transform.GetTransform();
-		glm::mat3 normalMat = glm::mat3(glm::transpose(glm::inverse(worldMat)));
+		const glm::mat4 objectToWorld = transform.GetTransform();
 
-		for (size_t meshIdx = 0; meshIdx < model->meshes.size(); meshIdx++)
+		for (size_t meshIdx = 0; meshIdx < model->meshes.size(); ++meshIdx)
 		{
-			auto& mesh = model->meshes[meshIdx];
+			const Mesh& mesh = model->meshes[meshIdx];
+			if (mesh.vertices.empty() || mesh.indices.size() < 3)
+				continue;
 
-			// Resolve material index: use global mapping if available (PathTracePass),
-			// otherwise fall back to mesh-local index (ShadowPass doesn't use it).
-			unsigned int matIdx = 0;
+			auto [it, inserted] = meshLookup.try_emplace(&mesh, static_cast<uint32_t>(snapshot->meshes.size()));
+			if (inserted)
+			{
+				BVHMeshInput input;
+				const size_t vertexCount = mesh.vertices.size();
+				input.positions.resize(vertexCount);
+				input.normals.resize(vertexCount);
+				input.uvs.resize(vertexCount);
+				for (size_t v = 0; v < vertexCount; ++v)
+				{
+					const Vertex& vertex = mesh.vertices[v];
+					input.positions[v] = vertex.Position;
+					input.normals[v] = vertex.Normal;
+					input.uvs[v] = vertex.TexCoords;
+				}
+				input.indices.assign(mesh.indices.begin(), mesh.indices.end());
+				snapshot->meshes.push_back(std::move(input));
+			}
+
+			BVHInstanceInput instance;
+			instance.meshIndex = it->second;
+			instance.objectToWorld = objectToWorld;
+			instance.entityID = static_cast<uint32_t>(entityID);
+			instance.materialIndex = 0;
 			if (m_MaterialMap && meshIdx < meshrender.materials.size())
 			{
-				auto it = m_MaterialMap->find(meshrender.materials[meshIdx].get());
-				if (it != m_MaterialMap->end())
-					matIdx = it->second;
+				const auto found = m_MaterialMap->find(meshrender.materials[meshIdx].get());
+				if (found != m_MaterialMap->end())
+					instance.materialIndex = found->second;
 			}
-			else
-			{
-				matIdx = (unsigned int)(meshIdx < meshrender.materials.size()
-					? meshIdx : 0);
-			}
-
-			for (size_t i = 0; i < mesh.indices.size(); i += 3)
-			{
-				BVHBuildTriangle bt;
-
-				for (int j = 0; j < 3; j++)
-				{
-					unsigned int idx = mesh.indices[i + j];
-					auto& vert = mesh.vertices[idx];
-
-					glm::vec4 wp = worldMat * glm::vec4(vert.Position, 1.0f);
-					glm::vec3 wn = glm::normalize(normalMat * vert.Normal);
-
-					if (j == 0)
-					{
-						bt.v0 = glm::vec3(wp);
-						bt.n0 = wn;
-						bt.uv0 = vert.TexCoords;
-					}
-					else if (j == 1)
-					{
-						bt.v1 = glm::vec3(wp);
-						bt.n1 = wn;
-						bt.uv1 = vert.TexCoords;
-					}
-					else
-					{
-						bt.v2 = glm::vec3(wp);
-						bt.n2 = wn;
-						bt.uv2 = vert.TexCoords;
-					}
-				}
-
-				bt.centroid = (bt.v0 + bt.v1 + bt.v2) / 3.0f;
-				bt.materialIndex = matIdx;
-				m_BuildTriangles.push_back(bt);
-			}
+			snapshot->instances.push_back(instance);
 		}
 	}
+
+	std::lock_guard<std::mutex> lock(m_Mutex);
+	m_Snapshot = std::move(snapshot);
 }
 
-void BVHBuilder::BuildBVH(unsigned int leafSize)
+void BVHBuilder::BuildBVH(unsigned int maxLeafSize)
 {
-	m_GPUTriangles.clear();
-	m_BVHNodes.clear();
-
-	if (m_BuildTriangles.empty())
+	std::shared_ptr<const SceneSnapshot> snapshot;
+	BVHBuildSettings settings;
 	{
-		GPUBVHNode root;
-		root.bboxMin = glm::vec4(0.0f, 0.0f, 0.0f, -1.0f);
-		root.bboxMax = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
-		m_BVHNodes.push_back(root);
+		std::lock_guard<std::mutex> lock(m_Mutex);
+		snapshot = m_Snapshot;
+		settings = m_Settings;
+	}
+	settings.maxLeafSize = maxLeafSize;
 
-		GPUTriangle dummy;
-		memset(&dummy, 0, sizeof(dummy));
-		m_GPUTriangles.push_back(dummy);
-	}
-	else
-	{
-		BuildNodeRecursive(0, (unsigned int)m_BuildTriangles.size(), 0);
-	}
-	// UploadToGPU() must be called separately (on main/GL thread after this)
+	static const SceneSnapshot kEmpty;
+	const SceneSnapshot& input = snapshot ? *snapshot : kEmpty;
+
+	// 不持锁构建：大场景要几十到几百毫秒。
+	const auto start = std::chrono::steady_clock::now();
+	BVHSceneData data;
+	BuildSceneBVH(input.meshes, input.instances, settings, data);
+	data.stats.buildMilliseconds =
+		std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - start).count();
+
+	std::lock_guard<std::mutex> lock(m_Mutex);
+	m_Data = std::move(data);
 }
 
-void BVHBuilder::UploadToGPU()
+namespace
 {
-	m_TriSSBO = RHIBuffer::Create(BufferDesc{
-		(uint32_t)(m_GPUTriangles.size() * sizeof(GPUTriangle)),
-		BufferUsage::Storage, false, m_GPUTriangles.data() });
-
-	m_BVHSSBO = RHIBuffer::Create(BufferDesc{
-		(uint32_t)(m_BVHNodes.size() * sizeof(GPUBVHNode)),
-		BufferUsage::Storage, false, m_BVHNodes.data() });
+	template<typename T>
+	Ref<RHIBuffer> CreateStorageBuffer(const std::vector<T>& elements)
+	{
+		const size_t bytes = elements.size() * sizeof(T);
+		if (bytes == 0 || bytes > UINT32_MAX) // BufferDesc::size 是 uint32_t
+			return nullptr;
+		return RHIBuffer::Create(BufferDesc{
+			static_cast<uint32_t>(bytes), BufferUsage::Storage, false, elements.data() });
+	}
 }
 
-unsigned int BVHBuilder::BuildNodeRecursive(unsigned int start, unsigned int end, unsigned int depth)
+bool BVHBuilder::UploadToGPU()
 {
-	// Compute AABB of this range
-	glm::vec3 aabbMin(FLT_MAX);
-	glm::vec3 aabbMax(-FLT_MAX);
+	std::lock_guard<std::mutex> lock(m_Mutex);
 
-	for (unsigned int i = start; i < end; i++)
+	if (m_Data.tlasNodes.empty())
 	{
-		auto& tri = m_BuildTriangles[i];
-		aabbMin = glm::min(aabbMin, tri.v0); aabbMax = glm::max(aabbMax, tri.v0);
-		aabbMin = glm::min(aabbMin, tri.v1); aabbMax = glm::max(aabbMax, tri.v1);
-		aabbMin = glm::min(aabbMin, tri.v2); aabbMax = glm::max(aabbMax, tri.v2);
+		Warn_Core("[BVH] UploadToGPU called before BuildBVH; nothing to upload");
+		return false;
 	}
 
-	unsigned int triCount = end - start;
-
-	// Create leaf if few triangles or max depth
-	if (triCount <= 4 || depth >= 24)
+	Ref<RHIBuffer> tlasNodes, instances, blasNodes, triangles, attribs;
+	try
 	{
-		GPUBVHNode node;
-		node.bboxMin = glm::vec4(aabbMin, -((float)(int)m_GPUTriangles.size() + 1.0f)); // negative = leaf, encode start index
-		node.bboxMax = glm::vec4(aabbMax, (float)triCount);
-
-		m_BVHNodes.push_back(node);
-
-		// Append triangles to GPU array
-		for (unsigned int i = start; i < end; i++)
-		{
-			auto& bt = m_BuildTriangles[i];
-			GPUTriangle gpu;
-			gpu.v0 = glm::vec4(bt.v0, 0.0f);
-			gpu.v1 = glm::vec4(bt.v1, 0.0f);
-			gpu.v2 = glm::vec4(bt.v2, 0.0f);
-			gpu.n0 = glm::vec4(bt.n0, (float)bt.materialIndex);
-			gpu.n1 = glm::vec4(bt.n1, 0.0f);
-			gpu.n2 = glm::vec4(bt.n2, 0.0f);
-			gpu.uv0 = glm::vec4(bt.uv0, 0.0f, 0.0f);
-			gpu.uv1 = glm::vec4(bt.uv1, 0.0f, 0.0f);
-			gpu.uv2 = glm::vec4(bt.uv2, 0.0f, 0.0f);
-			m_GPUTriangles.push_back(gpu);
-		}
-
-		return (unsigned int)m_BVHNodes.size() - 1;
+		tlasNodes = CreateStorageBuffer(m_Data.tlasNodes);
+		instances = CreateStorageBuffer(m_Data.instances);
+		blasNodes = CreateStorageBuffer(m_Data.blasNodes);
+		triangles = CreateStorageBuffer(m_Data.triangles);
+		attribs = CreateStorageBuffer(m_Data.attribs);
+	}
+	catch (const std::exception& e)
+	{
+		Error_Core("[BVH] GPU upload failed: {}", e.what());
+		return false;
 	}
 
-	// Find best split axis (longest extent)
-	glm::vec3 extent = aabbMax - aabbMin;
-	int bestAxis = 0;
-	if (extent.y > extent.x) bestAxis = 1;
-	if (extent.z > extent[bestAxis]) bestAxis = 2;
+	if (!tlasNodes || !instances || !blasNodes || !triangles || !attribs)
+	{
+		Error_Core("[BVH] GPU upload failed: a buffer is empty or exceeds 4 GB");
+		return false;
+	}
 
-	// Sort triangles along best axis by centroid
-	std::sort(m_BuildTriangles.begin() + start, m_BuildTriangles.begin() + end,
-		[bestAxis](const BVHBuildTriangle& a, const BVHBuildTriangle& b) {
-			return a.centroid[bestAxis] < b.centroid[bestAxis];
-		});
+	// 全部成功后再整体替换，保证 5 个 buffer 始终来自同一次构建。
+	// 旧 buffer 随 Ref 释放（Vulkan 走延迟删除队列）。
+	m_TLASNodeBuffer = std::move(tlasNodes);
+	m_InstanceBuffer = std::move(instances);
+	m_BLASNodeBuffer = std::move(blasNodes);
+	m_TriangleBuffer = std::move(triangles);
+	m_TriangleAttribBuffer = std::move(attribs);
 
-	// Split at midpoint
-	unsigned int mid = (start + end) / 2;
+	const BVHStats& s = m_Data.stats;
+	Info_Core("[BVH] {} instances, {} meshes, {} tris | TLAS {} nodes (depth {}) | BLAS {} nodes (depth {}) | {:.1f} ms",
+		s.instanceCount, s.meshCount, s.triangleCount,
+		s.tlasNodeCount, s.tlasDepth, s.blasNodeCount, s.blasDepth, s.buildMilliseconds);
+	if (s.skippedTriangles || s.skippedInstances)
+		Warn_Core("[BVH] skipped {} invalid triangles, {} instances (empty mesh / singular transform)",
+			s.skippedTriangles, s.skippedInstances);
+	return true;
+}
 
-	// Create placeholder for this internal node, build children
-	unsigned int nodeIdx = (unsigned int)m_BVHNodes.size();
-	m_BVHNodes.push_back(GPUBVHNode()); // placeholder
+bool BVHBuilder::Update(const Scene& scene)
+{
+	if (!IsDirty())
+		return false;
 
-	unsigned int leftChild = BuildNodeRecursive(start, mid, depth + 1);
-	unsigned int rightChild = BuildNodeRecursive(mid, end, depth + 1);
-
-	// Fill in this node
-	m_BVHNodes[nodeIdx].bboxMin = glm::vec4(aabbMin, (float)leftChild);
-	m_BVHNodes[nodeIdx].bboxMax = glm::vec4(aabbMax, (float)rightChild);
-
-	return nodeIdx;
+	// 先清标记：构建过程中再发生的修改会重新标脏，下一帧接着重建。
+	MarkClean();
+	GatherScene(scene);
+	BuildBVH(m_Settings.maxLeafSize);
+	// 上传失败不重新标脏：否则每帧都会重建并刷错误日志，等下一次场景变化再试。
+	return UploadToGPU();
 }
