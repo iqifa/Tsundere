@@ -206,8 +206,6 @@ namespace Engine
 
     void ImGuiLayer::OnImGuiRender()
     {
-        static bool show = true;
-        ImGui::ShowDemoWindow(&show);
         ShowDockSpace(m_DrawWindowMenu, m_ShowPreferences);
         DrawPreferences(m_ShowPreferences);
     }

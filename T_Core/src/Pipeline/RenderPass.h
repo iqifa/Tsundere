@@ -1,7 +1,6 @@
 #pragma once
 // Aggregator for RDG-native passes (inheriting from RenderGraphPass).
-// Legacy passes (TAAPass, ShadowPass, ShadowApplyPass, PathTracePass, DDGIPass)
-// are excluded from the build until migrated to RenderGraphPass.
+// Legacy ShadowApplyPass and DDGIPass remain excluded from the build.
 
 #include "Pipeline/Passes/PassCommon.h"
 
