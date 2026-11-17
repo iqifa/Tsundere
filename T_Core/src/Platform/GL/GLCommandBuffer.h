@@ -57,4 +57,6 @@ private:
     // Pipeline bound by BindPipeline. Cache so BindVertexBuffer/BindIndexBuffer
     // can re-bind the correct VAO and re-specify attribute pointers per draw.
     Ref<GLPipeline> m_CurrentPipeline;
+    Ref<RHIFramebuffer> m_RenderPassFramebuffer;
+    RenderPassBeginInfo m_RenderPassInfo;
 };

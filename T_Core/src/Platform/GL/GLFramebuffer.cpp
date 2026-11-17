@@ -229,7 +229,7 @@ void GLFramebuffer::Invalidate()
     {
         unsigned int texID = GLCreateAttachment(m_ColorFormats[i], m_Samples);
         m_ColorAttachments[i] = texID;
-        m_ColorAttachmentRefs[i] = CreateRef<GLTexture2D>(texID, m_Width, m_Height, m_ColorFormats[i]);
+        m_ColorAttachmentRefs[i] = CreateRef<GLTexture2D>(texID, m_Width, m_Height, m_ColorFormats[i], m_Samples);
 
         GLCall(glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i,
             target, texID, 0));
@@ -248,7 +248,7 @@ void GLFramebuffer::Invalidate()
     {
         Format depthFmt = Format::D24_UNORM_S8_UINT;
         m_DepthStencilAttachment = GLCreateAttachment(depthFmt, m_Samples);
-        m_DepthAttachmentRef = CreateRef<GLTexture2D>(m_DepthStencilAttachment, m_Width, m_Height, depthFmt);
+        m_DepthAttachmentRef = CreateRef<GLTexture2D>(m_DepthStencilAttachment, m_Width, m_Height, depthFmt, m_Samples);
 
         GLCall(glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT,
             target, m_DepthStencilAttachment, 0));
@@ -316,7 +316,7 @@ GLFramebufferView::GLFramebufferView(const FramebufferViewDesc& desc)
 
         GLCall(glFramebufferTexture2D(GL_FRAMEBUFFER,
             GL_COLOR_ATTACHMENT0 + static_cast<GLenum>(i),
-            GL_TEXTURE_2D, texID, 0));
+            tex->GetSampleCount() > 1 ? GL_TEXTURE_2D_MULTISAMPLE : GL_TEXTURE_2D, texID, 0));
 
         drawBufs.push_back(GL_COLOR_ATTACHMENT0 + static_cast<GLenum>(i));
     }
@@ -344,7 +344,7 @@ GLFramebufferView::GLFramebufferView(const FramebufferViewDesc& desc)
             : GL_DEPTH_ATTACHMENT;
 
         GLCall(glFramebufferTexture2D(GL_FRAMEBUFFER, attachPoint,
-            GL_TEXTURE_2D, m_DepthAttachment, 0));
+            desc.depthAttachment->GetSampleCount() > 1 ? GL_TEXTURE_2D_MULTISAMPLE : GL_TEXTURE_2D, m_DepthAttachment, 0));
     }
 
     GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);

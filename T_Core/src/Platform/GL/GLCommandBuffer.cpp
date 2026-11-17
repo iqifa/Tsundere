@@ -4,7 +4,9 @@
 #include "GLPipeline.h"
 #include "GLDescriptorSet.h"
 #include "GLDebug.h"
-#include "Platform/RenderAPI.h"  // RenderAPI_OpenGL / RenderAPI_Vulkan
+#include "Platform/RenderAPIConfig.h"
+#include "Platform/RHI/RHIShader.h"
+#include "Platform/RHI/RHITexture.h"
 #include "GL/glew.h"
 
 void GLCommandBuffer::Begin()
@@ -24,6 +26,8 @@ void GLCommandBuffer::Submit()
 
 void GLCommandBuffer::BeginRenderPass(Ref<RHIFramebuffer> fb, const float clearColor[4])
 {
+    m_RenderPassFramebuffer = fb;
+    m_RenderPassInfo = {};
     if (fb)
     {
         fb->Bind();
@@ -44,6 +48,8 @@ void GLCommandBuffer::BeginRenderPass(Ref<RHIFramebuffer> fb, const float clearC
 
 void GLCommandBuffer::BeginRenderPass(Ref<RHIFramebuffer> fb, const RenderPassBeginInfo& info)
 {
+    m_RenderPassFramebuffer = fb;
+    m_RenderPassInfo = info;
     if (fb)
     {
         fb->Bind();   // also sets the viewport to the FBO size
@@ -122,7 +128,58 @@ void GLCommandBuffer::BeginRenderPass(Ref<RHIFramebuffer> fb, const RenderPassBe
 
 void GLCommandBuffer::EndRenderPass()
 {
+    // Resolve exported RDG targets without changing cached framebuffer MRT state.
+    GLuint resolveFbo = 0;
+    GLint previousReadBuffer = GL_NONE;
+    const GLboolean scissor = glIsEnabled(GL_SCISSOR_TEST);
+    auto prepare = [&]() {
+        if (resolveFbo) return;
+        m_RenderPassFramebuffer->Bind();
+        GLCall(glGetIntegerv(GL_READ_BUFFER, &previousReadBuffer));
+        GLCall(glGenFramebuffers(1, &resolveFbo));
+        GLCall(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, resolveFbo));
+        GLCall(glDisable(GL_SCISSOR_TEST));
+    };
+    if (m_RenderPassFramebuffer)
+    {
+        const auto w = m_RenderPassFramebuffer->GetWidth();
+        const auto h = m_RenderPassFramebuffer->GetHeight();
+        for (size_t slot = 0; slot < m_RenderPassInfo.colorAttachments.size(); ++slot)
+        {
+            auto* target = m_RenderPassInfo.colorAttachments[slot].resolveTarget;
+            if (!target) continue;
+            prepare();
+            GLCall(glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                GL_TEXTURE_2D, static_cast<GLuint>(target->GetNativeID()), 0));
+            GLCall(glDrawBuffer(GL_COLOR_ATTACHMENT0));
+            GLCall(glReadBuffer(GL_COLOR_ATTACHMENT0 + static_cast<GLenum>(slot)));
+            GLCall(glBlitFramebuffer(0, 0, w, h, 0, 0, target->GetWidth(), target->GetHeight(),
+                GL_COLOR_BUFFER_BIT, GL_NEAREST));
+        }
+        auto* depth = m_RenderPassInfo.hasDepth ? m_RenderPassInfo.depth.resolveTarget : nullptr;
+        if (depth)
+        {
+            prepare();
+            GLCall(glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0));
+            GLCall(glDrawBuffer(GL_NONE));
+            const bool stencil = depth->GetFormat() == Format::D24_UNORM_S8_UINT ||
+                depth->GetFormat() == Format::D32_SFLOAT_S8_UINT;
+            GLCall(glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER,
+                stencil ? GL_DEPTH_STENCIL_ATTACHMENT : GL_DEPTH_ATTACHMENT,
+                GL_TEXTURE_2D, static_cast<GLuint>(depth->GetNativeID()), 0));
+            GLCall(glBlitFramebuffer(0, 0, w, h, 0, 0, depth->GetWidth(), depth->GetHeight(),
+                GL_DEPTH_BUFFER_BIT, GL_NEAREST));
+        }
+    }
+    if (resolveFbo)
+    {
+        GLCall(glReadBuffer(previousReadBuffer));
+        GLCall(glDeleteFramebuffers(1, &resolveFbo));
+        if (scissor) { GLCall(glEnable(GL_SCISSOR_TEST)); }
+    }
     GLCall(glBindFramebuffer(GL_FRAMEBUFFER, 0));
+    m_RenderPassFramebuffer.reset();
+    m_RenderPassInfo = {};
 }
 
 void GLCommandBuffer::BindPipeline(Ref<RHIPipeline> pipeline)

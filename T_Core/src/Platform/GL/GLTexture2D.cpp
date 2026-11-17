@@ -87,8 +87,8 @@ static unsigned int ToGLFilter(FilterMode f)
     return (f == FilterMode::Nearest) ? GL_NEAREST : GL_LINEAR;
 }
 
-GLTexture2D::GLTexture2D(unsigned int existingGLID, uint32_t width, uint32_t height, Format format)
-    : m_RendererID(existingGLID), m_Width(width), m_Height(height)
+GLTexture2D::GLTexture2D(unsigned int existingGLID, uint32_t width, uint32_t height, Format format, uint32_t samples)
+    : m_Samples(samples), m_RendererID(existingGLID), m_Width(width), m_Height(height)
     , m_Format(format)
     , m_MinFilter(FilterMode::Linear), m_MagFilter(FilterMode::Linear)
     , m_WrapS(WrapMode::ClampToEdge), m_WrapT(WrapMode::ClampToEdge)
@@ -97,7 +97,7 @@ GLTexture2D::GLTexture2D(unsigned int existingGLID, uint32_t width, uint32_t hei
 }
 
 GLTexture2D::GLTexture2D(const Texture2DDesc& desc)
-    : m_Width(desc.width), m_Height(desc.height)
+    : m_Samples(desc.sampleCount > 1 ? desc.sampleCount : 1), m_Width(desc.width), m_Height(desc.height)
     , m_FilePath(desc.filePath)
     , m_Format(desc.format)
     , m_MinFilter(desc.minFilter), m_MagFilter(desc.magFilter)
@@ -106,7 +106,12 @@ GLTexture2D::GLTexture2D(const Texture2DDesc& desc)
     for (int i = 0; i < 4; i++)
         m_BorderColor[i] = desc.borderColor[i];
 
-    if (desc.pixelData)
+    if (m_Samples > 1)
+    {
+        GLCall(glGenTextures(1, &m_RendererID));
+        Resize(m_Width, m_Height);
+    }
+    else if (desc.pixelData)
     {
         CreateFromPixels(desc.pixelData, desc.dataChannels);
     }
@@ -143,15 +148,20 @@ GLTexture2D::~GLTexture2D()
         GLCall(glDeleteTextures(1, &m_RendererID));
 }
 
+unsigned int GLTexture2D::Target() const
+{
+    return m_Samples > 1 ? GL_TEXTURE_2D_MULTISAMPLE : GL_TEXTURE_2D;
+}
+
 void GLTexture2D::Bind(uint32_t slot)
 {
     GLCall(glActiveTexture(GL_TEXTURE0 + slot));
-    GLCall(glBindTexture(GL_TEXTURE_2D, m_RendererID));
+    GLCall(glBindTexture(Target(), m_RendererID));
 }
 
 void GLTexture2D::Unbind()
 {
-    GLCall(glBindTexture(GL_TEXTURE_2D, 0));
+    GLCall(glBindTexture(Target(), 0));
 }
 
 static unsigned int ToGLAccess(ImageAccess access)
@@ -179,6 +189,13 @@ void GLTexture2D::UnbindAsImage(uint32_t slot)
 void GLTexture2D::Resize(uint32_t w, uint32_t h)
 {
     m_Width = w; m_Height = h;
+    if (m_Samples > 1)
+    {
+        GLCall(glBindTexture(Target(), m_RendererID));
+        GLCall(glTexImage2DMultisample(Target(), m_Samples, ToGLInternalFormat(m_Format), w, h, GL_TRUE));
+        GLCall(glBindTexture(Target(), 0));
+        return;
+    }
     GLCall(glBindTexture(GL_TEXTURE_2D, m_RendererID));
     GLCall(glTexImage2D(GL_TEXTURE_2D, 0, ToGLInternalFormat(m_Format),
         m_Width, m_Height, 0, ToGLDataFormat(m_Format), ToGlTypeFormat(m_Format), nullptr));

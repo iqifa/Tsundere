@@ -11,7 +11,7 @@ public:
 
     // Wrap an existing GL texture (borrowed — does NOT own the texture, no glDeleteTextures).
     // Useful for bridging old GL code that creates textures directly into the RHI world.
-    GLTexture2D(unsigned int existingGLID, uint32_t width, uint32_t height, Format format = Format::RGBA8_UNORM);
+    GLTexture2D(unsigned int existingGLID, uint32_t width, uint32_t height, Format format = Format::RGBA8_UNORM, uint32_t samples = 1);
 
     ~GLTexture2D() override;
 
@@ -23,6 +23,7 @@ public:
     uint32_t GetWidth() const override   { return m_Width; }
     uint32_t GetHeight() const override  { return m_Height; }
     Format GetFormat() const override { return m_Format; }
+    uint32_t GetSampleCount() const override { return m_Samples; }
     uintptr_t GetNativeID() const override { return static_cast<uintptr_t>(m_RendererID); }
     const std::string& GetPath() const override { return m_FilePath; }
 
@@ -32,6 +33,8 @@ public:
 private:
     void CreateFromPixels(const void* data, uint32_t channels);
     void ApplySamplerParams();
+    unsigned int Target() const;
+    uint32_t m_Samples = 1;
 
     unsigned int m_RendererID = 0;
     uint32_t m_Width = 0, m_Height = 0;
