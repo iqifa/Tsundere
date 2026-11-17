@@ -170,7 +170,9 @@ void VulkanExampleLayer::DrawViewportTools(const ImVec2& min, const ImVec2& max,
 		const float projectionY = glm::length(glm::vec3(
 			camera.ViewProj[0][1], camera.ViewProj[1][1], camera.ViewProj[2][1]));
 		const float radius = HandlePixels * 2.0f * clipW / (viewport.size.y * projectionY);
-		const auto& r = (drag.entity != entt::null ? drag.start : *transform).Rotation;
+		// Follow the edited orientation continuously, including the release frame.
+		// The drag calculation above still uses its fixed starting transform.
+		const auto& r = transform->Rotation;
 		const glm::mat4 axes = m_ViewportTool == ViewportTool::Move
 			? glm::mat4(1.0f) : glm::eulerAngleXYZ(r.x, r.y, r.z);
 		const glm::vec3 pivot = transform->Position;
