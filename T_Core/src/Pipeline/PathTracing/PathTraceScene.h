@@ -3,13 +3,19 @@
 // ---------------------------------------------------------------------------
 // PathTraceScene — GPU Path Tracing 的 CPU 侧场景数据（两后端共用）
 //
-// 每帧在主线程调用一次 Update(scene)：
-//   * 几何 / 实例 / 材质分配变化（哈希 + BVHBuilder 脏标记）→ 重新采集并上传
-//       SoftwareBVH：BVHBuilder 树模式（5 个 SSBO）
-//       RayQuery   ：BVHBuilder 平铺模式（3 个 SSBO）+ RHIRayTracingScene 构建 BLAS/TLAS
-//   * 材质参数变化 → 只重传材质 buffer
-//   * 灯光变化     → 只重传灯光 buffer
+// 每帧在主线程调用一次 Update(scene)，由 SceneChanges 的分类版本号驱动（见 SceneChanges.h），
+// 静态场景不做任何扫描：
+//   MeshGeometry        → 该 Mesh 的 BLAS 片段 + 拼接 + TLAS
+//   InstanceTransform   → 实例数据 + TLAS（BLAS 复用）
+//   InstanceSet         → 实例列表 + TLAS，按需建 / 删 BLAS；材质表
+//   MaterialAssignment  → 材质表 + 实例 materialIndex 原地修补（不重建空间结构）
+//   MaterialParameters  → 只重传材质 buffer
+//   Lights              → 只重传灯光 buffer
+//   SoftwareBVH：BVHBuilder 树模式（5 个 SSBO）
+//   RayQuery   ：BVHBuilder 平铺模式（3 个 SSBO）+ RHIRayTracingScene 增量 BLAS / TLAS
+// 版本号变了但派生数据比较后没有差异（例如改了 PT 不用的参数）时不重置累积。
 // 返回值表示“这一帧积分结果会变”，PathTracePass 据此清空累积。
+// 开发构建（ENABLE_PT_DIRTY_VALIDATION）会在消费版本号之前做漏标校验，见 PTDirtyValidation.h。
 // 逐射线 / 逐反弹没有任何 CPU 参与，也没有任何读回。
 //
 // GPU 布局的 GLSL 镜像在 res/shaders/include/PathTraceCommon.glsl。
@@ -17,8 +23,11 @@
 
 #include "Scene/BVHBuilder.h"
 #include "Platform/RHI/RHIRayTracing.h"
+#include "Pipeline/PathTracing/PTDirtyValidation.h"
+#include "Scene/SceneChanges.h"
 #include <glm/glm.hpp>
 #include <cstddef>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -85,12 +94,26 @@ namespace PathTracing
 class T_API PathTraceScene
 {
 public:
+	// 最近一次“有工作”的 Update 做了什么（UI / 调试用）
+	struct UpdateInfo
+	{
+		uint32_t dirtyMask = 0;            // 本次消费的 SceneChanges 类别
+		uint32_t missedMask = 0;           // 开发校验发现的漏标类别（已自愈）
+		BVHIncrementalResult geometry;
+		bool accelUpdated = false;         // 硬件 BLAS/TLAS 更新过
+		bool materialsUploaded = false;
+		bool lightsUploaded = false;
+		bool resetAccumulation = false;
+		float cpuMilliseconds = 0.0f;
+	};
+
 	explicit PathTraceScene(PathTracing::Backend backend);
 	~PathTraceScene();
 	PathTraceScene(const PathTraceScene&) = delete;
 	PathTraceScene& operator=(const PathTraceScene&) = delete;
 
 	// 主线程，每帧一次。返回 true = 影响积分结果的数据变了，需要重置累积。
+	// 只看 SceneChanges 版本号：没有任何类别变化时直接返回，不扫描场景。
 	bool Update(const Scene& scene);
 
 	PathTracing::Backend GetBackend() const { return m_Backend; }
@@ -106,27 +129,39 @@ public:
 	uint32_t GetLightCount() const { return static_cast<uint32_t>(m_Lights.size()); }
 	uint32_t GetMaterialCount() const { return static_cast<uint32_t>(m_Materials.size()); }
 
+	// 开发期漏标校验（仅 ENABLE_PT_DIRTY_VALIDATION 构建生效）。interval = 每几帧检查一次。
+	static constexpr bool ValidationCompiled = ENABLE_PT_DIRTY_VALIDATION != 0;
+	void SetValidation(bool enabled, uint32_t interval);
+	uint64_t GetMissedNotificationTotal() const;
+	const std::string& GetLastValidationReport() const;
+
 	// 统计（UI 显示）
 	uint64_t GetGeometryRevision() const { return m_GeometryRevision; }
-	float GetLastGatherMilliseconds() const { return m_GatherMs; }
+	float GetLastGatherMilliseconds() const { return m_LastUpdate.cpuMilliseconds; }
+	const UpdateInfo& GetLastUpdate() const { return m_LastUpdate; }
 	const std::string& GetStatus() const { return m_Status; }
 
 private:
-	void RebuildGeometry(const Scene& scene);
+	bool RebuildMaterialTable(const Scene& scene);   // true = 表内容（指针序列）变了
+	bool UpdateGeometry(const Scene& scene, UpdateInfo& info);
 	bool UpdateMaterials();
 	bool UpdateLights(const Scene& scene);
-	uint64_t HashGeometry(const Scene& scene) const;
-	uint64_t HashMaterialParameters() const;
+	void RefreshStatus();
 
 	PathTracing::Backend m_Backend;
 	BVHBuilder m_Geometry;
 	Ref<RHIRayTracingScene> m_RayTracing;
 	bool m_Failed = false;
-	bool m_HasGeometry = false;
+
+	// 已处理到的 SceneChanges 版本（本消费方私有，不影响其他消费方）
+	SceneChanges::Versions m_Seen;
+	bool m_HasSeen = false;
+	const Scene* m_LastScene = nullptr;
+	uint64_t m_LastSceneRevision = 0;
 
 	// 材质表：0 号是默认材质（没有分配材质的子网格）
 	std::unordered_map<Engine::Material*, unsigned int> m_MaterialIndex;
-	std::vector<Ref<Engine::Material>> m_MaterialRefs;   // 保活：哈希/读取参数期间指针有效
+	std::vector<Ref<Engine::Material>> m_MaterialRefs;   // 保活：读取参数期间指针有效
 	std::vector<PathTracing::GPUMaterial> m_Materials;
 	std::vector<PathTracing::GPULight> m_Lights;
 	Ref<RHIBuffer> m_MaterialBuffer;
@@ -134,9 +169,12 @@ private:
 	uint32_t m_MaterialCapacity = 0;
 	uint32_t m_LightCapacity = 0;
 
-	uint64_t m_GeometryHash = 0;
-	uint64_t m_MaterialHash = 0;
+	std::unique_ptr<PTDirtyValidator> m_Validator;
+	bool m_ValidationEnabled = ENABLE_PT_DIRTY_VALIDATION != 0;
+	uint32_t m_ValidationInterval = 1;
+	uint32_t m_ValidationCountdown = 0;
+
 	uint64_t m_GeometryRevision = 0;
-	float m_GatherMs = 0.0f;
+	UpdateInfo m_LastUpdate;
 	std::string m_Status;
 };

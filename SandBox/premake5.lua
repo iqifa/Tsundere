@@ -58,3 +58,7 @@ project "SandBox"
         "IMGUI_API=__declspec(dllimport)",
         RenderBackend == "vulkan" and "Vulkan_For_Render" or "OpenGL_For_Render"
     }
+    -- 开发期 PT 漏标校验（SceneChanges / PTDirtyValidation）；Release 不定义 = 关闭
+    filter "configurations:Debug"
+        defines { "ENABLE_PT_DIRTY_VALIDATION=1" }
+    filter{}

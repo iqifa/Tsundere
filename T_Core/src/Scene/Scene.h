@@ -3,6 +3,7 @@
 #include"entt/entt.hpp"
 #include"Entity.h"
 #include"Debug/Debug.h"
+#include"Scene/SceneChanges.h"
 class Entity;
 class Scene {
 private:
@@ -11,6 +12,10 @@ private:
 public:
 	entt::registry m_Registry;
 	uint64_t Revision = 0;
+
+	// MeshRender / Light 的增删和 patch 自动发出 SceneChanges 通知。
+	// SceneSerializer 用 registry.swap 换入新场景：两边都挂了信号，换完照样有效。
+	Scene() { SceneChanges::Attach(m_Registry); }
 
 	bool IsActive(entt::entity entity) const
 	{

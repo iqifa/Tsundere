@@ -2,6 +2,7 @@
 #include"entt/entt.hpp"
 #include"Scene/Component.h"
 #include"Core/Material.h"
+#include"Scene/SceneChanges.h"
 using namespace Component;
 using namespace entt;
 
@@ -45,6 +46,7 @@ public:
 			children.removeChild(childID);
 		}
 		prepar.ChangeParent(m_EntityHandle);
+		SceneChanges::NotifyActivation();   // 父链变了：子树的启用状态可能随之改变
 	}
 	void setparenwithdelself(entt::entity parentID)
 	{
@@ -68,6 +70,7 @@ public:
 			}
 		}
 		prepar.ChangeParent(parentID);
+		SceneChanges::NotifyActivation();
 	}
 
 	void Draw() {}

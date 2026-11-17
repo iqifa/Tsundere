@@ -19,12 +19,14 @@
 #include "HeadLine.h"
 #include <cstdint>
 #include <string>
+#include <vector>
 
 struct BVHSceneData;
 
 struct RHIRayTracingBuildStats
 {
-	uint32_t blasCount = 0;
+	uint32_t blasCount = 0;          // 当前驻留的 BLAS 数
+	uint32_t blasBuilt = 0;          // 最近一次 Update 新建的 BLAS 数（0 = 只重建了 TLAS）
 	uint32_t instanceCount = 0;
 	uint32_t triangleCount = 0;
 	uint64_t blasBytes = 0;
@@ -40,9 +42,16 @@ class T_API RHIRayTracingScene
 public:
 	virtual ~RHIRayTracingScene() = default;
 
-	// 用平铺几何（重新）构建全部 BLAS 和 TLAS。阻塞到 GPU 构建完成。
-	// 返回 false 时保留上一次成功的结果。
-	virtual bool Build(const BVHSceneData& flatGeometry) = 0;
+	// 增量更新加速结构。blasKeys 与 flatGeometry.blas[] 一一对应（BVHBuilder::GetBLASKeys）：
+	//   * 键已在缓存里的 BLAS 原样复用（键不变 = 三角形内容不变）
+	//   * 新键才构建 BLAS；不再出现的键释放
+	//   * TLAS 每次调用都按当前实例重建（实例 / 变换变化）
+	// 只改材质下标时不需要调用（materialIndex 在实例 SSBO 里，不在 AS 里）。
+	// 阻塞到 GPU 构建完成。返回 false 时保留上一次成功的结果。
+	virtual bool Update(const BVHSceneData& flatGeometry, const std::vector<uint64_t>& blasKeys) = 0;
+
+	// 丢弃全部缓存的 BLAS / TLAS。
+	virtual void Clear() = 0;
 
 	virtual bool IsValid() const = 0;
 	virtual const RHIRayTracingBuildStats& GetStats() const = 0;

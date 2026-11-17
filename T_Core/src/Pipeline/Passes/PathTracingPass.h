@@ -14,7 +14,7 @@
 // 跨 graph 重建保留），存的是当前平均值。曝光 / 色调映射 / gamma 交给后处理
 // （Post Processing → Tone Mapping），避免重复 gamma。
 //
-// 累积在以下情况清零：相机矩阵变化、几何/实例变换/材质/灯光变化（PathTraceScene）、
+// 累积在以下情况清零：相机矩阵变化、几何/实例变换/材质/灯光变化（PathTraceScene，SceneChanges 驱动）、
 // 参数变化、尺寸变化（纹理重建）、shader 变体切换（天空盒有无 / 后端）、
 // Pass 关闭后重开（实例重建）。
 // ---------------------------------------------------------------------------
@@ -45,6 +45,9 @@ public:
 		bool paused = false;
 		bool forceSoftwareBVH = false;    // Vulkan 上强制走软件 BVH（对照用）
 		bool resetRequested = false;
+		// 开发期漏标校验（仅 ENABLE_PT_DIRTY_VALIDATION 构建）：每 validationInterval 帧检查一次
+		bool validateDirtyFlags = true;
+		int validationInterval = 30;     // Debug 构建未优化：逐帧哈希大场景顶点太慢；间隔检查不会漏判
 	};
 
 	struct Stats
@@ -62,6 +65,9 @@ public:
 		RHIRayTracingBuildStats accel;
 		uint64_t geometryRevision = 0;
 		uint32_t tlasDepth = 0, blasDepth = 0;
+		PathTraceScene::UpdateInfo lastUpdate;   // 最近一次有工作的场景更新
+		uint64_t missedNotifications = 0;        // 开发校验累计发现的漏标
+		std::string lastValidationReport;
 	};
 
 	// 单实例 Pass，设置 / 统计放在静态存储里供编辑器 UI 访问。
@@ -120,7 +126,8 @@ public:
 		bool reset = settings.resetRequested;
 		settings.resetRequested = false;
 
-		// ---- 场景数据（几何 / 材质 / 灯光）----
+		// ---- 场景数据（几何 / 材质 / 灯光），由 SceneChanges 版本号驱动 ----
+		m_PTScene->SetValidation(settings.validateDirtyFlags, static_cast<uint32_t>(std::max(settings.validationInterval, 1)));
 		if (m_PTScene->Update(*m_Scene))
 			reset = true;
 		if (m_PTScene->HasFailed() && m_Backend == PathTracing::Backend::RayQuery)
@@ -380,6 +387,9 @@ private:
 		stats.geometryRevision = m_PTScene->GetGeometryRevision();
 		stats.tlasDepth = geometry.GetStats().tlasDepth;
 		stats.blasDepth = geometry.GetStats().blasDepth;
+		stats.lastUpdate = m_PTScene->GetLastUpdate();
+		stats.missedNotifications = m_PTScene->GetMissedNotificationTotal();
+		stats.lastValidationReport = m_PTScene->GetLastValidationReport();
 		if (auto rt = m_PTScene->GetRayTracingScene())
 			stats.accel = rt->GetStats();
 		else

@@ -198,11 +198,37 @@ void VulkanExampleLayer::DrawPathTracingPanel()
             ImGui::TextDisabled("PT dispatch GPU: n/a");
         if (st.graphGpuMs >= 0.0)
             ImGui::Text("Whole render graph GPU: %.3f ms", st.graphGpuMs);
-        ImGui::Text("Scene rebuild CPU: %.2f ms (BVH build %.2f ms, upload %.2f ms)",
+        ImGui::Text("Last scene update CPU: %.2f ms (BVH build %.2f ms, upload %.2f ms)",
             st.geometryCpuMs, st.bvhBuildCpuMs, st.uploadCpuMs);
+        {
+            const auto& u = st.lastUpdate;
+            const char* kind = u.geometry.geometryChanged ? "BLAS set + TLAS"
+                : u.geometry.instancesChanged ? "TLAS only"
+                : u.geometry.materialsPatched ? "material indices only"
+                : "no geometry work";
+            ImGui::TextWrapped("Last change: %s -> %s | BLAS built %u, reused %u, released %u%s%s",
+                SceneChanges::DescribeMask(u.dirtyMask).c_str(), kind,
+                u.geometry.blasBuilt, u.geometry.blasReused, u.geometry.blasReleased,
+                u.materialsUploaded ? " | materials" : "", u.lightsUploaded ? " | lights" : "");
+        }
+        if (PathTraceScene::ValidationCompiled)
+        {
+            ImGui::Checkbox("Validate dirty notifications", &s.validateDirtyFlags);
+            ImGui::SetItemTooltip("Development build only: hashes scene content (including vertices) and reports "
+                "changes that were not announced through SceneChanges.");
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 5.0f);
+            ImGui::DragInt("every N frames", &s.validationInterval, 0.2f, 1, 600);
+            if (st.missedNotifications > 0)
+            {
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "Missed notifications: %llu (see log)",
+                    static_cast<unsigned long long>(st.missedNotifications));
+                ImGui::TextWrapped("%s", st.lastValidationReport.c_str());
+            }
+        }
         if (st.accel.blasCount > 0 || st.accel.instanceCount > 0)
-            ImGui::Text("BLAS x%u %.2f ms, TLAS %.2f ms (GPU) | %.2f ms CPU incl. wait",
-                st.accel.blasCount, st.accel.gpuBlasMilliseconds, st.accel.gpuTlasMilliseconds, st.accel.cpuMilliseconds);
+            ImGui::Text("BLAS x%u (built %u) %.2f ms, TLAS %.2f ms (GPU) | %.2f ms CPU incl. wait",
+                st.accel.blasCount, st.accel.blasBuilt, st.accel.gpuBlasMilliseconds, st.accel.gpuTlasMilliseconds, st.accel.cpuMilliseconds);
         else
             ImGui::Text("BVH depth: TLAS %u, BLAS %u", st.tlasDepth, st.blasDepth);
         if (!m_PostProcess.toneMapping)

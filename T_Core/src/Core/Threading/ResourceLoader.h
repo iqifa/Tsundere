@@ -588,8 +588,8 @@ inline void ResourceLoader::CompleteModelLoad(AsyncLoadRequest& req)
 		std::unique_lock lock(My_map::s_Mutex);
 		My_map::m_ModleMap[req.path] = model;
 	}
-	// New geometry: entities referencing this model were skipped by the last BVH gather.
-	BVHBuilder::MarkActiveDirty();
+	// New geometry: entities referencing this model were skipped by the last gather.
+	SceneChanges::NotifyModelChanged();
 
 	PendingGPUModel pending;
 	pending.model = model;

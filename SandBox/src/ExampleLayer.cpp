@@ -406,7 +406,7 @@ void ExampleLayer::OnImGuiRender()
 				}
 				m_Context->DestoryEntity(Entity{ m_Context.get(),m_SelectedContext });
 				m_SelectedContext = null;
-				BVHBuilder::MarkActiveDirty();
+				// MeshRender / Light 的销毁由 EnTT 信号自动通知 SceneChanges
 			}
 		}
 

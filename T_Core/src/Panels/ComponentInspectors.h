@@ -10,7 +10,7 @@
 #include "Input/Input.h"
 #include "Widget.h"
 #include "Scene/Scene.h"
-#include "Scene/BVHBuilder.h"
+#include "Scene/SceneChanges.h"
 #include "Core/Threading/ResourceLoader.h"
 #include <cstdio>
 #include <unordered_set>
@@ -25,7 +25,7 @@ inline void RenderTagInspector(Entity& entity)
 	{
 		auto& tag = entity.GetComponent<Tag>();
 		if (ImGui::Checkbox("Active##Tag", &tag.Active))
-			BVHBuilder::MarkActiveDirty();
+			SceneChanges::NotifyActivation();
 		char buffer[256];
 		memset(buffer, 0, sizeof(buffer));
 		strcpy_s(buffer, sizeof(buffer), tag.tag.c_str());
@@ -39,6 +39,7 @@ inline void RenderTransformInspector(Entity& entity)
 	if (ImGui::CollapsingHeader("Transform", ImGuiTreeNodeFlags_AllowItemOverlap))
 	{
 		auto& t = entity.GetComponent<Transform>();
+		const Transform before = t;
 		ImGui::PushID("##Transform");
 
 		ImGui::Columns(2);
@@ -58,6 +59,8 @@ inline void RenderTransformInspector(Entity& entity)
 		ImGui::DragFloat3("##Scale", &t.Scale[0], 0.05f);
 		ImGui::Columns(1);
 		ImGui::PopID();
+		if (before.Position != t.Position || before.Rotation != t.Rotation || before.Scale != t.Scale)
+			SceneChanges::NotifyTransform(entity.m_Scene->m_Registry, entity.m_EntityHandle);
 	}
 }
 
@@ -81,6 +84,20 @@ inline void RenderLightInspector(Entity& entity)
 	{
 		using LightType = Light::LightType;
 		auto& light = entity.GetComponent<Light>();
+		// 控件很多：整体比较前后内容，任何字段变了都通知（不必逐个控件记得标脏）
+		const Light before = light;
+		struct NotifyOnChange
+		{
+			const Light& before;
+			const Light& after;
+			~NotifyOnChange()
+			{
+				if (before.type != after.type || before.Color != after.Color || before.Intensity != after.Intensity ||
+					before.Direction != after.Direction || before.Ambient != after.Ambient ||
+					std::memcmp(before.Params.Data, after.Params.Data, sizeof(before.Params.Data)) != 0)
+					SceneChanges::Notify(SceneChanges::Category::Lights);
+			}
+		} notifyOnChange{ before, light };
 
 		ImGui::Columns(2);
 		ImGui::SetColumnWidth(0, 100.0f);
@@ -214,13 +231,13 @@ inline void RenderMeshRenderInspector(Entity& entity)
 	if (ImGui::SmallButton("+"))
 	{
 		meshrender.materials.push_back(Engine::MaterialLibrary::CreateModelDefault());
-		BVHBuilder::MarkActiveDirty();
+		SceneChanges::NotifyMaterialAssignment();
 	}
 	ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - btnW_minus);
 	if (ImGui::SmallButton("-"))
 	{
 		entity.RemoveComponent<MeshRender>();
-		BVHBuilder::MarkActiveDirty();
+		// 组件移除由 EnTT 信号自动通知
 		ImGui::PopID();
 		return;
 	}
@@ -253,7 +270,7 @@ inline void RenderMeshRenderInspector(Entity& entity)
 				if (ImGui::Selectable(display.c_str(), selected))
 				{
 					meshrender.ModelPath = path;
-					BVHBuilder::MarkActiveDirty();
+					SceneChanges::NotifyModelBinding();
 				}
 				if (selected)
 					ImGui::SetItemDefaultFocus();
@@ -280,7 +297,7 @@ inline void RenderMeshRenderInspector(Entity& entity)
 				My_map::AddModelPath(importPath);
 				Engine::ResourceLoader::RequestModelLoad(importPath);
 				meshrender.ModelPath = importPath;
-				BVHBuilder::MarkActiveDirty();
+				SceneChanges::NotifyModelBinding();
 			}
 		}
 		ImGui::Columns(1);
@@ -299,6 +316,7 @@ inline void RenderMeshRenderInspector(Entity& entity)
 				if (!meshrender.materials[i])
 					meshrender.materials[i] = Engine::MaterialLibrary::CreateModelDefault(static_cast<int>(i));
 			}
+			SceneChanges::NotifyMaterialAssignment();
 		}
 
 		if (!meshrender.materials.empty())
@@ -351,7 +369,7 @@ inline void AddMeshRenderComponent(Entity& entity)
 		auto& mr = entity.AddComponent<MeshRender>();
 		mr.materials.push_back(Engine::MaterialLibrary::CreateModelDefault());
 		Info_Core("AddComponent: MeshRender with default material");
-		BVHBuilder::MarkActiveDirty();
+		SceneChanges::NotifyMaterialAssignment();   // emplace 已由信号通知；之后又填了材质槽
 	}
 }
 
@@ -362,7 +380,7 @@ inline void AddMaterialToMeshRender(Entity& entity)
 		auto& mr = entity.GetComponent<MeshRender>();
 		mr.materials.push_back(Engine::MaterialLibrary::CreateModelDefault());
 		Info_Core("AddComponent: Material added to MeshRender");
-		BVHBuilder::MarkActiveDirty();
+		SceneChanges::NotifyMaterialAssignment();
 	}
 	else
 	{

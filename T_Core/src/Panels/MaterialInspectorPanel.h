@@ -11,6 +11,7 @@
 #include "Panels/MeshFilePath.h"
 #include "Panels/AssetPicker.h"
 #include "Debug/Debug.h"
+#include "Scene/SceneChanges.h"
 #include "HeadLine.h"
 #include <algorithm>
 #include <cctype>
@@ -264,6 +265,8 @@ inline void RenderMaterialInspector(Entity& entity)
 		return;
 
 	auto& meshRender = entity.GetComponent<Component::MeshRender>();
+	// 槽位的替换 / resize / 新建分散在下面多处：整体比较前后的指针序列再通知
+	const std::vector<Ref<Engine::Material>> slotsBefore = meshRender.materials;
 
 	ImGui::PushID("##MaterialInspector");
 
@@ -381,4 +384,6 @@ inline void RenderMaterialInspector(Entity& entity)
 	}
 
 	ImGui::PopID();
+	if (meshRender.materials != slotsBefore)
+		SceneChanges::NotifyMaterialAssignment();
 }
