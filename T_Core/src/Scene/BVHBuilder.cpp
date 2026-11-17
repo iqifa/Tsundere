@@ -117,18 +117,24 @@ bool BVHBuilder::UploadToGPU()
 {
 	std::lock_guard<std::mutex> lock(m_Mutex);
 
-	if (m_Data.tlasNodes.empty())
+	if (m_Data.triangles.empty() || m_Data.instances.empty())
 	{
 		Warn_Core("[BVH] UploadToGPU called before BuildBVH; nothing to upload");
 		return false;
 	}
 
+	// 平铺模式（硬件光追）没有树节点，只上传表面重建需要的 3 个 buffer。
+	const bool trees = !m_Data.tlasNodes.empty();
+	const auto uploadStart = std::chrono::steady_clock::now();
 	Ref<RHIBuffer> tlasNodes, instances, blasNodes, triangles, attribs;
 	try
 	{
-		tlasNodes = CreateStorageBuffer(m_Data.tlasNodes);
+		if (trees)
+		{
+			tlasNodes = CreateStorageBuffer(m_Data.tlasNodes);
+			blasNodes = CreateStorageBuffer(m_Data.blasNodes);
+		}
 		instances = CreateStorageBuffer(m_Data.instances);
-		blasNodes = CreateStorageBuffer(m_Data.blasNodes);
 		triangles = CreateStorageBuffer(m_Data.triangles);
 		attribs = CreateStorageBuffer(m_Data.attribs);
 	}
@@ -138,11 +144,14 @@ bool BVHBuilder::UploadToGPU()
 		return false;
 	}
 
-	if (!tlasNodes || !instances || !blasNodes || !triangles || !attribs)
+	if ((trees && (!tlasNodes || !blasNodes)) || !instances || !triangles || !attribs)
 	{
 		Error_Core("[BVH] GPU upload failed: a buffer is empty or exceeds 4 GB");
 		return false;
 	}
+	m_UploadMilliseconds =
+		std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - uploadStart).count();
+	++m_Revision;
 
 	// 全部成功后再整体替换，保证 5 个 buffer 始终来自同一次构建。
 	// 旧 buffer 随 Ref 释放（Vulkan 走延迟删除队列）。
@@ -153,6 +162,12 @@ bool BVHBuilder::UploadToGPU()
 	m_TriangleAttribBuffer = std::move(attribs);
 
 	const BVHStats& s = m_Data.stats;
+	if (!trees)
+	{
+		Info_Core("[BVH] flat geometry: {} instances, {} meshes, {} tris | CPU {:.1f} ms, upload {:.1f} ms",
+			s.instanceCount, s.meshCount, s.triangleCount, s.buildMilliseconds, m_UploadMilliseconds);
+		return true;
+	}
 	Info_Core("[BVH] {} instances, {} meshes, {} tris | TLAS {} nodes (depth {}) | BLAS {} nodes (depth {}) | {:.1f} ms",
 		s.instanceCount, s.meshCount, s.triangleCount,
 		s.tlasNodeCount, s.tlasDepth, s.blasNodeCount, s.blasDepth, s.buildMilliseconds);

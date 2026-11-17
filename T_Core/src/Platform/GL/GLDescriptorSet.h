@@ -17,6 +17,7 @@ public:
     void BindTexture(uint32_t binding, RHITexture2D* texture, uint32_t unit) override;
     void BindCubeMap(uint32_t binding, Ref<RHITextureCube> cubemap, uint32_t unit) override;
     void BindStorageImage(uint32_t binding, Ref<RHIStorageImage> image, ImageAccess access, uint32_t unit) override;
+    void BindStorageTexture(uint32_t binding, RHITexture2D* texture, ImageAccess access, uint32_t unit) override;
     void BindUniformBuffer(uint32_t binding, Ref<RHIBuffer> buffer, uint32_t dynamicRange = 0) override;
     void BindStorageBuffer(uint32_t binding, Ref<RHIBuffer> buffer) override;
 
@@ -43,6 +44,11 @@ private:
         uint32_t unit;
         ImageAccess access;
     };
+    struct StorageTextureBinding {
+        RHITexture2D* texture = nullptr;
+        uint32_t unit;
+        ImageAccess access;
+    };
     struct BufferBinding {
         Ref<RHIBuffer> buffer;
         uint32_t slot;
@@ -53,6 +59,7 @@ private:
     std::vector<TextureBinding> m_Textures;
     std::vector<CubeMapBinding> m_Cubemaps;
     std::vector<StorageImageBinding> m_StorageImages;
+    std::vector<StorageTextureBinding> m_StorageTextures;
     std::vector<BufferBinding> m_Buffers;
 };
 

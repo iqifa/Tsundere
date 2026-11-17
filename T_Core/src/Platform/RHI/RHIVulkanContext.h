@@ -28,6 +28,11 @@ public:
     virtual uint64_t GetSwapchainGeneration() const = 0;
     virtual bool SupportsDynamicRendering() const { return false; }
 
+    // VK_KHR_acceleration_structure + VK_KHR_ray_query + bufferDeviceAddress 是否都已启用。
+    // 支持 Vulkan 1.3 不代表支持 ray query，这里是真实检测结果。
+    virtual bool SupportsRayQuery() const { return false; }
+    virtual const char* GetRayQueryStatus() const { return "not queried"; }
+
     // Optional cache hook. Backends that use classic Vulkan render passes can
     // override this; a null cache keeps the native context usable while the
     // backend is assembled incrementally.

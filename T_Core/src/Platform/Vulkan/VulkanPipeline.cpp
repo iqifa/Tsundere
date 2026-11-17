@@ -3,6 +3,7 @@
 #include<Platform/Vulkan/VulkanDescriptorSet.h>
 #include<Platform/RHI/RHIContext.h>
 #include<Platform/RHI/RHIVulkanContext.h>
+#include<Platform/Vulkan/VulkanDeletionQueue.h>
 #include "Platform/RenderAPIConfig.h"
 
 #ifdef RenderAPI_Vulkan
@@ -169,7 +170,7 @@ VulkanPipeline::VulkanPipeline(const PipelineDesc& desc) : m_Desc(desc)
 {
 	if (desc.isCompute)
 	{
-		Error_Core("VulkanPipeline: compute pipelines require a dedicated creation path");
+		CreateComputePipeline();
 		return;
 	}
 
@@ -580,6 +581,92 @@ VulkanPipeline::VulkanPipeline(const PipelineDesc& desc) : m_Desc(desc)
 	}
 }
 
+// Compute pipelines have no rendering signature or vertex input: the layout is
+// the descriptor-set layouts plus an optional compute-stage push-constant range.
+bool VulkanPipeline::CreatePipelineLayout(VkDevice device, VkShaderStageFlags pushStages)
+{
+	std::vector<VkDescriptorSetLayout> descriptorSetLayouts;
+	descriptorSetLayouts.reserve(m_Desc.descriptorSets.size());
+	for (const auto& descriptorSet : m_Desc.descriptorSets)
+	{
+		auto* vkDescriptorSet = descriptorSet
+			? dynamic_cast<VulkanDescriptorSet*>(descriptorSet.get())
+			: nullptr;
+		const VkDescriptorSetLayout setLayout = vkDescriptorSet
+			? vkDescriptorSet->GetLayout()
+			: VK_NULL_HANDLE;
+		if (setLayout == VK_NULL_HANDLE)
+		{
+			Error_Core("VulkanPipeline: descriptor set has no valid Vulkan layout");
+			return false;
+		}
+		descriptorSetLayouts.push_back(setLayout);
+	}
+
+	VkPushConstantRange pushRange{};
+	pushRange.stageFlags = pushStages;
+	pushRange.offset = 0;
+	pushRange.size = m_Desc.pushConstantSize;
+
+	VkPipelineLayoutCreateInfo layoutInfo{};
+	layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+	layoutInfo.setLayoutCount = static_cast<uint32_t>(descriptorSetLayouts.size());
+	layoutInfo.pSetLayouts = descriptorSetLayouts.empty() ? nullptr : descriptorSetLayouts.data();
+	layoutInfo.pushConstantRangeCount = m_Desc.pushConstantSize > 0 ? 1u : 0u;
+	layoutInfo.pPushConstantRanges = m_Desc.pushConstantSize > 0 ? &pushRange : nullptr;
+
+	if (vkCreatePipelineLayout(device, &layoutInfo, nullptr, &m_PipelineLayout) != VK_SUCCESS)
+	{
+		Error_Core("Failed to create Vulkan pipeline layout");
+		m_PipelineLayout = VK_NULL_HANDLE;
+		return false;
+	}
+	return true;
+}
+
+void VulkanPipeline::CreateComputePipeline()
+{
+	m_BindPoint = VK_PIPELINE_BIND_POINT_COMPUTE;
+	m_PushConstantStages = VK_SHADER_STAGE_COMPUTE_BIT;
+
+	auto* shader = m_Desc.shader ? dynamic_cast<VulkanShader*>(m_Desc.shader.get()) : nullptr;
+	const VkShaderModule module = shader ? shader->GetComputeShaderModule() : VK_NULL_HANDLE;
+	if (module == VK_NULL_HANDLE)
+	{
+		Error_Core("VulkanPipeline: compute pipeline requires a Vulkan shader with a compute stage");
+		return;
+	}
+
+	auto& context = RHIContext::Get();
+	auto* vkcontext = context ? dynamic_cast<RHIVulkanContext*>(context.get()) : nullptr;
+	if (!vkcontext || vkcontext->GetDevice() == VK_NULL_HANDLE)
+	{
+		Error_Core("VulkanPipeline: active RHI context is not a valid Vulkan context");
+		return;
+	}
+	const VkDevice device = vkcontext->GetDevice();
+
+	if (!CreatePipelineLayout(device, VK_SHADER_STAGE_COMPUTE_BIT))
+		return;
+
+	VkComputePipelineCreateInfo pipelineInfo{};
+	pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+	pipelineInfo.stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	pipelineInfo.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+	pipelineInfo.stage.module = module;
+	pipelineInfo.stage.pName = "main";
+	pipelineInfo.layout = m_PipelineLayout;
+	pipelineInfo.basePipelineIndex = -1;
+
+	if (vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &m_Pipeline) != VK_SUCCESS)
+	{
+		Error_Core("Failed to create Vulkan compute pipeline for {}", m_Desc.shader->GetPath());
+		vkDestroyPipelineLayout(device, m_PipelineLayout, nullptr);
+		m_PipelineLayout = VK_NULL_HANDLE;
+		m_Pipeline = VK_NULL_HANDLE;
+	}
+}
+
 VulkanPipeline::~VulkanPipeline()
 {
 	auto& context = RHIContext::Get();
@@ -590,10 +677,25 @@ VulkanPipeline::~VulkanPipeline()
 	if (!vkcontext || vkcontext->GetDevice() == VK_NULL_HANDLE)
 		return;
 
-	if (m_Pipeline != VK_NULL_HANDLE)
-		vkDestroyPipeline(vkcontext->GetDevice(), m_Pipeline, nullptr);
-	if (m_PipelineLayout != VK_NULL_HANDLE)
-		vkDestroyPipelineLayout(vkcontext->GetDevice(), m_PipelineLayout, nullptr);
+	// The current frame's command buffer may still reference this pipeline (a
+	// pass toggled off in the UI is released after the graph recorded it), so
+	// destroy it after the frame fence like buffers.
+	const VkDevice device = vkcontext->GetDevice();
+	const VkPipeline pipeline = m_Pipeline;
+	const VkPipelineLayout layout = m_PipelineLayout;
+	m_Pipeline = VK_NULL_HANDLE;
+	m_PipelineLayout = VK_NULL_HANDLE;
+	if (pipeline == VK_NULL_HANDLE && layout == VK_NULL_HANDLE)
+		return;
+	if (VulkanDeletionQueue::IsClosed())
+		return;
+	VulkanDeletionQueue::EnqueueCallback([device, pipeline, layout]()
+	{
+		if (pipeline != VK_NULL_HANDLE)
+			vkDestroyPipeline(device, pipeline, nullptr);
+		if (layout != VK_NULL_HANDLE)
+			vkDestroyPipelineLayout(device, layout, nullptr);
+	});
 }
 
 void VulkanPipeline::Bind()
@@ -607,7 +709,7 @@ void VulkanPipeline::Bind()
 		vkcontext->GetCurrentVkCommandBuffer() != VK_NULL_HANDLE)
 	{
 		vkCmdBindPipeline(vkcontext->GetCurrentVkCommandBuffer(),
-			VK_PIPELINE_BIND_POINT_GRAPHICS, m_Pipeline);
+			m_BindPoint, m_Pipeline);
 	}
 }
 

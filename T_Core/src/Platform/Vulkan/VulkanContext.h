@@ -4,6 +4,7 @@
 #include "Platform/RHI/RHIContext.h"
 #include "Platform/RHI/RHIVulkanContext.h"
 #include <vulkan/vulkan.h>
+#include <string>
 #include <vector>
 
 class T_API VulkanContext : public RHIContext, public RHIVulkanContext
@@ -41,6 +42,8 @@ public:
     uint32_t GetImageCount() const override { return static_cast<uint32_t>(m_SwapchainImages.size()); }
     uint64_t GetSwapchainGeneration() const override { return m_SwapchainGeneration; }
     bool SupportsDynamicRendering() const override { return m_DynamicRenderingSupported; }
+    bool SupportsRayQuery() const override { return m_RayQuerySupported; }
+    const char* GetRayQueryStatus() const override { return m_RayQueryStatus.c_str(); }
 
 private:
     GLFWwindow* m_Window = nullptr;
@@ -53,6 +56,8 @@ private:
     bool m_PresentPassRecorded = false;
     bool m_FramebufferResized = false;
     bool m_DynamicRenderingSupported = false;
+    bool m_RayQuerySupported = false;
+    std::string m_RayQueryStatus = "not queried";
     uint64_t m_SwapchainGeneration = 0;
 
     VkInstance m_Instance = VK_NULL_HANDLE;

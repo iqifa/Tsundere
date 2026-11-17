@@ -342,6 +342,17 @@ void RenderGraph::ExecutePass(RGPass& pass, RHICommandBuffer& commandBuffer)
             commandBuffer.PrepareTextureForSampling(texture);
     }
 
+    // Compute image stores (WriteUAV) need a storage-capable layout. Vulkan
+    // moves the image to GENERAL here; OpenGL has no layouts and ignores it.
+    for (const auto& write : pass.writes)
+    {
+        if (write.access != RGAccess::WriteUAV || write.resource >= resources_.size() ||
+            resources_[write.resource].type != RGResourceType::Texture)
+            continue;
+        if (RHITexture2D* texture = GetTexture({ write.resource, generation_ }))
+            commandBuffer.PrepareTextureForStorage(texture);
+    }
+
     const bool hasDepth = pass.depthAttachment.has_value();
 
     // No attachments at all: a compute or copy pass. Nothing to bind.

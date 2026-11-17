@@ -3,6 +3,7 @@
 #include "RHITypes.h"
 #include "RHIBuffer.h"
 #include "RHITexture.h"
+#include "RHIRayTracing.h"
 #include "Core/Core.h"
 #include "HeadLine.h"
 
@@ -32,6 +33,20 @@ public:
 
     // Bind a storage image for compute shader read/write.
     virtual void BindStorageImage(uint32_t binding, Ref<RHIStorageImage> image, ImageAccess access, uint32_t unit) = 0;
+
+    // Bind a graph/persistent 2D texture (created with TextureUsage::Storage) as a
+    // storage image (`layout(binding = N, rgba32f) uniform image2D`).
+    // GL: glBindImageTexture(unit). VK: STORAGE_IMAGE descriptor in GENERAL layout
+    // (call RHICommandBuffer::PrepareTextureForStorage first; RDG does it for WriteUAV).
+    virtual void BindStorageTexture(uint32_t binding, RHITexture2D* texture, ImageAccess access, uint32_t unit) = 0;
+
+    // Bind a top-level acceleration structure (`uniform accelerationStructureEXT`).
+    // Only backends with RHIRayTracingScene::IsSupported() implement it.
+    virtual void BindAccelerationStructure(uint32_t binding, Ref<RHIRayTracingScene> scene)
+    {
+        (void)binding;
+        (void)scene;
+    }
 
     // Bind a uniform buffer or storage buffer to a binding point.
     // For uniform buffers the descriptor carries the full buffer object —

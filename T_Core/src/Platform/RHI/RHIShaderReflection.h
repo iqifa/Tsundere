@@ -53,6 +53,8 @@ struct ShaderReflection
     std::vector<ShaderBlock>        StorageBlocks;
     std::vector<ShaderImageBinding> SampledImages;
     std::vector<ShaderImageBinding> StorageImages;
+    // Vulkan ray query: `uniform accelerationStructureEXT` bindings (Type = "accelerationStructureEXT").
+    std::vector<ShaderImageBinding> AccelerationStructures;
     // Push-constant block. Name is the GLSL instance name (the `pc` in
     // `uniform DrawPush { ... } pc`). Members carry the SPIR-V offset, which
     // is the same layout Vulkan copies with vkCmdPushConstants.

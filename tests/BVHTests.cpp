@@ -365,7 +365,84 @@ int main()
 			CompareWithBruteForce(meshes, instances, data, 1000, 30.0f, 4321, hits);
 		}
 
-		// 7) 规模：约 26 万三角形（Sponza 量级）
+		// 7) 平铺几何（Vulkan BLAS/TLAS 输入）：三角形保持网格原始顺序、实例保持输入顺序、
+		//    与树模式的同一份几何逐光线结果一致（用 CPU 暴力求交对平铺数据验证下标约定）
+		{
+			std::vector<BVHMeshInput> meshes = { RandomSoup(300, 21, 3.0f, 0.4f), RandomSoup(50, 22, 1.0f, 0.3f) };
+			meshes[0].indices[5] = 999999; // 一个非法三角形：被过滤，后续三角形下标前移
+			std::vector<BVHInstanceInput> instances(3);
+			instances[0].meshIndex = 1; instances[0].objectToWorld = Translate({ 4, 0, 0 }) * Scale({ 1, -2, 1 });
+			instances[1].meshIndex = 0; instances[1].materialIndex = 5;
+			instances[2].meshIndex = 1; instances[2].objectToWorld = RotateY(1.0f);
+			BVHBuildSettings flat = settings;
+			flat.buildTrees = false;
+			BVHSceneData data;
+			BuildSceneBVH(meshes, instances, flat, data);
+			Require(data.tlasNodes.empty() && data.instances.size() == 3 && data.stats.instanceCount == 3,
+				"flat mode keeps instances in input order without a TLAS");
+			Require(data.instances[1].materialIndex == 5 &&
+				data.instances[0].triangleOffset == data.blas[1].triangleOffset, "flat instance order");
+			Require(data.blas[0].triangleCount == 299 && data.blas[1].triangleCount == 50 &&
+				data.triangles.size() == 1 + 299 + 50 && data.attribs.size() == data.triangles.size(),
+				"flat triangle counts");
+			// 原始顺序：第 0 个网格的第 1 个有效三角形 = 源三角形 2（源三角形 1 被过滤）
+			const GPUBVHTriangle& t = data.triangles[data.blas[0].triangleOffset + 1];
+			Require(t.v0 == meshes[0].positions[meshes[0].indices[6]] && t.v2 == meshes[0].positions[meshes[0].indices[8]],
+				"flat mode must keep source triangle order");
+			Require(data.blas[0].bounds.IsValid() && data.blas[1].bounds.IsValid(), "flat bounds");
+
+			BVHSceneData tree;
+			BuildSceneBVH(meshes, instances, settings, tree);
+			std::mt19937 rng(5);
+			std::uniform_real_distribution<float> pos(-6.0f, 6.0f);
+			uint32_t hits = 0;
+			for (int i = 0; i < 500; ++i)
+			{
+				const glm::vec3 o(pos(rng), pos(rng), pos(rng));
+				const glm::vec3 d = glm::normalize(glm::vec3(pos(rng), pos(rng), pos(rng)) + glm::vec3(1e-3f));
+				// 平铺数据上的暴力求交（模拟硬件：instanceIndex + primitiveIndex）
+				float best = 1e30f; bool any = false;
+				for (const GPUBVHInstance& inst : data.instances)
+				{
+					uint32_t count = 0;
+					for (const auto& r : data.blas) if (r.triangleOffset == inst.triangleOffset) count = r.triangleCount;
+					const glm::vec3 lo = glm::vec3(inst.worldToObject * glm::vec4(o, 1.0f));
+					const glm::vec3 ld = glm::vec3(inst.worldToObject * glm::vec4(d, 0.0f));
+					for (uint32_t p = 0; p < count; ++p)
+					{
+						const GPUBVHTriangle& tri = data.triangles[inst.triangleOffset + p];
+						const glm::vec3 e1 = tri.v1 - tri.v0, e2 = tri.v2 - tri.v0, pv = glm::cross(ld, e2);
+						const float det = glm::dot(e1, pv);
+						if (!(std::fabs(det) > 1e-20f)) continue;
+						const glm::vec3 sv = lo - tri.v0;
+						const float u = glm::dot(sv, pv) / det;
+						if (u < 0 || u > 1) continue;
+						const glm::vec3 q = glm::cross(sv, e1);
+						const float v = glm::dot(ld, q) / det;
+						if (v < 0 || u + v > 1) continue;
+						const float tt = glm::dot(e2, q) / det;
+						if (tt > 0 && tt < best) { best = tt; any = true; }
+					}
+				}
+				BVHHit hit;
+				const bool treeHit = BVHRayCast(tree, o, d, 1e30f, hit);
+				Require(any == treeHit, "flat and tree geometry disagree on hit/miss");
+				if (any)
+				{
+					++hits;
+					Require(std::fabs(best - hit.t) <= 1e-3f * std::max(1.0f, best), "flat and tree geometry disagree on t");
+				}
+			}
+			Require(hits > 20, "flat comparison rays barely hit anything");
+			std::printf("flat vs tree: 500 rays, %u hits\n", hits);
+
+			BVHSceneData empty;
+			BuildSceneBVH({}, {}, flat, empty);
+			Require(empty.instances.size() == 1 && empty.stats.instanceCount == 0 && empty.triangles.size() == 1,
+				"empty flat scene keeps non-empty buffers");
+		}
+
+		// 8) 规模：约 26 万三角形（Sponza 量级）
 		{
 			std::vector<BVHMeshInput> meshes = { RandomSoup(262144, 5, 50.0f, 0.5f) };
 			const auto start = std::chrono::steady_clock::now();

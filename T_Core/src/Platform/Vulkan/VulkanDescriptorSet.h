@@ -17,6 +17,8 @@ public:
     void BindTexture(uint32_t binding, RHITexture2D* texture, uint32_t unit) override;
     void BindCubeMap(uint32_t binding, Ref<RHITextureCube> cubemap, uint32_t unit) override;
     void BindStorageImage(uint32_t binding, Ref<RHIStorageImage> image, ImageAccess access, uint32_t unit) override;
+    void BindStorageTexture(uint32_t binding, RHITexture2D* texture, ImageAccess access, uint32_t unit) override;
+    void BindAccelerationStructure(uint32_t binding, Ref<RHIRayTracingScene> scene) override;
     void BindUniformBuffer(uint32_t binding, Ref<RHIBuffer> buffer, uint32_t dynamicRange = 0) override;
     void BindStorageBuffer(uint32_t binding, Ref<RHIBuffer> buffer) override;
 
@@ -40,7 +42,9 @@ private:
         CubeMap,
         StorageImage,
         UniformBuffer,
-        StorageBuffer
+        StorageBuffer,
+        StorageTexture,
+        AccelerationStructure
     };
 
     struct Binding
@@ -51,6 +55,7 @@ private:
         Ref<RHITextureCube> cubemap;
         Ref<RHIStorageImage> storageImage;
         Ref<RHIBuffer> buffer;
+        Ref<RHIRayTracingScene> accelerationStructure;
         ImageAccess imageAccess = ImageAccess::ReadWrite;
         bool isDynamic = false;  // Whether this is a dynamic UBO/SSBO
         uint32_t dynamicRange = 0;  // For dynamic buffers: size of single element

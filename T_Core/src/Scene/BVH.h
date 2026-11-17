@@ -183,6 +183,11 @@ struct BVHBuildSettings
 	uint32_t binCount = 16;      // SAH 分箱数（2..32）
 	uint32_t maxBLASDepth = 32;  // 深度上限 = 着色器遍历栈需求；超限前自动退化为中位切分
 	uint32_t maxTLASDepth = 24;
+
+	// false = “平铺”几何：三角形按网格原始顺序写出、不建任何树（blasNodes 只有占位、
+	// tlasNodes 为空），实例按输入顺序排列。给硬件光追（Vulkan BLAS/TLAS）使用：
+	// 三角形下标就是 BLAS 里的 primitiveID，着色器的表面重建代码因此两后端通用。
+	bool buildTrees = true;
 };
 
 // ---------------------------------------------------------------------------
@@ -256,7 +261,7 @@ T_API uint32_t AppendBLAS(const BVHMeshInput& mesh, const BVHBuildSettings& sett
 T_API void BuildTLAS(const std::vector<BVHInstanceInput>& instances,
 	const BVHBuildSettings& settings, BVHSceneData& data);
 
-// 完整构建：占位 BLAS + 每个网格的 BLAS + TLAS。
+// 完整构建：占位 BLAS + 每个网格的 BLAS + TLAS。settings.buildTrees == false 时见上文“平铺”几何。
 T_API void BuildSceneBVH(const std::vector<BVHMeshInput>& meshes,
 	const std::vector<BVHInstanceInput>& instances,
 	const BVHBuildSettings& settings, BVHSceneData& out);

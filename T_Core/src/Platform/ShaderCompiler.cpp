@@ -552,6 +552,17 @@ namespace
         for (size_t i = 0; i < storageCount; ++i)
             AppendUnique(out.StorageImages, ReflectImage(module.Compiler, storage[i]));
 
+        auto [accel, accelCount] = GetResources(module, SPVC_RESOURCE_TYPE_ACCELERATION_STRUCTURE);
+        for (size_t i = 0; i < accelCount; ++i)
+        {
+            ShaderImageBinding binding;
+            binding.Name    = accel[i].name ? accel[i].name : "";
+            binding.Type    = "accelerationStructureEXT";
+            binding.Set     = spvc_compiler_get_decoration(module.Compiler, accel[i].id, SpvDecorationDescriptorSet);
+            binding.Binding = spvc_compiler_get_decoration(module.Compiler, accel[i].id, SpvDecorationBinding);
+            AppendUnique(out.AccelerationStructures, std::move(binding));
+        }
+
         auto [push, pushCount] = GetResources(module, SPVC_RESOURCE_TYPE_PUSH_CONSTANT);
         for (size_t i = 0; i < pushCount; ++i)
             AppendUnique(out.PushConstants, ReflectBlock(module.Compiler, push[i]));

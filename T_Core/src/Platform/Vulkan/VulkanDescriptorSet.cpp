@@ -9,6 +9,7 @@
 #include "Platform/Vulkan/VulkanTexture2D.h"
 #include "Platform/Vulkan/VulkanTextureCube.h"
 #include "Platform/Vulkan/VulkanStorageImage.h"
+#include "Platform/Vulkan/VulkanRayTracing.h"
 #include "Debug/Debug.h"
 
 #include <stdexcept>
@@ -139,6 +140,34 @@ void VulkanDescriptorSet::BindStorageImage(
     m_Bindings[binding] = std::move(value);
 }
 
+void VulkanDescriptorSet::BindStorageTexture(
+    uint32_t binding,
+    RHITexture2D* texture,
+    ImageAccess access,
+    uint32_t unit)
+{
+    (void)unit;
+    if (!AcceptBinding(binding, ResourceType::StorageTexture))
+        return;
+    Binding value;
+    value.type = ResourceType::StorageTexture;
+    value.texture = texture;
+    value.imageAccess = access;
+    m_Bindings[binding] = std::move(value);
+}
+
+void VulkanDescriptorSet::BindAccelerationStructure(
+    uint32_t binding,
+    Ref<RHIRayTracingScene> scene)
+{
+    if (!AcceptBinding(binding, ResourceType::AccelerationStructure))
+        return;
+    Binding value;
+    value.type = ResourceType::AccelerationStructure;
+    value.accelerationStructure = std::move(scene);
+    m_Bindings[binding] = std::move(value);
+}
+
 void VulkanDescriptorSet::BindUniformBuffer(
     uint32_t binding,
     Ref<RHIBuffer> buffer,
@@ -190,7 +219,10 @@ VkDescriptorType VulkanDescriptorSet::ToDescriptorType(ResourceType type, bool i
     case ResourceType::CubeMap:
         return VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     case ResourceType::StorageImage:
+    case ResourceType::StorageTexture:
         return VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    case ResourceType::AccelerationStructure:
+        return VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
     case ResourceType::UniformBuffer:
         return isDynamic ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC
                          : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -322,9 +354,14 @@ void VulkanDescriptorSet::Apply(uint32_t slot, const uint32_t* dynamicOffsets, u
     std::vector<VkDescriptorBufferInfo> bufferInfos;
     std::vector<VkDescriptorImageInfo> imageInfos;
     std::vector<VkWriteDescriptorSet> writes;
+    std::vector<VkWriteDescriptorSetAccelerationStructureKHR> accelInfos;
+    std::vector<VkAccelerationStructureKHR> accelHandles;
     bufferInfos.reserve(m_Bindings.size());
     imageInfos.reserve(m_Bindings.size());
     writes.reserve(m_Bindings.size());
+    // pNext / pointer targets must stay put while writes are collected.
+    accelInfos.reserve(m_Bindings.size());
+    accelHandles.reserve(m_Bindings.size());
 
     for (const auto& [binding, value] : m_Bindings)
     {
@@ -401,6 +438,36 @@ void VulkanDescriptorSet::Apply(uint32_t slot, const uint32_t* dynamicOffsets, u
                     ? VK_IMAGE_LAYOUT_GENERAL
                     : image->GetLayout() });
             write.pImageInfo = &imageInfos.back();
+        }
+        else if (value.type == ResourceType::StorageTexture)
+        {
+            auto* texture = value.texture
+                ? dynamic_cast<VulkanTexture2D*>(value.texture)
+                : nullptr;
+            if (!texture || texture->GetImageView() == VK_NULL_HANDLE)
+                continue;
+            if (texture->GetLayout() != VK_IMAGE_LAYOUT_GENERAL)
+                Error_Core("VulkanDescriptorSet: storage texture at binding {} is not in GENERAL layout "
+                           "(call PrepareTextureForStorage / declare WriteUAV)", binding);
+
+            imageInfos.push_back({ VK_NULL_HANDLE, texture->GetImageView(), VK_IMAGE_LAYOUT_GENERAL });
+            write.pImageInfo = &imageInfos.back();
+        }
+        else if (value.type == ResourceType::AccelerationStructure)
+        {
+            auto* scene = value.accelerationStructure
+                ? dynamic_cast<VulkanRayTracingScene*>(value.accelerationStructure.get())
+                : nullptr;
+            const VkAccelerationStructureKHR tlas = scene ? scene->GetTLAS() : VK_NULL_HANDLE;
+            if (tlas == VK_NULL_HANDLE)
+                continue;
+            accelHandles.push_back(tlas);
+            VkWriteDescriptorSetAccelerationStructureKHR accel{};
+            accel.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR;
+            accel.accelerationStructureCount = 1;
+            accel.pAccelerationStructures = &accelHandles.back();
+            accelInfos.push_back(accel);
+            write.pNext = &accelInfos.back();
         }
         else
         {

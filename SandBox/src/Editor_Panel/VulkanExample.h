@@ -26,6 +26,7 @@ private:
 	void DrawSceneViewport();
 	void DrawViewportPreviewControls();
 	void DrawPostProcessPanel();
+	void DrawPathTracingPanel();
 	void DrawViewportTools(const ImVec2& min, const ImVec2& max, bool hovered);
 	void DrawSkyboxSettings();
 	void SaveSkyboxSettings();
@@ -80,6 +81,7 @@ private:
 	ImTextureID m_ShadowMapImGuiID = ImTextureID_Invalid;
 	
 
+	Ref<class RHIGpuTimer> m_GraphTimer;
 	RenderGraph m_RenderGraph;
 	RenderPassManager m_PassManager;  // Pass 管理器
 	bool m_GeometryMSAAEnabled = true;

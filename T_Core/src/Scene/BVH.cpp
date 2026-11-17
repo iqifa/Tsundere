@@ -379,10 +379,22 @@ uint32_t AppendBLAS(const BVHMeshInput& mesh, const BVHBuildSettings& settings, 
 		return blasIndex;
 	}
 
-	// 2) 建树
+	// 2) 建树（平铺模式只记录原始顺序和整体包围盒）
 	BVHTree tree;
-	BuildBVHTree(bounds.data(), static_cast<uint32_t>(bounds.size()),
-		settings.maxLeafSize, settings.binCount, settings.maxBLASDepth, tree);
+	if (settings.buildTrees)
+	{
+		BuildBVHTree(bounds.data(), static_cast<uint32_t>(bounds.size()),
+			settings.maxLeafSize, settings.binCount, settings.maxBLASDepth, tree);
+	}
+	else
+	{
+		tree.primitiveOrder.resize(bounds.size());
+		std::iota(tree.primitiveOrder.begin(), tree.primitiveOrder.end(), 0u);
+		BVHAABB all;
+		for (const BVHAABB& box : bounds)
+			all.Grow(box);
+		range.bounds = all;
+	}
 
 	// 3) 节点原样追加（保持树内局部索引，BLAS 可整体搬移）
 	data.blasNodes.insert(data.blasNodes.end(), tree.nodes.begin(), tree.nodes.end());
@@ -434,8 +446,11 @@ uint32_t AppendBLAS(const BVHMeshInput& mesh, const BVHBuildSettings& settings, 
 	range.nodeCount = static_cast<uint32_t>(tree.nodes.size());
 	range.triangleCount = static_cast<uint32_t>(tree.primitiveOrder.size());
 	range.depth = tree.depth;
-	range.bounds.min = tree.nodes[0].aabbMin;
-	range.bounds.max = tree.nodes[0].aabbMax;
+	if (!tree.nodes.empty())
+	{
+		range.bounds.min = tree.nodes[0].aabbMin;
+		range.bounds.max = tree.nodes[0].aabbMax;
+	}
 	data.blas.push_back(range);
 
 	++data.stats.meshCount;
@@ -497,6 +512,16 @@ void BuildTLAS(const std::vector<BVHInstanceInput>& instances,
 		instance.entityID = input.entityID;
 		valid.push_back(instance);
 		bounds.push_back(worldBounds);
+	}
+
+	if (!settings.buildTrees)
+	{
+		// 平铺：实例保持输入顺序（= Vulkan TLAS 的 instanceIndex），不建 TLAS 树。
+		data.instances = std::move(valid);
+		data.stats.instanceCount = static_cast<uint32_t>(data.instances.size());
+		if (data.instances.empty())
+			data.instances.emplace_back(); // 保证 buffer 非空；不会被任何 TLAS 实例引用
+		return;
 	}
 
 	if (valid.empty())

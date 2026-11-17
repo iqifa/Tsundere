@@ -5,6 +5,8 @@
 #include<Pipeline/Passes/DeferredLight.h>
 #include <string_view>
 #include <Pipeline/Passes/TAAPass.h>
+#include <Pipeline/Passes/PathTracingPass.h>
+#include <Platform/RHI/RHIGpuTimer.h>
 #include <Pipeline/RenderPassRegistry.h>
 #include <Platform/RHI/RHIImGuiRenderer.h>
 #include <Panels/EditorWindows.h>
@@ -153,6 +155,59 @@ void VulkanExampleLayer::DrawPostProcessPanel()
         ImGui::Separator();
         if (ImGui::Button("Reset all parameters")) { s = PostProcess::Settings{}; changed = true; }
         if (changed) m_GraphDirty = true;
+    }
+    ImGui::End();
+}
+
+void VulkanExampleLayer::DrawPathTracingPanel()
+{
+    ImGui::SetNextWindowSize(ImVec2(440, 520), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin("Path Tracing"))
+    {
+        auto& s = GPUPathTracePass::GetSettings();
+        const auto& st = GPUPathTracePass::GetStats();
+        ImGui::TextWrapped("Backend: %s", st.backend.c_str());
+        ImGui::TextWrapped("%s", st.status.c_str());
+        ImGui::Separator();
+
+        ImGui::SliderInt("Max bounces", &s.maxBounces, 0, 16);
+        ImGui::SliderInt("Samples / frame", &s.samplesPerFrame, 1, 16);
+        ImGui::DragInt("Target samples (0 = inf)", &s.maxSamples, 16.0f, 0, 1 << 20);
+        ImGui::SliderInt("Russian roulette from", &s.russianRouletteStart, 0, 16);
+        ImGui::DragFloat("Firefly clamp (0 = off)", &s.fireflyClamp, 0.1f, 0.0f, 1000.0f);
+        ImGui::ColorEdit3("Environment", &s.environmentColor.x, ImGuiColorEditFlags_Float);
+        ImGui::SetItemTooltip("Used when no skybox is set. With a skybox only the intensity applies.");
+        ImGui::DragFloat("Environment intensity", &s.environmentIntensity, 0.01f, 0.0f, 100.0f);
+        const char* views[] = { "Shading", "Shading normal", "Facing (green = front)", "Albedo", "UV", "Instance ID", "Hit distance" };
+        ImGui::Combo("Debug view", &s.debugView, views, IM_ARRAYSIZE(views));
+        if (s.debugView == 6)
+            ImGui::DragFloat("Distance range", &s.debugDepthRange, 0.5f, 0.1f, 10000.0f);
+        ImGui::Checkbox("Pause", &s.paused);
+        ImGui::SameLine();
+        if (ImGui::Button("Reset accumulation"))
+            s.resetRequested = true;
+        ImGui::BeginDisabled(!RHIRayTracingScene::IsSupported());
+        ImGui::Checkbox("Force software BVH", &s.forceSoftwareBVH);
+        ImGui::EndDisabled();
+
+        ImGui::Separator();
+        ImGui::Text("Samples: %u   (%u x %u)", st.samples, st.width, st.height);
+        if (st.dispatchGpuMs >= 0.0)
+            ImGui::Text("PT dispatch GPU: %.3f ms", st.dispatchGpuMs);
+        else
+            ImGui::TextDisabled("PT dispatch GPU: n/a");
+        if (st.graphGpuMs >= 0.0)
+            ImGui::Text("Whole render graph GPU: %.3f ms", st.graphGpuMs);
+        ImGui::Text("Scene rebuild CPU: %.2f ms (BVH build %.2f ms, upload %.2f ms)",
+            st.geometryCpuMs, st.bvhBuildCpuMs, st.uploadCpuMs);
+        if (st.accel.blasCount > 0 || st.accel.instanceCount > 0)
+            ImGui::Text("BLAS x%u %.2f ms, TLAS %.2f ms (GPU) | %.2f ms CPU incl. wait",
+                st.accel.blasCount, st.accel.gpuBlasMilliseconds, st.accel.gpuTlasMilliseconds, st.accel.cpuMilliseconds);
+        else
+            ImGui::Text("BVH depth: TLAS %u, BLAS %u", st.tlasDepth, st.blasDepth);
+        if (!m_PostProcess.toneMapping)
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f),
+                "Output is linear HDR. Enable Post Processing > Tone Mapping for display.");
     }
     ImGui::End();
 }
@@ -307,6 +362,8 @@ void VulkanExampleLayer::OnImGuiRender()
 {
 	DrawSceneViewport();
 	DrawPostProcessPanel();
+	if (m_PassManager.IsPassEnabled("PathTrace"))
+		DrawPathTracingPanel();
 
 	DrawSkyboxSettings();
 
@@ -447,7 +504,15 @@ void VulkanExampleLayer::ExecuteRenderGraph()
 	m_GraphFrameData->BeginCameraFrame(currentcamera->GetViewFront(),
 		currentcamera->GetProj(), width, height, currentcamera);
 	m_GraphFrameData->BeginModelFrame(*m_Context);
+	// 整个 RDG 的 GPU 时间（异步时间戳，几帧后可读），用来和 PT dispatch 时间对照
+	if (!m_GraphTimer)
+		m_GraphTimer = RHIGpuTimer::Create();
+	if (m_GraphTimer && context->GetCommandBuffer())
+		m_GraphTimer->Begin(*context->GetCommandBuffer());
 	m_RenderGraph.Execute(*context);
+	if (m_GraphTimer && context->GetCommandBuffer())
+		m_GraphTimer->End(*context->GetCommandBuffer());
+	GPUPathTracePass::GetStats().graphGpuMs = m_GraphTimer ? m_GraphTimer->GetMilliseconds() : -1.0;
 	m_GraphFrameData->EndModelFrame();
 	m_GraphFrameData->EndCameraFrame();
 
@@ -612,6 +677,10 @@ void VulkanExampleLayer::BuildRenderGraph(uint32_t width, uint32_t height)
 		postSource = "Transparent.SceneColor";
 	if (m_PassManager.IsPassEnabled("TAA"))
 		postSource = "TAA.SceneColor";
+	// GPU 路径追踪替换光栅结果作为后处理输入（线性 HDR，需要 Tone Mapping 显示）
+	const bool pathTracing = m_PassManager.IsPassEnabled("PathTrace");
+	if (pathTracing)
+		postSource = "PathTrace.SceneColor";
 	std::string postProcessColor;
 	if (m_PostProcessShader && !m_PostProcessShader->GetReflection().PushConstants.empty())
 		postProcessColor = PostProcess::AddPasses(m_RenderGraph, m_PostProcessShader,
@@ -619,13 +688,14 @@ void VulkanExampleLayer::BuildRenderGraph(uint32_t width, uint32_t height)
 			currentcamera->GetProj(), postSource);
 
     if (!m_ViewportPreviewShader) m_ViewportPreviewShader = RHIShader::Create("res/shaders/ViewportPreview.shader");
-    const char* previewSources[] = {"", deferred ? "ForwardOpaque.SceneColor" : "Geometry.SceneColor",
+    const char* previewSources[] = {"", pathTracing ? "PathTrace.SceneColor" : deferred ? "ForwardOpaque.SceneColor" : "Geometry.SceneColor",
         "Gbuffer.Normal", "Gbuffer.SceneColor", "Gbuffer.MetallicRoughness",
         deferred ? "ForwardOpaque.Velocity" : "Geometry.Velocity", "Gbuffer.Emissive",
         deferred ? "ForwardOpaque.Depth" : "Geometry.Depth"};
     m_ViewportRequestedSource = previewSources[m_ViewportOutput];
     m_ViewportConvertPass = CreateRef<ViewportPreviewPass>("ViewportStorage", m_ViewportPreviewShader,
-        std::vector<std::string>{m_ViewportRequestedSource, postProcessColor, "TAA.SceneColor",
+        std::vector<std::string>{m_ViewportRequestedSource, postProcessColor,
+            pathTracing ? "PathTrace.SceneColor" : "", "TAA.SceneColor",
             "Transparent.SceneColor", "ForwardOpaque.SceneColor", "Geometry.SceneColor"},
         PreviewFormatValues[m_ViewportFormat], glm::vec4(-1, 0, 1, 0), width, height);
     m_RenderGraph.AddPass(m_ViewportConvertPass);
@@ -639,6 +709,8 @@ void VulkanExampleLayer::BuildRenderGraph(uint32_t width, uint32_t height)
 	m_TAAOutputAvailable = taaColor.id != InvalidResourceId;
 	m_GraphFinalColor = postProcessColor.empty()
 		? RGTextureHandle{} : m_RenderGraph.GetTextureByName(postProcessColor);
+	if (m_GraphFinalColor.id == InvalidResourceId && pathTracing)
+		m_GraphFinalColor = m_RenderGraph.GetTextureByName("PathTrace.SceneColor");
 	if (m_GraphFinalColor.id == InvalidResourceId)
 		m_GraphFinalColor = taaColor;
 	if (m_GraphFinalColor.id == InvalidResourceId)

@@ -67,7 +67,13 @@ public:
 	Ref<RHIBuffer> GetBLASNodeBuffer() const { return m_BLASNodeBuffer; }
 	Ref<RHIBuffer> GetTriangleBuffer() const { return m_TriangleBuffer; }
 	Ref<RHIBuffer> GetTriangleAttribBuffer() const { return m_TriangleAttribBuffer; }
-	bool IsGPUReady() const { return m_TLASNodeBuffer != nullptr; }
+	// 树模式要求 5 个 buffer 都在；平铺模式（GetSettings().buildTrees == false）只有
+	// Instance / Triangle / TriangleAttrib 三个。
+	bool IsGPUReady() const { return m_TriangleBuffer != nullptr && m_InstanceBuffer != nullptr; }
+
+	// 每次 UploadToGPU 成功 +1。使用方据此判断几何是否换过（重建加速结构、清空累积）。
+	uint64_t GetRevision() const { return m_Revision; }
+	float GetUploadMilliseconds() const { return m_UploadMilliseconds; }
 
 	// ---- CPU 结果 ----
 	// 仅主线程、且没有异步 BuildBVH 在跑时访问。
@@ -104,6 +110,9 @@ private:
 	Ref<RHIBuffer> m_BLASNodeBuffer;
 	Ref<RHIBuffer> m_TriangleBuffer;
 	Ref<RHIBuffer> m_TriangleAttribBuffer;
+
+	uint64_t m_Revision = 0;
+	float m_UploadMilliseconds = 0.0f;
 
 	std::atomic<bool> m_Dirty{ true };             // 初始为脏，首帧构建
 	const std::unordered_map<Engine::Material*, unsigned int>* m_MaterialMap = nullptr;

@@ -31,6 +31,13 @@ void GLDescriptorSet::BindStorageImage(uint32_t binding, Ref<RHIStorageImage> im
         m_StorageImages.push_back({ image, unit, access });
 }
 
+void GLDescriptorSet::BindStorageTexture(uint32_t binding, RHITexture2D* texture, ImageAccess access, uint32_t unit)
+{
+    (void)binding; // GL image units are the explicit `binding` in GLSL; callers pass it as unit
+    if (texture)
+        m_StorageTextures.push_back({ texture, unit, access });
+}
+
 void GLDescriptorSet::BindUniformBuffer(uint32_t binding, Ref<RHIBuffer> buffer, uint32_t dynamicRange)
 {
     if (buffer)
@@ -73,6 +80,12 @@ void GLDescriptorSet::Apply(uint32_t slot, const uint32_t* dynamicOffsets, uint3
     {
         if (si.image)
             si.image->BindAsImage(si.unit, si.access);
+    }
+
+    for (auto& st : m_StorageTextures)
+    {
+        if (st.texture)
+            st.texture->BindAsImage(st.unit, st.access);
     }
 
     // Bind buffers (uniform / storage)
@@ -122,5 +135,6 @@ void GLDescriptorSet::Reset()
     m_Textures.clear();
     m_Cubemaps.clear();
     m_StorageImages.clear();
+    m_StorageTextures.clear();
     m_Buffers.clear();
 }

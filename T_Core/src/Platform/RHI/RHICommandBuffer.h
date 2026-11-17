@@ -106,6 +106,9 @@ public:
     virtual void SetBlendState(bool enable, BlendFactor src = BlendFactor::One, BlendFactor dst = BlendFactor::Zero) = 0;
     virtual void CopyTexture(RHITexture2D* src, RHITexture2D* dst) = 0;
     virtual void PrepareTextureForSampling(RHITexture2D* texture) { (void)texture; }
+    // Compute 写入（imageStore）之前调用。Vulkan 转到 GENERAL 布局；OpenGL 无需处理。
+    // RDG 对声明为 WriteUAV 的纹理自动调用。
+    virtual void PrepareTextureForStorage(RHITexture2D* texture) { (void)texture; }
     virtual void BindTexture2D(uint32_t slot, uintptr_t nativeID) = 0;
     virtual void BindTextureCube(uint32_t slot, uintptr_t nativeID) = 0;
     virtual void BlitDepth(Ref<RHIFramebuffer> src, Ref<RHIFramebuffer> dst) = 0;

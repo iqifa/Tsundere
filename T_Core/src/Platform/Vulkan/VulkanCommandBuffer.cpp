@@ -331,6 +331,8 @@ void VulkanCommandBuffer::BindPipeline(Ref<RHIPipeline> pipeline)
     p->Bind();
     m_CurrentPipeline = p->GetPipeline();
     m_CurrentPipelineLayout = p->GetPipelineLayout();
+    m_CurrentBindPoint = p->GetBindPoint();
+    m_CurrentPushStages = p->GetPushConstantStages();
 }
 
 void VulkanCommandBuffer::BindVertexBuffer(Ref<RHIBuffer> vb, uint32_t binding)
@@ -375,7 +377,7 @@ void VulkanCommandBuffer::BindDescriptorSet(
 
     vkCmdBindDescriptorSets(
         command,
-        VK_PIPELINE_BIND_POINT_GRAPHICS,
+        m_CurrentBindPoint,
         m_CurrentPipelineLayout,
         slot,
         1,
@@ -394,7 +396,7 @@ void VulkanCommandBuffer::PushConstants(const void* data, uint32_t size)
     vkCmdPushConstants(
         command,
         m_CurrentPipelineLayout,
-        VK_SHADER_STAGE_VERTEX_BIT,
+        m_CurrentPushStages,
         0,
         size,
         data);
@@ -402,9 +404,56 @@ void VulkanCommandBuffer::PushConstants(const void* data, uint32_t size)
 void VulkanCommandBuffer::Draw(uint32_t count, uint32_t first) { if (Cmd() && m_CurrentPipeline) vkCmdDraw(Cmd(), count, 1, first, 0); }
 void VulkanCommandBuffer::DrawIndexed(uint32_t count, uint32_t first) { if (Cmd() && m_CurrentPipeline && m_CurrentIndexBuffer) vkCmdDrawIndexed(Cmd(), count, 1, first, 0, 0); }
 void VulkanCommandBuffer::DrawFullscreenQuad() { Draw(3, 0); }
-void VulkanCommandBuffer::Dispatch(uint32_t x, uint32_t y, uint32_t z) { if (Cmd()) vkCmdDispatch(Cmd(), x, y, z); }
-void VulkanCommandBuffer::ResourceBarrier() {}
-void VulkanCommandBuffer::ResourceBarrier(BarrierFlags) {}
+void VulkanCommandBuffer::Dispatch(uint32_t x, uint32_t y, uint32_t z)
+{
+    if (Cmd() && m_CurrentPipeline && m_CurrentBindPoint == VK_PIPELINE_BIND_POINT_COMPUTE)
+        vkCmdDispatch(Cmd(), x, y, z);
+}
+
+void VulkanCommandBuffer::ResourceBarrier()
+{
+    ResourceBarrier(BarrierFlags::ShaderImage | BarrierFlags::TextureFetch);
+}
+
+// Execution + memory dependency for incoherent writes (compute image/SSBO
+// stores) made visible to the following reads. Image *layout* changes are
+// tracked per texture (TransitionImage); this only covers memory hazards, so a
+// global VkMemoryBarrier is sufficient. Not legal inside dynamic rendering.
+void VulkanCommandBuffer::ResourceBarrier(BarrierFlags flags)
+{
+    VkCommandBuffer command = Cmd();
+    if (flags == BarrierFlags::None || command == VK_NULL_HANDLE || m_RenderingActive)
+        return;
+
+    VkMemoryBarrier barrier{};
+    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    barrier.dstAccessMask = 0;
+    VkPipelineStageFlags dstStages = 0;
+    if ((flags & BarrierFlags::ShaderImage) || (flags & BarrierFlags::StorageBuffer))
+    {
+        barrier.dstAccessMask |= VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+        dstStages |= VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_VERTEX_SHADER_BIT |
+                     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    }
+    if (flags & BarrierFlags::TextureFetch)
+    {
+        barrier.dstAccessMask |= VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_TRANSFER_READ_BIT;
+        dstStages |= VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_VERTEX_SHADER_BIT |
+                     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT;
+    }
+    if (flags & BarrierFlags::Framebuffer)
+    {
+        barrier.dstAccessMask |= VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        dstStages |= VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    }
+    if (dstStages == 0)
+        return;
+
+    vkCmdPipelineBarrier(command,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+        dstStages, 0, 1, &barrier, 0, nullptr, 0, nullptr);
+}
 
 void VulkanCommandBuffer::SetViewport(const Viewport& vp)
 {
@@ -470,6 +519,22 @@ void VulkanCommandBuffer::PrepareTextureForSampling(RHITexture2D* texture)
 
     TransitionImage(command, *vulkanTexture, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 }
+void VulkanCommandBuffer::PrepareTextureForStorage(RHITexture2D* texture)
+{
+    auto* vulkanTexture = dynamic_cast<VulkanTexture2D*>(texture);
+    VkCommandBuffer command = Cmd();
+    if (!vulkanTexture || command == VK_NULL_HANDLE || m_RenderingActive)
+    {
+        Error_Core("VulkanCommandBuffer: cannot prepare invalid texture for storage access");
+        return;
+    }
+
+    // GENERAL is the only layout valid for STORAGE_IMAGE descriptors. The
+    // transition carries the barrier against the previous use (e.g. last
+    // frame's sampling by the viewport pass) and preserves contents.
+    TransitionImage(command, *vulkanTexture, VK_IMAGE_LAYOUT_GENERAL);
+}
+
 void VulkanCommandBuffer::BindTexture2D(uint32_t, uintptr_t) {}
 void VulkanCommandBuffer::BindTextureCube(uint32_t, uintptr_t) {}
 void VulkanCommandBuffer::BlitDepth(Ref<RHIFramebuffer>, Ref<RHIFramebuffer>) {}

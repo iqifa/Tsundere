@@ -561,10 +561,45 @@ void VulkanContext::createLogicalDevice()
     queueCreateInfo.queueCount = 1;
     queueCreateInfo.pQueuePriorities = &queuePriority;
 
-    const char* deviceExtensions[] = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
+    std::vector<const char*> deviceExtensions = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
 
+    // ---- Ray Query 能力检测 -------------------------------------------------
+    // 需要：VK_KHR_acceleration_structure（依赖 VK_KHR_deferred_host_operations）、
+    // VK_KHR_ray_query、Vulkan 1.2 bufferDeviceAddress，以及对应的 feature 位。
+    // “支持 Vulkan 1.3”不代表支持 ray query，这里逐项检测；缺任何一项都只关闭
+    // 硬件光追，PathTracePass 回退到软件 BVH 并在 UI/日志里给出原因。
+    uint32_t extensionCount = 0;
+    vkEnumerateDeviceExtensionProperties(m_PhysicalDevice, nullptr, &extensionCount, nullptr);
+    std::vector<VkExtensionProperties> available(extensionCount);
+    if (extensionCount > 0)
+        vkEnumerateDeviceExtensionProperties(m_PhysicalDevice, nullptr, &extensionCount, available.data());
+    const auto hasExtension = [&](const char* name)
+    {
+        return std::any_of(available.begin(), available.end(),
+            [name](const VkExtensionProperties& e) { return std::strcmp(e.extensionName, name) == 0; });
+    };
+
+    VkPhysicalDeviceProperties deviceProperties{};
+    vkGetPhysicalDeviceProperties(m_PhysicalDevice, &deviceProperties);
+
+    VkPhysicalDeviceRayQueryFeaturesKHR supportedRayQuery{};
+    supportedRayQuery.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR;
+    VkPhysicalDeviceAccelerationStructureFeaturesKHR supportedAccel{};
+    supportedAccel.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
+    supportedAccel.pNext = &supportedRayQuery;
+    VkPhysicalDeviceVulkan12Features supportedFeatures12{};
+    supportedFeatures12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
     VkPhysicalDeviceVulkan13Features supportedFeatures13{};
     supportedFeatures13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
+    supportedFeatures13.pNext = &supportedFeatures12;
+
+    const bool hasAccelExt = hasExtension(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
+    const bool hasRayQueryExt = hasExtension(VK_KHR_RAY_QUERY_EXTENSION_NAME);
+    const bool hasDeferredExt = hasExtension(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+    // Only chain extension feature structs the device advertises.
+    if (hasAccelExt && hasRayQueryExt)
+        supportedFeatures12.pNext = &supportedAccel;
+
     VkPhysicalDeviceFeatures2 supportedFeatures{};
     supportedFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
     supportedFeatures.pNext = &supportedFeatures13;
@@ -572,9 +607,50 @@ void VulkanContext::createLogicalDevice()
     if (!supportedFeatures13.dynamicRendering)
         throw std::runtime_error("Selected Vulkan device does not support dynamic rendering");
 
+    std::string missing;
+    const auto require = [&](bool ok, const char* what)
+    {
+        if (!ok)
+            missing += missing.empty() ? what : std::string(", ") + what;
+    };
+    require(VK_API_VERSION_MINOR(deviceProperties.apiVersion) >= 2 ||
+        VK_API_VERSION_MAJOR(deviceProperties.apiVersion) > 1, "Vulkan 1.2 device");
+    require(hasAccelExt, VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
+    require(hasRayQueryExt, VK_KHR_RAY_QUERY_EXTENSION_NAME);
+    require(hasDeferredExt, VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+    require(supportedFeatures12.bufferDeviceAddress == VK_TRUE, "bufferDeviceAddress");
+    require(hasAccelExt && hasRayQueryExt && supportedAccel.accelerationStructure == VK_TRUE,
+        "accelerationStructure feature");
+    require(hasAccelExt && hasRayQueryExt && supportedRayQuery.rayQuery == VK_TRUE, "rayQuery feature");
+    m_RayQuerySupported = missing.empty();
+    m_RayQueryStatus = m_RayQuerySupported
+        ? std::string("enabled on ") + deviceProperties.deviceName
+        : std::string("unavailable on ") + deviceProperties.deviceName + " (missing: " + missing + ")";
+
+    // ---- 启用的 feature 链 ---------------------------------------------------
+    VkPhysicalDeviceRayQueryFeaturesKHR rayQueryFeatures{};
+    rayQueryFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR;
+    rayQueryFeatures.rayQuery = VK_TRUE;
+    VkPhysicalDeviceAccelerationStructureFeaturesKHR accelFeatures{};
+    accelFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
+    accelFeatures.accelerationStructure = VK_TRUE;
+    accelFeatures.pNext = &rayQueryFeatures;
+
+    VkPhysicalDeviceVulkan12Features features12{};
+    features12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+    if (m_RayQuerySupported)
+    {
+        features12.bufferDeviceAddress = VK_TRUE;
+        features12.pNext = &accelFeatures;
+        deviceExtensions.push_back(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
+        deviceExtensions.push_back(VK_KHR_RAY_QUERY_EXTENSION_NAME);
+        deviceExtensions.push_back(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+    }
+
     VkPhysicalDeviceVulkan13Features features13{};
     features13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
     features13.dynamicRendering = VK_TRUE;
+    features13.pNext = &features12;
 
     VkPhysicalDeviceFeatures enabledFeatures{};
     enabledFeatures.fillModeNonSolid = supportedFeatures.features.fillModeNonSolid;
@@ -589,13 +665,18 @@ void VulkanContext::createLogicalDevice()
     createInfo.pNext = &features2;
     createInfo.queueCreateInfoCount = 1;
     createInfo.pQueueCreateInfos = &queueCreateInfo;
-    createInfo.enabledExtensionCount = 1;
-    createInfo.ppEnabledExtensionNames = deviceExtensions;
+    createInfo.enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size());
+    createInfo.ppEnabledExtensionNames = deviceExtensions.data();
 
     CheckVk(vkCreateDevice(m_PhysicalDevice, &createInfo, nullptr, &m_Device),
             "Failed to create Vulkan logical device");
     m_DynamicRenderingSupported = true;
     vkGetDeviceQueue(m_Device, m_QueueFamily, 0, &m_Queue);
+
+    if (m_RayQuerySupported)
+        Info_Core("Vulkan ray query {}", m_RayQueryStatus);
+    else
+        Warn_Core("Vulkan ray query {}. Path tracing falls back to the software BVH.", m_RayQueryStatus);
 }
 
 void VulkanContext::createSwapchain()
@@ -800,14 +881,16 @@ void VulkanContext::createDescriptorPool()
         { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 },
         { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
         { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 },
-        { VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 }
+        { VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 },
+        // Only valid when VK_KHR_acceleration_structure is enabled (count trimmed below).
+        { VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 64 }
     };
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
     poolInfo.maxSets = 1000 * static_cast<uint32_t>(std::size(poolSizes));
-    poolInfo.poolSizeCount = static_cast<uint32_t>(std::size(poolSizes));
+    poolInfo.poolSizeCount = static_cast<uint32_t>(std::size(poolSizes)) - (m_RayQuerySupported ? 0u : 1u);
     poolInfo.pPoolSizes = poolSizes;
 
     CheckVk(vkCreateDescriptorPool(m_Device, &poolInfo, nullptr, &m_DescriptorPool),

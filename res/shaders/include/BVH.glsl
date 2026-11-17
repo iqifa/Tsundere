@@ -6,6 +6,9 @@
 //
 // 使用方在 #include 之前可以重定义下面的 binding；C++ 侧用
 // RHIDescriptorSet::BindStorageBuffer(binding, builder.GetXxxBuffer()) 绑定。
+//
+// 定义 BVH_NO_NODE_BUFFERS 时只声明实例 / 三角形 / 属性三个 buffer：
+// 硬件光追（Vulkan Ray Query）用驱动的 BLAS/TLAS 遍历，只需要这三个来重建命中表面。
 
 #ifndef BVH_BINDING_TLAS_NODES
 #define BVH_BINDING_TLAS_NODES 8
@@ -69,19 +72,21 @@ struct BVHTriangleAttrib
     vec2 pad;
 };
 
+#ifndef BVH_NO_NODE_BUFFERS
 layout(std430, binding = BVH_BINDING_TLAS_NODES) readonly buffer BVHTLASNodeBuffer
 {
     BVHNode u_TLASNodes[];        // 根 = 0
 };
 
-layout(std430, binding = BVH_BINDING_INSTANCES) readonly buffer BVHInstanceBuffer
-{
-    BVHInstance u_BVHInstances[];
-};
-
 layout(std430, binding = BVH_BINDING_BLAS_NODES) readonly buffer BVHBLASNodeBuffer
 {
     BVHNode u_BLASNodes[];        // 0 号是占位 BLAS（空场景用）
+};
+#endif
+
+layout(std430, binding = BVH_BINDING_INSTANCES) readonly buffer BVHInstanceBuffer
+{
+    BVHInstance u_BVHInstances[];
 };
 
 layout(std430, binding = BVH_BINDING_TRIANGLES) readonly buffer BVHTriangleBuffer
@@ -94,8 +99,9 @@ layout(std430, binding = BVH_BINDING_TRIANGLE_ATTRIBS) readonly buffer BVHTriang
     BVHTriangleAttrib u_BVHTriangleAttribs[];
 };
 
-// 遍历栈大小下限（BVHBuildSettings 的默认深度上限，实际深度见 BVHStats）：
-//   TLAS 栈 >= 24，BLAS 栈 >= 32。
+// 遍历栈容量。构建器保证 TLAS 深度 <= BVHBuildSettings::maxTLASDepth(24)、
+// BLAS 深度 <= maxBLASDepth(32)；“先近后远、远的入栈”每层最多压 1 个，
+// 所以容量 = 最大深度即可。PathTracePass 会在深度超限时拒绝运行软件路径。
 #define BVH_TLAS_STACK_SIZE 24
 #define BVH_BLAS_STACK_SIZE 32
 

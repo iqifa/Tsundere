@@ -44,6 +44,7 @@ public:
 
     void CopyTexture(RHITexture2D* src, RHITexture2D* dst) override;
     void PrepareTextureForSampling(RHITexture2D* texture) override;
+    void PrepareTextureForStorage(RHITexture2D* texture) override;
     void BindTexture2D(uint32_t slot, uintptr_t nativeID) override;
     void BindTextureCube(uint32_t slot, uintptr_t nativeID) override;
     void BlitDepth(Ref<RHIFramebuffer> src, Ref<RHIFramebuffer> dst) override;
@@ -52,5 +53,7 @@ private:
     bool m_RenderingActive = false;
     VkPipeline m_CurrentPipeline = VK_NULL_HANDLE;
     VkPipelineLayout m_CurrentPipelineLayout = VK_NULL_HANDLE;
+    VkPipelineBindPoint m_CurrentBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    VkShaderStageFlags m_CurrentPushStages = VK_SHADER_STAGE_VERTEX_BIT;
     VkBuffer m_CurrentIndexBuffer = VK_NULL_HANDLE;
 };

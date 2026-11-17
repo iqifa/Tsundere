@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <mutex>
 #include <vector>
 #include <vulkan/vulkan.h>
@@ -36,13 +37,36 @@ public:
         s_Queue.push_back({ device, buffer, memory });
     }
 
+    // Generic deferred destruction (acceleration structures, query pools, ...).
+    // The callback runs after the frame fence, or immediately during shutdown.
+    static void EnqueueCallback(std::function<void()> destroy)
+    {
+        if (!destroy)
+            return;
+        {
+            std::lock_guard<std::mutex> lock(s_Mutex);
+            if (s_Closed)
+                return;
+            if (!s_Immediate)
+            {
+                s_Callbacks.push_back(std::move(destroy));
+                return;
+            }
+        }
+        destroy();
+    }
+
     static void Flush()
     {
         std::vector<Item> pending;
+        std::vector<std::function<void()>> callbacks;
         {
             std::lock_guard<std::mutex> lock(s_Mutex);
             pending.swap(s_Queue);
+            callbacks.swap(s_Callbacks);
         }
+        for (auto& callback : callbacks)
+            callback();
         for (const Item& item : pending)
             DestroyBuffer(item.device, item.buffer, item.memory);
     }
@@ -52,11 +76,15 @@ public:
     static void BeginImmediate()
     {
         std::vector<Item> pending;
+        std::vector<std::function<void()>> callbacks;
         {
             std::lock_guard<std::mutex> lock(s_Mutex);
             s_Immediate = true;
             pending.swap(s_Queue);
+            callbacks.swap(s_Callbacks);
         }
+        for (auto& callback : callbacks)
+            callback();
         for (const Item& item : pending)
             DestroyBuffer(item.device, item.buffer, item.memory);
     }
@@ -74,6 +102,7 @@ public:
         s_Closed = true;
         s_Immediate = false;
         s_Queue.clear();
+        s_Callbacks.clear();
     }
 
 private:
@@ -94,6 +123,7 @@ private:
 
     static inline std::mutex s_Mutex;
     static inline std::vector<Item> s_Queue;
+    static inline std::vector<std::function<void()>> s_Callbacks;
     static inline bool s_Immediate = false;
     static inline bool s_Closed = false;
 };
