@@ -33,6 +33,7 @@ void GLShader::Build(const string& filepath)
 	if (!compiled.Success)
 	{
 		Error_Core("[{}]: shader build failed", m_Name);
+		Error_Client("[{}]: shader build failed", m_Name);
 		return;
 	}
 
@@ -54,7 +55,8 @@ void GLShader::Build(const string& filepath)
 			m_RendererID = CreateShader(vertSrc, fragSrc);
 	}
 
-	cout << "\033[1;32mSuccessful Parse Shader:" + m_Name + "!\033[0m" << endl;
+	Info_Core("Successful Parse Shader:{}!", m_Name);
+	Info_Client("Successful Parse Shader:{}!", m_Name);
 }
 
 
@@ -90,8 +92,9 @@ unsigned int  GLShader::CompileShader(unsigned int type, const string& source)
 		glGetShaderiv(id, GL_INFO_LOG_LENGTH, &lenth);
 		char* message = new char[lenth];
 		glGetShaderInfoLog(id, lenth, &lenth, message);
-		string info = "Failed to Compile ["+m_Name +"] " + (string)(type == GL_VERTEX_SHADER ? "vertex" : (type == GL_FRAGMENT_SHADER ? "fragment" : "compute")) + " Shader!";
-		Warn_Core(info)
+		string info = "Failed to Compile [" + m_Name + "] " + (string)(type == GL_VERTEX_SHADER ? "vertex" : (type == GL_FRAGMENT_SHADER ? "fragment" : "compute")) + " Shader!";
+		Warn_Core(info);
+		Warn_Client(info);
 		cout << message << endl;
 		glDeleteShader(id);
 		return 0;
@@ -111,6 +114,7 @@ void GLShader::CheckLinkStatus(unsigned int program) const
 	string log(length > 0 ? length : 1, '\0');
 	glGetProgramInfoLog(program, length, &length, log.data());
 	Error_Core("Failed to link [{}]: {}", m_Name, log);
+	Error_Client("Failed to link [{}]: {}", m_Name, log);
 }
 
 Ref<GLShader> GLShader::Create(const string& filepath, const string& name)
@@ -170,139 +174,139 @@ Ref<GLShader> GLShader::CreateCompute(const string& filepath)
 
 namespace {
 
-struct PushMemberType
-{
-	enum class Scalar { Float, Int, Uint, Unknown };
-	Scalar scalar = Scalar::Unknown;
-	int columns = 1;
-	int rows = 1;
-	uint32_t count = 1;
-};
-
-bool ParsePushMemberType(const std::string& type, PushMemberType& out)
-{
-	std::string base = type;
-	out.count = 1;
-	const size_t bracket = type.find('[');
-	if (bracket != std::string::npos)
+	struct PushMemberType
 	{
-		if (type.find('[', bracket + 1) != std::string::npos || type.back() != ']')
-			return false;
-		base = type.substr(0, bracket);
-		const std::string inner = type.substr(bracket + 1, type.size() - bracket - 2);
-		if (inner.empty())
-			return false;
-		out.count = static_cast<uint32_t>(std::stoul(inner));
-	}
-
-	auto scalarVector = [&](PushMemberType::Scalar scalar, const char* prefix) {
-		const size_t n = std::strlen(prefix);
-		if (base.compare(0, n, prefix) != 0)
-			return false;
-		out.scalar = scalar;
-		out.columns = 1;
-		out.rows = base.size() == n ? 1 : base[n] - '0';
-		return out.rows >= 1 && out.rows <= 4 && base.size() <= n + 1;
+		enum class Scalar { Float, Int, Uint, Unknown };
+		Scalar scalar = Scalar::Unknown;
+		int columns = 1;
+		int rows = 1;
+		uint32_t count = 1;
 	};
-	if (scalarVector(PushMemberType::Scalar::Float, "float")
-		|| scalarVector(PushMemberType::Scalar::Float, "vec")
-		|| scalarVector(PushMemberType::Scalar::Int, "int")
-		|| scalarVector(PushMemberType::Scalar::Int, "ivec")
-		|| scalarVector(PushMemberType::Scalar::Uint, "uint")
-		|| scalarVector(PushMemberType::Scalar::Uint, "uvec"))
-		return out.scalar != PushMemberType::Scalar::Unknown;
 
-	if (base.compare(0, 3, "mat") != 0)
-		return false;
-	const std::string rest = base.substr(3);
-	const size_t split = rest.find('x');
-	out.scalar = PushMemberType::Scalar::Float;
-	if (split == std::string::npos)
+	bool ParsePushMemberType(const std::string& type, PushMemberType& out)
 	{
-		if (rest.size() != 1)
+		std::string base = type;
+		out.count = 1;
+		const size_t bracket = type.find('[');
+		if (bracket != std::string::npos)
+		{
+			if (type.find('[', bracket + 1) != std::string::npos || type.back() != ']')
+				return false;
+			base = type.substr(0, bracket);
+			const std::string inner = type.substr(bracket + 1, type.size() - bracket - 2);
+			if (inner.empty())
+				return false;
+			out.count = static_cast<uint32_t>(std::stoul(inner));
+		}
+
+		auto scalarVector = [&](PushMemberType::Scalar scalar, const char* prefix) {
+			const size_t n = std::strlen(prefix);
+			if (base.compare(0, n, prefix) != 0)
+				return false;
+			out.scalar = scalar;
+			out.columns = 1;
+			out.rows = base.size() == n ? 1 : base[n] - '0';
+			return out.rows >= 1 && out.rows <= 4 && base.size() <= n + 1;
+			};
+		if (scalarVector(PushMemberType::Scalar::Float, "float")
+			|| scalarVector(PushMemberType::Scalar::Float, "vec")
+			|| scalarVector(PushMemberType::Scalar::Int, "int")
+			|| scalarVector(PushMemberType::Scalar::Int, "ivec")
+			|| scalarVector(PushMemberType::Scalar::Uint, "uint")
+			|| scalarVector(PushMemberType::Scalar::Uint, "uvec"))
+			return out.scalar != PushMemberType::Scalar::Unknown;
+
+		if (base.compare(0, 3, "mat") != 0)
 			return false;
-		out.columns = out.rows = rest[0] - '0';
-	}
-	else
-	{
-		if (split != 1 || rest.size() != 3)
-			return false;
-		out.columns = rest[0] - '0';
-		out.rows = rest[2] - '0';
-	}
-	return out.columns >= 2 && out.columns <= 4 && out.rows >= 2 && out.rows <= 4;
-}
-
-void UploadMatrix(int location, int columns, int rows, const uint8_t* element)
-{
-	const bool padded = rows < 4;
-	float packed[16];
-	const float* source = reinterpret_cast<const float*>(element);
-	if (padded)
-	{
-		for (int column = 0; column < columns; ++column)
-			std::memcpy(packed + column * rows, element + column * 16, sizeof(float) * rows);
-		source = packed;
+		const std::string rest = base.substr(3);
+		const size_t split = rest.find('x');
+		out.scalar = PushMemberType::Scalar::Float;
+		if (split == std::string::npos)
+		{
+			if (rest.size() != 1)
+				return false;
+			out.columns = out.rows = rest[0] - '0';
+		}
+		else
+		{
+			if (split != 1 || rest.size() != 3)
+				return false;
+			out.columns = rest[0] - '0';
+			out.rows = rest[2] - '0';
+		}
+		return out.columns >= 2 && out.columns <= 4 && out.rows >= 2 && out.rows <= 4;
 	}
 
-	if (columns == rows)
+	void UploadMatrix(int location, int columns, int rows, const uint8_t* element)
 	{
-		if (columns == 2) glUniformMatrix2fv(location, 1, GL_FALSE, source);
-		else if (columns == 3) glUniformMatrix3fv(location, 1, GL_FALSE, source);
-		else glUniformMatrix4fv(location, 1, GL_FALSE, source);
-		return;
-	}
-	if (columns == 2 && rows == 3) glUniformMatrix2x3fv(location, 1, GL_FALSE, source);
-	else if (columns == 2 && rows == 4) glUniformMatrix2x4fv(location, 1, GL_FALSE, source);
-	else if (columns == 3 && rows == 2) glUniformMatrix3x2fv(location, 1, GL_FALSE, source);
-	else if (columns == 3 && rows == 4) glUniformMatrix3x4fv(location, 1, GL_FALSE, source);
-	else if (columns == 4 && rows == 2) glUniformMatrix4x2fv(location, 1, GL_FALSE, source);
-	else if (columns == 4 && rows == 3) glUniformMatrix4x3fv(location, 1, GL_FALSE, source);
-}
+		const bool padded = rows < 4;
+		float packed[16];
+		const float* source = reinterpret_cast<const float*>(element);
+		if (padded)
+		{
+			for (int column = 0; column < columns; ++column)
+				std::memcpy(packed + column * rows, element + column * 16, sizeof(float) * rows);
+			source = packed;
+		}
 
-void UploadScalar(int location, PushMemberType::Scalar scalar, int rows, const uint8_t* element)
-{
-	if (scalar == PushMemberType::Scalar::Float)
-	{
-		const float* value = reinterpret_cast<const float*>(element);
-		if (rows == 1) glUniform1fv(location, 1, value);
-		else if (rows == 2) glUniform2fv(location, 1, value);
-		else if (rows == 3) glUniform3fv(location, 1, value);
-		else glUniform4fv(location, 1, value);
+		if (columns == rows)
+		{
+			if (columns == 2) glUniformMatrix2fv(location, 1, GL_FALSE, source);
+			else if (columns == 3) glUniformMatrix3fv(location, 1, GL_FALSE, source);
+			else glUniformMatrix4fv(location, 1, GL_FALSE, source);
+			return;
+		}
+		if (columns == 2 && rows == 3) glUniformMatrix2x3fv(location, 1, GL_FALSE, source);
+		else if (columns == 2 && rows == 4) glUniformMatrix2x4fv(location, 1, GL_FALSE, source);
+		else if (columns == 3 && rows == 2) glUniformMatrix3x2fv(location, 1, GL_FALSE, source);
+		else if (columns == 3 && rows == 4) glUniformMatrix3x4fv(location, 1, GL_FALSE, source);
+		else if (columns == 4 && rows == 2) glUniformMatrix4x2fv(location, 1, GL_FALSE, source);
+		else if (columns == 4 && rows == 3) glUniformMatrix4x3fv(location, 1, GL_FALSE, source);
 	}
-	else if (scalar == PushMemberType::Scalar::Int)
-	{
-		const int* value = reinterpret_cast<const int*>(element);
-		if (rows == 1) glUniform1iv(location, 1, value);
-		else if (rows == 2) glUniform2iv(location, 1, value);
-		else if (rows == 3) glUniform3iv(location, 1, value);
-		else glUniform4iv(location, 1, value);
-	}
-	else
-	{
-		const unsigned int* value = reinterpret_cast<const unsigned int*>(element);
-		if (rows == 1) glUniform1uiv(location, 1, value);
-		else if (rows == 2) glUniform2uiv(location, 1, value);
-		else if (rows == 3) glUniform3uiv(location, 1, value);
-		else glUniform4uiv(location, 1, value);
-	}
-}
 
-uint32_t ElementReadSize(const PushMemberType& type)
-{
-	if (type.columns > 1)
-		return static_cast<uint32_t>(type.columns * (type.rows == 4 ? type.rows : 4) * sizeof(float));
-	return static_cast<uint32_t>(type.rows * sizeof(uint32_t));
-}
+	void UploadScalar(int location, PushMemberType::Scalar scalar, int rows, const uint8_t* element)
+	{
+		if (scalar == PushMemberType::Scalar::Float)
+		{
+			const float* value = reinterpret_cast<const float*>(element);
+			if (rows == 1) glUniform1fv(location, 1, value);
+			else if (rows == 2) glUniform2fv(location, 1, value);
+			else if (rows == 3) glUniform3fv(location, 1, value);
+			else glUniform4fv(location, 1, value);
+		}
+		else if (scalar == PushMemberType::Scalar::Int)
+		{
+			const int* value = reinterpret_cast<const int*>(element);
+			if (rows == 1) glUniform1iv(location, 1, value);
+			else if (rows == 2) glUniform2iv(location, 1, value);
+			else if (rows == 3) glUniform3iv(location, 1, value);
+			else glUniform4iv(location, 1, value);
+		}
+		else
+		{
+			const unsigned int* value = reinterpret_cast<const unsigned int*>(element);
+			if (rows == 1) glUniform1uiv(location, 1, value);
+			else if (rows == 2) glUniform2uiv(location, 1, value);
+			else if (rows == 3) glUniform3uiv(location, 1, value);
+			else glUniform4uiv(location, 1, value);
+		}
+	}
 
-void WarnPushMember(const std::string& shader, const std::string& member, const std::string& type)
-{
-	static std::unordered_set<std::string> seen;
-	if (!seen.insert(shader + ":" + member + ":" + type).second)
-		return;
-	Warn_Core("[{}]: push constant member '{}' ({}) is not a flat scalar, vector, or matrix",
-		shader, member, type);
-}
+	uint32_t ElementReadSize(const PushMemberType& type)
+	{
+		if (type.columns > 1)
+			return static_cast<uint32_t>(type.columns * (type.rows == 4 ? type.rows : 4) * sizeof(float));
+		return static_cast<uint32_t>(type.rows * sizeof(uint32_t));
+	}
+
+	void WarnPushMember(const std::string& shader, const std::string& member, const std::string& type)
+	{
+		static std::unordered_set<std::string> seen;
+		if (!seen.insert(shader + ":" + member + ":" + type).second)
+			return;
+		Warn_Core("[{}]: push constant member '{}' ({}) is not a flat scalar, vector, or matrix",
+			shader, member, type);
+	}
 
 }
 
@@ -391,7 +395,7 @@ int GLShader::GetUniformLocation(const string& name)  const
 
 	int locatation = glGetUniformLocation(m_RendererID, name.c_str());
 	if (locatation == -1)
-		Warn_Core("["+m_Name + "]:Warning: uniform '" + name + "' doesnt exist!");
+		Warn_Core("[" + m_Name + "]:Warning: uniform '" + name + "' doesnt exist!");
 	m_UniformLocationCache[name] = locatation;
 	return locatation;
 }

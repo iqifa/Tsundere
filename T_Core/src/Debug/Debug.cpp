@@ -11,6 +11,7 @@ namespace {
 	std::mutex g_ConsoleMutex;
 	std::deque<Engine::ConsoleLine> g_ClientLines;
 	constexpr size_t kMaxClientLines = 1000;
+	uint64_t g_NextConsoleId = 1;
 
 	void AppendClientLine(int level, std::string text)
 	{
@@ -18,7 +19,7 @@ namespace {
 			text.pop_back();
 
 		std::lock_guard<std::mutex> lock(g_ConsoleMutex);
-		g_ClientLines.push_back({ level, std::move(text) });
+		g_ClientLines.push_back({ level, std::move(text), g_NextConsoleId++ });
 		while (g_ClientLines.size() > kMaxClientLines)
 			g_ClientLines.pop_front();
 	}
@@ -46,7 +47,7 @@ namespace Engine {
 
 	void Log::Init()
 	{
-		s_CoreLogger = spdlog::stderr_color_mt("TSUNDERE");
+		s_CoreLogger = spdlog::stderr_color_mt("CORE");
 		s_CoreLogger->set_pattern("[%T] %^[%n]: %v%$");
 		s_CoreLogger->set_level(spdlog::level::trace);
 

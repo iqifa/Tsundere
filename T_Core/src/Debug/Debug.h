@@ -10,10 +10,6 @@
 #ifndef DEBUG
 
 #define DEBUG
-//#define debuglog(...)		::Engine::Log::GetCoreLogger()->info(__VA_ARGS__);
-//#define debugerror(...)		::Engine::Log::GetCoreLogger()->error(__VA_ARGS__);
-//#define debugwarring(...)	::Engine::Log::GetCoreLogger()->warn(__VA_ARGS__);
-//#define Error_Core(x,...)	if(!x)::Engine::Log::GetCoreLogger()->error(__VA_ARGS__);
 
 
 #define Error_Core(...)		::Engine::Log::GetCoreLogger()->error(__VA_ARGS__);
@@ -30,6 +26,7 @@ namespace Engine {
 	{
 		int level = 0;
 		std::string text;
+		uint64_t id = 0; // Stable across ring-buffer eviction and Clear.
 	};
 
 	class T_API Log
