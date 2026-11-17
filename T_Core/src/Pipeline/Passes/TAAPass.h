@@ -90,15 +90,14 @@ public:
 		if (!opaque.IsValid())
 			return;
 
-		const auto composite = builder.ReadTexture("Transparent.SceneColor");
-		m_SceneColor = composite.id != InvalidResourceId ? composite : opaque.color;
+		m_SceneColor = opaque.color;
 		m_Depth = opaque.depth;
 		m_Velocity = opaque.velocity;
 
 		RDGTextureDesc colorDesc;
 		colorDesc.width = m_Width;
 		colorDesc.height = m_Height;
-		colorDesc.format = Format::RGBA8_UNORM;
+		colorDesc.format = opaque.ColorFormat();
 		colorDesc.usage = TextureUsage::ColorAttachment | TextureUsage::Sampled | TextureUsage::TransferSrc;
 		m_OutputColor = builder.CreateTexture("SceneColor", colorDesc);
 		builder.SetColorOutput(0, m_OutputColor, RGLoadOp::Clear, { 0,0,0,1 });
@@ -111,7 +110,8 @@ public:
 		historyDesc.format = colorDesc.format;
 		historyDesc.usage = TextureUsage::Sampled | TextureUsage::TransferDst;
 		if (!m_HistoryColorTex || m_HistoryColorTex->GetWidth() != m_Width ||
-			m_HistoryColorTex->GetHeight() != m_Height)
+			m_HistoryColorTex->GetHeight() != m_Height ||
+			m_HistoryColorTex->GetFormat() != historyDesc.format)
 			m_HistoryColorTex = RHITexture2D::Create(historyDesc);
 
 		RDGTextureDesc historyResource = colorDesc;
@@ -120,6 +120,11 @@ public:
 		m_HistoryColor = builder.ReadTexture("HistoryColor");
 		builder.WriteTexture(m_HistoryColor, RGAccess::CopyDst);
 
+		if (m_TAApiplineDesc.renderingSignature.colorFormats != std::vector<Format>{ colorDesc.format })
+		{
+			m_TAApipline.reset();
+			m_TAApiplineDesc.renderingSignature.colorFormats = { colorDesc.format };
+		}
 		if (!m_TAApipline) {
 			m_TAAPassDescriptSet->BindUniformBuffer(0, PerPass_TAA);
 			for (uint32_t binding = 10; binding <= 13; ++binding)

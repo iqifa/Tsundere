@@ -39,16 +39,15 @@ public:
 			return;
 
 		m_OpaqueColor = builder.ReadTexture(opaque.colorName, RGAccess::CopySrc);
+		const auto taaColor = builder.ReadTexture("TAA.SceneColor", RGAccess::CopySrc);
+		m_BaseColor = taaColor.id != InvalidResourceId ? taaColor : m_OpaqueColor;
 		m_OpaqueDepth = builder.ReadTexture(opaque.depthName, RGAccess::CopySrc);
 		m_ShadowMap = builder.ReadTexture("ShadowMap.Depth");
 
-		const bool hdrColor = opaque.colorName &&
-			(std::strcmp(opaque.colorName, "DeferredLight.Light") == 0 ||
-			 std::strcmp(opaque.colorName, "ForwardOpaque.SceneColor") == 0);
 		RDGTextureDesc color;
 		color.width = m_Width;
 		color.height = m_Height;
-		color.format = hdrColor ? Format::RGBA16F : Format::RGBA8_UNORM;
+		color.format = opaque.ColorFormat();
 		color.usage = TextureUsage::ColorAttachment | TextureUsage::Sampled | TextureUsage::TransferDst;
 
 		PipelineDesc pipeDesc;
@@ -84,7 +83,7 @@ public:
 		if (m_SceneColor.id == InvalidResourceId)
 			return;
 		auto& cmd = context.GetCmd();
-		cmd.CopyTexture(context.GetTexture(m_OpaqueColor), context.GetTexture(m_SceneColor));
+		cmd.CopyTexture(context.GetTexture(m_BaseColor), context.GetTexture(m_SceneColor));
 		cmd.CopyTexture(context.GetTexture(m_OpaqueDepth), context.GetTexture(m_OpaqueDepthSample));
 	}
 
@@ -132,6 +131,7 @@ private:
 	ForwardMeshRenderer m_MeshRenderer;
 	RGTextureHandle m_ShadowMap;
 	RGTextureHandle m_OpaqueColor;
+	RGTextureHandle m_BaseColor;
 	RGTextureHandle m_OpaqueDepth;
 	RGTextureHandle m_OpaqueDepthSample;
 	RGTextureHandle m_SceneColor;
@@ -139,4 +139,4 @@ private:
 	uint32_t m_Height = 1080;
 };
 
-REGISTER_RENDER_PASS(TransparentPass, "Transparent", "Base", 15, true)
+REGISTER_RENDER_PASS(TransparentPass, "Transparent", "Base", 25, true)

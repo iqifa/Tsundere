@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Pipeline/RenderGraphPass.h"
+#include <cstring>
 
 struct OpaqueSceneInputs
 {
@@ -9,6 +10,13 @@ struct OpaqueSceneInputs
 	RGTextureHandle color;
 	RGTextureHandle depth;
 	RGTextureHandle velocity;
+
+	Format ColorFormat() const
+	{
+		return colorName && (std::strcmp(colorName, "ForwardOpaque.SceneColor") == 0 ||
+			std::strcmp(colorName, "DeferredLight.Light") == 0)
+			? Format::RGBA16F : Format::RGBA8_UNORM;
+	}
 
 	bool IsValid() const
 	{

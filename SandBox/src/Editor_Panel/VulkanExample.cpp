@@ -673,10 +673,10 @@ void VulkanExampleLayer::BuildRenderGraph(uint32_t width, uint32_t height)
 	const char* postSource = "Geometry.SceneColor";
 	if (deferred)
 		postSource = "ForwardOpaque.SceneColor";
-	if (m_PassManager.IsPassEnabled("Transparent"))
-		postSource = "Transparent.SceneColor";
 	if (m_PassManager.IsPassEnabled("TAA"))
 		postSource = "TAA.SceneColor";
+	if (m_PassManager.IsPassEnabled("Transparent"))
+		postSource = "Transparent.SceneColor";
 	// GPU 路径追踪替换光栅结果作为后处理输入（线性 HDR，需要 Tone Mapping 显示）
 	const bool pathTracing = m_PassManager.IsPassEnabled("PathTrace");
 	if (pathTracing)
@@ -695,8 +695,8 @@ void VulkanExampleLayer::BuildRenderGraph(uint32_t width, uint32_t height)
     m_ViewportRequestedSource = previewSources[m_ViewportOutput];
     m_ViewportConvertPass = CreateRef<ViewportPreviewPass>("ViewportStorage", m_ViewportPreviewShader,
         std::vector<std::string>{m_ViewportRequestedSource, postProcessColor,
-            pathTracing ? "PathTrace.SceneColor" : "", "TAA.SceneColor",
-            "Transparent.SceneColor", "ForwardOpaque.SceneColor", "Geometry.SceneColor"},
+            pathTracing ? "PathTrace.SceneColor" : "", "Transparent.SceneColor",
+            "TAA.SceneColor", "ForwardOpaque.SceneColor", "Geometry.SceneColor"},
         PreviewFormatValues[m_ViewportFormat], glm::vec4(-1, 0, 1, 0), width, height);
     m_RenderGraph.AddPass(m_ViewportConvertPass);
     m_RenderGraph.AddPass(CreateRef<ViewportPreviewPass>("ViewportDisplay", m_ViewportPreviewShader,
@@ -712,9 +712,9 @@ void VulkanExampleLayer::BuildRenderGraph(uint32_t width, uint32_t height)
 	if (m_GraphFinalColor.id == InvalidResourceId && pathTracing)
 		m_GraphFinalColor = m_RenderGraph.GetTextureByName("PathTrace.SceneColor");
 	if (m_GraphFinalColor.id == InvalidResourceId)
-		m_GraphFinalColor = taaColor;
-	if (m_GraphFinalColor.id == InvalidResourceId)
 		m_GraphFinalColor = m_RenderGraph.GetTextureByName("Transparent.SceneColor");
+	if (m_GraphFinalColor.id == InvalidResourceId)
+		m_GraphFinalColor = taaColor;
 	if (m_GraphFinalColor.id == InvalidResourceId)
 		m_GraphFinalColor = m_RenderGraph.GetTextureByName("ForwardOpaque.SceneColor");
 	if (m_GraphFinalColor.id == InvalidResourceId)
@@ -730,6 +730,6 @@ void VulkanExampleLayer::BuildRenderGraph(uint32_t width, uint32_t height)
 
 	// 打印已注册和启用的 Pass 信息
 	auto registeredPasses = RenderPassRegistry::Get().GetRegisteredPassNames();
-	Info_Core("[Vulkan Example RenderGraph]: Built graph with {} passes (Total registered: {})",
+	Info_Core("[RenderGraph]: Built graph with {} passes (Total registered: {})",
 		passes.size(), registeredPasses.size());
 }
