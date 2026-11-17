@@ -673,10 +673,15 @@ void VulkanContext::createLogicalDevice()
     m_DynamicRenderingSupported = true;
     vkGetDeviceQueue(m_Device, m_QueueFamily, 0, &m_Queue);
 
+    // Info_Core/Warn_Core expand to a statement ending in ';' — keep the braces.
     if (m_RayQuerySupported)
+    {
         Info_Core("Vulkan ray query {}", m_RayQueryStatus);
+    }
     else
+    {
         Warn_Core("Vulkan ray query {}. Path tracing falls back to the software BVH.", m_RayQueryStatus);
+    }
 }
 
 void VulkanContext::createSwapchain()

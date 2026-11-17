@@ -6,6 +6,7 @@
 #include<Pipeline/RenderPassManager.h>
 #include <Pipeline/Passes/PostProcessPass.h>
 #include <Pipeline/Passes/ViewportPreviewPass.h>
+#include <Platform/RHI/RHIGpuTimer.h>
 
 class VulkanExampleLayer :public BasePanel {
 public:
@@ -81,7 +82,7 @@ private:
 	ImTextureID m_ShadowMapImGuiID = ImTextureID_Invalid;
 	
 
-	Ref<class RHIGpuTimer> m_GraphTimer;
+	Ref<RHIGpuTimer> m_GraphTimer;
 	RenderGraph m_RenderGraph;
 	RenderPassManager m_PassManager;  // Pass 管理器
 	bool m_GeometryMSAAEnabled = true;
