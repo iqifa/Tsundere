@@ -72,6 +72,7 @@ namespace Component
 	};
 	struct Tag {
 		std::string tag;
+		bool Active = true;
 
 		Tag() = default;
 		Tag(const Tag&) = default;

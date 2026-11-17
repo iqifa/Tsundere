@@ -123,7 +123,7 @@ public:
 				if (!reflection.Transparent && reflection.RenderPass != MaterialRenderPass::GBuffer)
 					m_MeshRenderer.Draw(cmd, *mesh, material, model, previous, textures);
 			});
-		if (!hadReadyMesh && m_CubePipeline)
+		if (!hadReadyMesh && m_CubePipeline && m_Scene->m_Registry.view<Component::MeshRender>().empty())
 			DrawFallbackCube(cmd, shadow);
 	}
 

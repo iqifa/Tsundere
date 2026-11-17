@@ -11,6 +11,21 @@ private:
 public:
 	entt::registry m_Registry;
 	uint64_t Revision = 0;
+
+	bool IsActive(entt::entity entity) const
+	{
+		// Bound the walk so malformed parent cycles cannot hang rendering.
+		size_t remaining = m_Registry.storage<entt::entity>()->size();
+		while (entity != entt::null && remaining-- > 0)
+		{
+			if (!m_Registry.valid(entity)) return false;
+			const auto* tag = m_Registry.try_get<Component::Tag>(entity);
+			if (tag && !tag->Active) return false;
+			const auto* parent = m_Registry.try_get<Component::Parent>(entity);
+			entity = parent ? parent->parent : entt::null;
+		}
+		return entity == entt::null;
+	}
 	template<typename T>
 	void OnaddComponent(Entity& entity, T& Component) {}
 	void DestoryEntity(Entity Destory)

@@ -189,7 +189,7 @@ public:
 		m_MaterialRenderer.UploadFrame(*m_Scene, *m_FrameData, shadowTex);
 		for (auto [entityID, transform, meshrender] : m_Scene->m_Registry.view<Component::Transform, Component::MeshRender>().each())
 		{
-			if (meshrender.ModelPath.empty() || meshrender.materials.empty())
+			if (!m_Scene->IsActive(entityID) || meshrender.ModelPath.empty() || meshrender.materials.empty())
 				continue;
 
 			Ref<Model> model = My_map::GetModel(meshrender.ModelPath);
@@ -202,7 +202,7 @@ public:
 			for (size_t i = 0; i < model->meshes.size(); i++)
 			{
 				auto& mesh = model->meshes[i];
-				if (!mesh.IsGPUReady())
+				if (!mesh.Active || !mesh.IsGPUReady())
 					continue;
 				hadReadyMesh = true;
 
@@ -253,7 +253,7 @@ public:
 			}
 		}
 	
-		if (!hadReadyMesh)
+		if (!hadReadyMesh && m_Scene->m_Registry.view<Component::MeshRender>().empty())
 		{
 			DrawFallbackCube(cmd, shadowTex);
 		}

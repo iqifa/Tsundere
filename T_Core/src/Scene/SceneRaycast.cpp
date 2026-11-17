@@ -16,7 +16,7 @@ std::optional<SceneRaycast::Hit> SceneRaycast::Cast(const Scene& scene, const gl
 	std::optional<Hit> hit;
 	for (auto [id, transform, renderer] : scene.m_Registry.view<const Transform, const MeshRender>().each())
 	{
-		if (renderer.ModelPath.empty() || (options.renderableMeshesOnly && renderer.materials.empty()) ||
+		if (!scene.IsActive(id) || renderer.ModelPath.empty() || (options.renderableMeshesOnly && renderer.materials.empty()) ||
 			transform.Scale.x == 0.0f || transform.Scale.y == 0.0f || transform.Scale.z == 0.0f)
 			continue;
 		const auto model = My_map::GetModel(renderer.ModelPath);
@@ -31,7 +31,7 @@ std::optional<SceneRaycast::Hit> SceneRaycast::Cast(const Scene& scene, const gl
 			(transform.Scale.z < 0.0f);
 		for (const auto& mesh : model->meshes)
 		{
-			if (options.renderableMeshesOnly && !mesh.IsGPUReady())
+			if (!mesh.Active || (options.renderableMeshesOnly && !mesh.IsGPUReady()))
 				continue;
 			for (size_t i = 0; i + 2 < mesh.indices.size(); i += 3)
 			{

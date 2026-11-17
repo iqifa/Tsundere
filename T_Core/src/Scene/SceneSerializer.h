@@ -200,14 +200,15 @@ public:
             std::vector<entt::entity> entities;
             std::unordered_map<const Engine::Material*, size_t> materialIds;
             for (auto entity : scene.m_Registry.view<Component::ID>()) entities.push_back(entity);
-            out << "# Tsundere Scene File\nVersion: 2\nEntities: " << entities.size() << '\n';
+            out << "# Tsundere Scene File\nVersion: 3\nEntities: " << entities.size() << '\n';
             for (auto entity : entities)
             {
                 auto& registry = scene.m_Registry;
                 auto& transform = registry.get<Component::Transform>(entity);
                 auto parent = registry.get<Component::Parent>(entity).parent;
                 out << "\n[Entity]\nID: " << uint64_t(registry.get<Component::ID>(entity).id) << ' '
-                    << "\nName: " << std::quoted(registry.get<Component::Tag>(entity).tag) << "\nParent: "
+                    << "\nName: " << std::quoted(registry.get<Component::Tag>(entity).tag)
+                    << "\nActive: " << registry.get<Component::Tag>(entity).Active << "\nParent: "
                     << (parent != entt::null) << ' ';
                 if (parent != entt::null) out << uint64_t(registry.get<Component::ID>(parent).id) << ' ';
                 out << "\nPosition: "; WriteVector(out, transform.Position);
@@ -283,7 +284,8 @@ public:
                 throw std::runtime_error("Unsupported scene format");
             Field(in, "Version:");
             in >> version;
-            if (version != 2) throw std::runtime_error("Unsupported scene version");
+            if (version != 3)
+                throw std::runtime_error("Unsupported scene version: " + std::to_string(version) + " (expected 3)");
             Field(in, "Entities:");
             Scene loaded;
             std::unordered_map<uint64_t, entt::entity> entities;
@@ -298,10 +300,13 @@ public:
                 Field(in, "[Entity]");
                 Field(in, "ID:"); in >> id;
                 Field(in, "Name:"); in >> std::quoted(name);
+                bool active = false;
+                Field(in, "Active:"); in >> active;
                 Field(in, "Parent:"); in >> present;
                 if (present) { in >> parent; parents.emplace(id, parent); }
                 if (entities.count(id)) throw std::runtime_error("Duplicate entity ID");
                 auto entity = loaded.CreateEntityWithUID(UID(id), name);
+                entity.GetComponent<Component::Tag>().Active = active;
                 entities.emplace(id, entity);
                 auto& transform = entity.GetComponent<Component::Transform>();
                 Field(in, "Position:"); ReadVector(in, transform.Position);

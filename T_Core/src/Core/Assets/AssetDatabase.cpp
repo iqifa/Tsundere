@@ -12,6 +12,12 @@
 #include <system_error>
 #include <unordered_map>
 #include <unordered_set>
+#include <sstream>
+#include <set>
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <Windows.h>
 
 namespace Engine {
 
@@ -88,6 +94,7 @@ struct ParsedMeta
 {
 	uint64_t uid = 0;
 	std::optional<AssetKind> kind;
+	std::vector<std::string> extra;
 };
 
 ParsedMeta ReadMeta(const std::filesystem::path& metaPath)
@@ -115,18 +122,42 @@ ParsedMeta ReadMeta(const std::filesystem::path& metaPath)
 			if (KindFromString(Trim(line.substr(5)), kind))
 				meta.kind = kind;
 		}
+		else if (!line.empty()) meta.extra.push_back(line);
 	}
 	return meta;
 }
 
-bool WriteMeta(const std::filesystem::path& metaPath, uint64_t uid, AssetKind kind)
+bool WriteMeta(const std::filesystem::path& metaPath, uint64_t uid, AssetKind kind,
+	const std::vector<std::string>* extra = nullptr)
 {
-	std::ofstream file(metaPath, std::ios::trunc);
+	const auto preserved = extra ? *extra : ReadMeta(metaPath).extra;
+	auto temporary = metaPath;
+	temporary += ".tmp";
+	std::ofstream file(temporary, std::ios::trunc);
 	if (!file.is_open())
 		return false;
 	file << "uid: " << uid << "\n";
 	file << "type: " << KindToString(kind) << "\n";
-	return static_cast<bool>(file);
+	for (const auto& line : preserved) file << line << '\n';
+	file.close();
+	if (file && MoveFileExW(temporary.c_str(), metaPath.c_str(),
+		MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) return true;
+	std::error_code ignored;
+	std::filesystem::remove(temporary, ignored);
+	return false;
+}
+
+std::set<uint32_t> DisabledIndices(const ParsedMeta& meta)
+{
+	std::set<uint32_t> indices;
+	for (const auto& line : meta.extra)
+		if (line.rfind("disabled_submeshes:", 0) == 0)
+		{
+			std::istringstream in(line.substr(19));
+			uint32_t index;
+			while (in >> index) indices.insert(index);
+		}
+	return indices;
 }
 
 uint64_t GenerateUid(const std::unordered_set<uint64_t>& used)
@@ -252,6 +283,7 @@ std::string AssetDatabase::NormalizePath(const std::filesystem::path& path)
 
 void AssetDatabase::Sync(const std::filesystem::path& root)
 {
+	std::unique_lock lock(s_Mutex);
 	std::unordered_map<uint64_t, AssetRecord> next;
 	std::error_code ec;
 	if (std::filesystem::exists(root, ec) && std::filesystem::is_directory(root, ec))
@@ -267,8 +299,47 @@ void AssetDatabase::Sync(const std::filesystem::path& root)
 		}
 	}
 
-	std::unique_lock lock(s_Mutex);
 	s_Records.swap(next);
+}
+
+std::vector<uint32_t> AssetDatabase::DisabledSubmeshes(const std::filesystem::path& model)
+{
+	std::shared_lock lock(s_Mutex);
+	const auto indices = DisabledIndices(ReadMeta(MetaPathFor(model)));
+	return { indices.begin(), indices.end() };
+}
+
+bool AssetDatabase::SetSubmeshActive(const std::filesystem::path& model, uint32_t index,
+	bool active, std::string& error)
+{
+	try
+	{
+		std::unique_lock lock(s_Mutex);
+		if (!std::filesystem::is_regular_file(model))
+			throw std::runtime_error("Model file no longer exists");
+		const auto path = MetaPathFor(model);
+		auto meta = ReadMeta(path);
+		auto indices = DisabledIndices(meta);
+		if (active) indices.erase(index); else indices.insert(index);
+		meta.extra.erase(std::remove_if(meta.extra.begin(), meta.extra.end(), [](const auto& line) {
+			return line.rfind("disabled_submeshes:", 0) == 0;
+		}), meta.extra.end());
+		std::ostringstream field;
+		field << "disabled_submeshes:";
+		for (auto disabled : indices) field << ' ' << disabled;
+		meta.extra.push_back(field.str());
+		if (!meta.uid)
+		{
+			std::unordered_set<uint64_t> used;
+			for (const auto& entry : s_Records) used.insert(entry.first);
+			meta.uid = GenerateUid(used);
+		}
+		if (!WriteMeta(path, meta.uid, AssetKind::Model, &meta.extra))
+			throw std::runtime_error("Cannot save model metadata: " + path.string());
+		error.clear();
+		return true;
+	}
+	catch (const std::exception& e) { error = e.what(); return false; }
 }
 
 uint64_t AssetDatabase::UidForPath(const std::filesystem::path& path, AssetKind kind)

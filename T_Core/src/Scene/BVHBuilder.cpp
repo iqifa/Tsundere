@@ -22,7 +22,7 @@ void BVHBuilder::GatherScene(const Scene& scene)
 	for (auto [entityID, transform, meshrender] :
 		scene.m_Registry.view<const Component::Transform, const Component::MeshRender>().each())
 	{
-		if (meshrender.ModelPath.empty())
+		if (!scene.IsActive(entityID) || meshrender.ModelPath.empty())
 			continue;
 
 		const Ref<Model> model = My_map::GetModel(meshrender.ModelPath);
@@ -34,7 +34,7 @@ void BVHBuilder::GatherScene(const Scene& scene)
 		for (size_t meshIdx = 0; meshIdx < model->meshes.size(); ++meshIdx)
 		{
 			const Mesh& mesh = model->meshes[meshIdx];
-			if (mesh.vertices.empty() || mesh.indices.size() < 3)
+			if (!mesh.Active || mesh.vertices.empty() || mesh.indices.size() < 3)
 				continue;
 
 			auto [it, inserted] = meshLookup.try_emplace(&mesh, static_cast<uint32_t>(snapshot->meshes.size()));

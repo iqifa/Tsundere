@@ -90,6 +90,7 @@ private:
 			m_SelectedMesh = 0;
 			m_BoneFilter[0] = 0;
 			m_MeshColors.clear();
+			m_SaveError.clear();
 		}
 		m_SelectedPath = path;
 		m_Open = true;
@@ -144,7 +145,7 @@ private:
 		ImGui::Separator();
 		ImGui::TextUnformatted("Meshes");
 		EnsureMeshColors(*model);
-		if (ImGui::BeginTable("##meshes", 5,
+		if (ImGui::BeginTable("##meshes", 6,
 			ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders | ImGuiTableFlags_ScrollY,
 			ImVec2(0, 160)))
 		{
@@ -153,10 +154,11 @@ private:
 			ImGui::TableSetupColumn("Vertices");
 			ImGui::TableSetupColumn("Triangles");
 			ImGui::TableSetupColumn("GPU");
+			ImGui::TableSetupColumn("Active", ImGuiTableColumnFlags_WidthFixed, 50.0f);
 			ImGui::TableHeadersRow();
 			for (int i = 0; i < (int)model->meshes.size(); i++)
 			{
-				const auto& mesh = model->meshes[i];
+				auto& mesh = model->meshes[i];
 				ImGui::TableNextRow();
 				ImGui::TableSetColumnIndex(0);
 				char label[32];
@@ -178,10 +180,23 @@ private:
 				ImGui::Text("%zu", mesh.indices.size() / 3);
 				ImGui::TableSetColumnIndex(4);
 				ImGui::TextUnformatted(mesh.IsGPUReady() ? "ready" : "pending");
+				ImGui::TableSetColumnIndex(5);
+				ImGui::PushID(i);
+				if (ImGui::Checkbox("##active", &mesh.Active))
+				{
+					if (Engine::AssetDatabase::SetSubmeshActive(m_SelectedPath, mesh.SourceIndex,
+						mesh.Active, m_SaveError))
+						BVHBuilder::MarkActiveDirty();
+					else mesh.Active = !mesh.Active;
+				}
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("Render this submesh in the preview and all scene instances. Saved automatically.");
+				ImGui::PopID();
 			}
 			ImGui::EndTable();
 		}
 
+		if (!m_SaveError.empty()) ImGui::TextWrapped("%s", m_SaveError.c_str());
 		if (!model->meshes.empty())
 		{
 			const auto& mesh = model->meshes[m_SelectedMesh];
@@ -410,7 +425,7 @@ private:
 			if (m_PreviewIsolate && !selected)
 				continue;
 			const Mesh& mesh = model.meshes[i];
-			if (!mesh.IsGPUReady())
+			if (!mesh.Active || !mesh.IsGPUReady())
 				continue;
 
 			glm::vec3 color = i < (int)m_MeshColors.size() ? m_MeshColors[i] : idleTint;
@@ -587,6 +602,7 @@ private:
 
 	Ref<Scene> m_Scene;
 	std::string m_SelectedPath;
+	std::string m_SaveError;
 	bool m_Open = false;
 	int m_SelectedMesh = 0;
 	char m_BoneFilter[64] = {};

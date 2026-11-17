@@ -135,6 +135,7 @@ public:
 		bool hasAmbient = false;
 		for (auto [entityID, trans, light] : m_Scene->m_Registry.view<Component::Transform, Component::Light>().each())
 		{
+			if (!m_Scene->IsActive(entityID)) continue;
 			if (!hasAmbient && light.type == Component::Light::LightType::Directional)
 			{
 				ambient = light.Color * light.Intensity * light.Ambient;

@@ -1,6 +1,7 @@
 #pragma once
 #include "Pipeline/Passes/PassCommon.h"
 #include "Scene/Vertex.h"
+#include "Scene/LocalLights.h"
 #include "Core/MaterialLibrary.h"
 #include <cstddef>
 #include <algorithm>
@@ -70,13 +71,21 @@ public:
 		m_CameraUBO->Upload(&camera, sizeof(camera));
 		if (m_GBuffer)
 			return;
+		auto localLights = GatherLocalLights(scene);
+		// A zero-intensity sentinel keeps the descriptor valid for empty scenes.
+		if (localLights.empty()) localLights.push_back({});
+		const uint32_t lightBytes = static_cast<uint32_t>(localLights.size() * sizeof(LocalLightData));
+		if (!m_LocalLights || m_LocalLights->GetSize() != lightBytes)
+			m_LocalLights = RHIBuffer::Create({lightBytes, BufferUsage::Storage, true, localLights.data()});
+		else m_LocalLights->Upload(localLights.data(), lightBytes);
 		glm::vec3 lightDir = glm::vec3(-0.5f, -1.0f, -0.5f);
-		glm::vec3 lightColor = glm::vec3(1.0f);
-		float ambientStrength = 0.1f;
+		glm::vec3 lightColor = glm::vec3(0.0f);
+		float ambientStrength = 0.0f;
 		glm::vec3 viewPos = currentcamera->getpos();
 
 		for (auto entityID : scene.m_Registry.view<Component::Light>())
 		{
+			if (!scene.IsActive(entityID)) continue;
 			auto& dl = scene.m_Registry.get<Component::Light>(entityID);
 			if (dl.type != Component::Light::LightType::Directional)
 				continue;
@@ -131,7 +140,7 @@ public:
 		bool hadReadyMesh = false;
 		for (auto [id, transform, renderer] : scene.m_Registry.view<Transform, MeshRender>().each())
 		{
-			if (renderer.ModelPath.empty())
+			if (!scene.IsActive(id) || renderer.ModelPath.empty())
 				continue;
 			const auto model = My_map::GetModel(renderer.ModelPath);
 			if (!model || model->meshes.empty())
@@ -152,7 +161,7 @@ public:
 			for (size_t i = 0; i < model->meshes.size(); ++i)
 			{
 				auto& mesh = model->meshes[i];
-				if (!mesh.IsGPUReady())
+				if (!mesh.Active || !mesh.IsGPUReady())
 					continue;
 				hadReadyMesh = true;
 				const auto& material = i < renderer.materials.size()
@@ -211,13 +220,19 @@ private:
             });
         };
         const ShaderBlock* push = reflection.PushConstants.empty() ? nullptr : &reflection.PushConstants[0];
+		const bool validStorage = std::all_of(reflection.StorageBlocks.begin(), reflection.StorageBlocks.end(),
+			[&](const ShaderBlock& block) {
+				return !m_GBuffer && block.Set == 0 && block.Binding == 4 && block.Name == "ForwardLocalLights" &&
+					!reflection.FindUniformBlock(4) && block.Members.size() == 1 &&
+					block.Members[0].Offset == 0 && block.Members[0].ArrayStride == sizeof(LocalLightData);
+			});
 		const bool validLayout = (m_GBuffer ? (!frameBlock || frameBlock->Size == sizeof(GBufferDrawUBO))
 			: (frameBlock && frameBlock->Size == sizeof(GeometryFrameUBO))) &&
 			(m_GBuffer ? (!cameraBlock || cameraBlock->Size == sizeof(CameraUBO))
 			 : (cameraBlock && cameraBlock->Size == sizeof(CameraUBO))) &&
 			((m_GBuffer && reflection.PushConstants.empty()) ||
 			 (!reflection.PushConstants.empty() && reflection.PushConstants[0].Size == sizeof(DrawPushConstants))) &&
-			reflection.StorageBlocks.empty() && reflection.StorageImages.empty() &&
+			validStorage && reflection.StorageImages.empty() &&
             memberAt(cameraBlock, 0, "mat4") && memberAt(cameraBlock, 64, "mat4") &&
             memberAt(cameraBlock, 128, "mat4") && memberAt(push, 0, "mat4") && memberAt(push, 64, "mat4") &&
             (!m_GBuffer || memberAt(frameBlock, 0, "int"));
@@ -230,7 +245,7 @@ private:
 
 		ShaderState state;
 		state.shader = shader;
-		state.hasDescriptors = !reflection.UniformBlocks.empty() || !reflection.SampledImages.empty();
+		state.hasDescriptors = !reflection.UniformBlocks.empty() || !reflection.SampledImages.empty() || !reflection.StorageBlocks.empty();
 		state.descriptors = RHIDescriptorSet::Create();
 		if (!state.descriptors)
 			return nullptr;
@@ -255,7 +270,7 @@ private:
 		for (const auto& image : reflection.SampledImages)
 		{
 			if (image.Set != 0 || image.Binding < 10 || image.Type != "sampler2D" ||
-                reflection.FindUniformBlock(image.Binding) ||
+                reflection.FindUniformBlock(image.Binding) || reflection.FindStorageBlock(image.Binding) ||
 				(!reflection.Transparent && IsSceneTexture(image.Name)))
 			{
 				Error_Core("ForwardMeshRenderer: material shader '{}' has an unsupported sampler", shader->GetPath());
@@ -304,6 +319,7 @@ private:
         const auto& reflection = state.shader->GetReflection();
         if (reflection.FindUniformBlock(1)) state.descriptors->BindUniformBuffer(1, m_FrameUBO);
         if (reflection.FindUniformBlock(2)) state.descriptors->BindUniformBuffer(2, m_CameraUBO);
+        if (reflection.FindStorageBlock(4)) state.descriptors->BindStorageBuffer(4, m_LocalLights);
     }
 
 	void BindMaterialDescriptors(ShaderState& state, const Ref<Engine::Material>& mat,
@@ -353,6 +369,7 @@ private:
 	Ref<RHIBuffer> m_CameraUBO;
 	Ref<RHIBuffer> m_FrameUBO;
 	Ref<RHIBuffer> m_NormalMapUBO;
+	Ref<RHIBuffer> m_LocalLights;
 	Ref<RHITexture2D> m_DefaultTex;
 	PipelineDesc m_PipelineDesc;
 	std::unordered_map<const RHIShader*, ShaderState> m_ShaderStates;

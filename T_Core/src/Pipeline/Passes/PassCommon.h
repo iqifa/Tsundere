@@ -105,7 +105,7 @@ struct RGFrameData
 		m_ModelRevision = scene.Revision;
 		m_CurrentModels.clear();
 		for (auto [id, transform, mesh] : scene.m_Registry.view<const Transform, const MeshRender>().each())
-			if (!mesh.ModelPath.empty())
+			if (scene.IsActive(id) && !mesh.ModelPath.empty())
 				m_CurrentModels.emplace(id, transform.GetTransform());
 	}
 

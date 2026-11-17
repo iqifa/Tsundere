@@ -38,6 +38,10 @@ public:
 	static std::string Resolve(uint64_t uid, AssetKind kind);
 
 	static std::string NormalizePath(const std::filesystem::path& path);
+
+	static std::vector<uint32_t> DisabledSubmeshes(const std::filesystem::path& model);
+	static bool SetSubmeshActive(const std::filesystem::path& model, uint32_t index,
+		bool active, std::string& error);
 };
 
 } // namespace Engine

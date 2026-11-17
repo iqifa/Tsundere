@@ -28,6 +28,11 @@ public:
     // GPU 数据：由 setupMesh() 创建，析构时通过 GPUDeletionQueue 安全释放
     Ref<RHIMesh> gpuMesh;
 
+    // Shared model state: affects preview and every scene instance.
+    bool Active = true;
+    // Import index stays stable when another submesh is removed in the editor.
+    uint32_t SourceIndex = 0;
+
     Mesh() = default;
 
     // 同步构造：立即上传 GPU（仅在主 GL 线程调用）

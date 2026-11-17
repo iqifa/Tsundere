@@ -24,6 +24,8 @@ inline void RenderTagInspector(Entity& entity)
 	if (ImGui::CollapsingHeader("Tag", ImGuiTreeNodeFlags_AllowItemOverlap))
 	{
 		auto& tag = entity.GetComponent<Tag>();
+		if (ImGui::Checkbox("Active##Tag", &tag.Active))
+			BVHBuilder::MarkActiveDirty();
 		char buffer[256];
 		memset(buffer, 0, sizeof(buffer));
 		strcpy_s(buffer, sizeof(buffer), tag.tag.c_str());

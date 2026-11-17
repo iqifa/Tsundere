@@ -9,6 +9,7 @@
 #include "Panels/MeshFilePath.h"
 #include "Core/Assets/TextureAsset.h"
 #include "Core/Assets/MeshAsset.h"
+#include "Core/Assets/AssetDatabase.h"
 #include "stb_image/stb_image.h"
 #include "ExternalFiles.h"
 
@@ -575,7 +576,12 @@ inline void ResourceLoader::CompleteModelLoad(AsyncLoadRequest& req)
 	// Convert vector<MeshAsset> → vector<Mesh> (CPU only, no GL yet)
 	model->meshes.reserve(req.loadedMeshes.size());
 	for (auto& asset : req.loadedMeshes)
+	{
 		model->meshes.push_back(Mesh::CreateFromAsset(std::move(asset)));
+		model->meshes.back().SourceIndex = static_cast<uint32_t>(model->meshes.size() - 1);
+	}
+	for (uint32_t index : AssetDatabase::DisabledSubmeshes(req.path))
+		if (index < model->meshes.size()) model->meshes[index].Active = false;
 	model->bones = std::move(req.bones);
 
 	{

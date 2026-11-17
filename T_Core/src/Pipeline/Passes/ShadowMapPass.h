@@ -120,6 +120,7 @@ public:
 
 		for (auto [lightID, transform, light] : m_Scene->m_Registry.view<Component::Transform, Component::Light>().each())
 		{
+			if (!m_Scene->IsActive(lightID)) continue;
 			const uint32_t entityKey = static_cast<uint32_t>(lightID);
 			if (lightViewProjs.size() >= kMaxShadowSlots)
 			{
@@ -240,7 +241,7 @@ public:
 
 			for (auto [entityID, transform, meshrender] : m_Scene->m_Registry.view<Component::Transform, Component::MeshRender>().each())
 			{
-				if (meshrender.ModelPath.empty() || meshrender.materials.empty())
+				if (!m_Scene->IsActive(entityID) || meshrender.ModelPath.empty() || meshrender.materials.empty())
 					continue;
 
 				Ref<Model> model = My_map::GetModel(meshrender.ModelPath);
@@ -252,7 +253,7 @@ public:
 				for (size_t i = 0; i < model->meshes.size(); i++)
 				{
 					auto& mesh = model->meshes[i];
-					if (!mesh.IsGPUReady())
+					if (!mesh.Active || !mesh.IsGPUReady())
 						continue;
 
 					Ref<Engine::Material> mat = i < meshrender.materials.size()
