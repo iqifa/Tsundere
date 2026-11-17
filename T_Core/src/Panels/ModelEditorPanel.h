@@ -4,7 +4,7 @@
 #include "ExternalFiles.h"
 #include "Panels/MeshFilePath.h"
 #include "Core/Threading/ResourceLoader.h"
-#include "Scene/BVHBuilder.h"
+#include "Scene/SceneChanges.h"
 #include "Scene/Scene.h"
 #include "Scene/Vertex.h"
 #include "HeadLine.h"
@@ -186,7 +186,7 @@ private:
 				{
 					if (Engine::AssetDatabase::SetSubmeshActive(m_SelectedPath, mesh.SourceIndex,
 						mesh.Active, m_SaveError))
-						BVHBuilder::MarkActiveDirty();
+						SceneChanges::NotifyModelChanged();
 					else mesh.Active = !mesh.Active;
 				}
 				if (ImGui::IsItemHovered())
@@ -586,7 +586,7 @@ private:
 			m_SelectedMesh = (int)model.meshes.size() - 1;
 		if (m_SelectedMesh < 0)
 			m_SelectedMesh = 0;
-		BVHBuilder::MarkActiveDirty();
+		SceneChanges::NotifyModelChanged();   // 实例集合 + 材质槽（上面删了对应槽位）
 	}
 
 	void DestroySelf()

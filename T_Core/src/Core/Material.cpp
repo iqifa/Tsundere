@@ -2,6 +2,7 @@
 #include "Core/MaterialResourcePath.h"
 #include "Platform/RHI/RHITextureLibrary.h"
 #include "Debug/Debug.h"
+#include "Scene/SceneChanges.h"
 #include <algorithm>
 #include <cstring>
 #include <fstream>
@@ -34,8 +35,15 @@ Material& Material::operator=(const Material& other)
 		m_AssetPath = other.m_AssetPath;
 		m_Shader = other.m_Shader;
 		m_Parameters = other.m_Parameters;
+		MarkChanged();
 	}
 	return *this;
+}
+
+void Material::MarkChanged()
+{
+	++m_Revision;
+	SceneChanges::Notify(SceneChanges::Category::MaterialParameters);
 }
 
 void Material::SetShader(Ref<RHIShader> shader)
@@ -49,11 +57,13 @@ void Material::SetShader(Ref<RHIShader> shader)
 
 	if (m_Shader)
 		InitializeParametersFromShader();
+	MarkChanged();
 }
 
 void Material::SetParameter(const std::string& name, const MaterialParameter& param)
 {
 	m_Parameters[name] = param;
+	MarkChanged();
 }
 
 MaterialParameter* Material::GetParameter(const std::string& name)
@@ -71,31 +81,37 @@ const MaterialParameter* Material::GetParameter(const std::string& name) const
 void Material::SetFloat(const std::string& name, float value)
 {
 	m_Parameters[name] = MaterialParameter(value);
+	MarkChanged();
 }
 
 void Material::SetVec2(const std::string& name, const glm::vec2& value)
 {
 	m_Parameters[name] = MaterialParameter(value);
+	MarkChanged();
 }
 
 void Material::SetVec3(const std::string& name, const glm::vec3& value)
 {
 	m_Parameters[name] = MaterialParameter(value);
+	MarkChanged();
 }
 
 void Material::SetVec4(const std::string& name, const glm::vec4& value)
 {
 	m_Parameters[name] = MaterialParameter(value);
+	MarkChanged();
 }
 
 void Material::SetInt(const std::string& name, int value)
 {
 	m_Parameters[name] = MaterialParameter(value);
+	MarkChanged();
 }
 
 void Material::SetTexture(const std::string& name, Ref<RHITexture2D> texture)
 {
 	m_Parameters[name] = MaterialParameter(texture);
+	MarkChanged();
 }
 
 float Material::GetFloat(const std::string& name, float defaultValue) const
@@ -326,6 +342,7 @@ void Material::InitializeParametersFromShader()
 
 		m_Parameters[sampler.Name] = MaterialParameter(Ref<RHITexture2D>(nullptr));
 	}
+	MarkChanged();
 }
 
 bool Material::Serialize(const std::string& filepath)
@@ -404,6 +421,7 @@ bool Material::Deserialize(const std::string& filepath)
 	}
 
 	m_Parameters.clear();
+	MarkChanged();
 	std::string line;
 	bool inParametersSection = false;
 

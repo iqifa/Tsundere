@@ -5,6 +5,7 @@
 #include "Scene/Vertex.h"           // Vertex struct + MAX_BONE_INFLUENCE
 #include "Core/Assets/MeshAsset.h"  // MeshAsset (CPU mesh data)
 #include "Platform/RenderAPI.h"     // backend selector — provides RHIMesh + GLMesh factory
+#include "Scene/SceneChanges.h"     // MeshGeometryId
 #include <cstddef>                  // offsetof
 
 // ---------------------------------------------------------------------------
@@ -32,6 +33,11 @@ public:
     bool Active = true;
     // Import index stays stable when another submesh is removed in the editor.
     uint32_t SourceIndex = 0;
+
+    // 几何身份 + 版本：派生加速结构（PT 的 BLAS）以 (GeometryId, GeometryRevision) 缓存。
+    // 就地修改 vertices / indices 之后必须调用 SceneChanges::NotifyMeshGeometry(mesh)。
+    MeshGeometryId GeometryId;
+    uint64_t GeometryRevision = 0;
 
     Mesh() = default;
 

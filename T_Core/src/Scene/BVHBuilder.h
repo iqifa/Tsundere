@@ -3,14 +3,23 @@
 // ---------------------------------------------------------------------------
 // BVHBuilder — 场景 → 两级 BVH → GPU
 //
-// 三个阶段，对应 ResourceLoader 的异步流程：
-//   1. GatherScene(scene)   主线程  拷贝一份几何 + 实例快照（之后不再访问 Scene）
-//   2. BuildBVH()           任意线程 纯 CPU 构建（BLAS × N + TLAS）
-//   3. UploadToGPU()        主线程  创建 5 个 SSBO
-// 同步使用直接调 Update(scene)：脏了才做 1+2+3。
+// 两条使用路径：
+//
+// 1) 增量路径（PathTraceScene）：UpdateIncremental(scene)
+//      遍历实例（只读 Transform / MeshRender / 子网格状态，不拷贝顶点），以
+//      (Mesh::GeometryId, Mesh::GeometryRevision) 为键缓存每个网格的 BLAS 片段：
+//        * 新网格 / 几何版本变了   → 只构建该网格的 BLAS 片段
+//        * 不再被引用的网格         → 释放片段
+//        * BLAS 集合有变化          → 重新拼接 BLAS / 三角形 buffer（拷贝，不重建），重建 TLAS
+//        * 只有变换 / 实例增删      → 只重建 TLAS + 实例 buffer，BLAS 原样复用
+//        * 只有材质下标变           → 原地修补实例 buffer 的 materialIndex，不碰任何树
+//      什么时候调用由调用方决定（SceneChanges 版本号变化时），本身不做全场景哈希。
+//
+// 2) 整体重建（旧接口，测试 / ResourceLoader 异步流程）：
+//      GatherScene(scene) 主线程 → BuildBVH() 任意线程 → UploadToGPU() 主线程。
+//      Update(scene) = 实例脏标记驱动的同步一条龙。
 //
 // 数据布局、空场景约定见 BVH.h；GLSL 侧见 res/shaders/include/BVH.glsl。
-// 目前是整体重建（脏标记驱动），还没有增量 / 动态更新。
 // ---------------------------------------------------------------------------
 
 #include "BVH.h"
@@ -27,31 +36,43 @@
 #include <mutex>
 #include <unordered_map>
 
+struct BVHIncrementalResult
+{
+	bool geometryChanged = false;   // BLAS 集合 / 内容变了：BLAS 与三角形 buffer 重传，TLAS 重建
+	bool instancesChanged = false;  // 实例列表或变换变了：TLAS + 实例 buffer 重建
+	bool materialsPatched = false;  // 只有 materialIndex 变了：实例 buffer 原地修补
+	bool uploadFailed = false;
+	uint32_t blasBuilt = 0;         // 本次新建 / 重建的 BLAS 片段数
+	uint32_t blasReleased = 0;
+	uint32_t blasReused = 0;
+
+	bool Changed() const { return geometryChanged || instancesChanged || materialsPatched; }
+};
+
 class T_API BVHBuilder
 {
 public:
 	BVHBuilder() = default;
-	~BVHBuilder();
+	~BVHBuilder() = default;
 	BVHBuilder(const BVHBuilder&) = delete;
 	BVHBuilder& operator=(const BVHBuilder&) = delete;
 
-	// 全局脏标记：场景几何 / 变换 / 模型加载发生变化时从任何地方调用。
-	static void MarkActiveDirty()
-	{
-		if (s_ActiveInstance)
-			s_ActiveInstance->MarkDirty();
-	}
-	static void SetActiveInstance(BVHBuilder* builder) { s_ActiveInstance = builder; }
-	static BVHBuilder* GetActiveInstance() { return s_ActiveInstance; }
+	// ---- 增量路径（主线程）----
+	// upload = false 只做 CPU 部分（测试用；GPU buffer 不变）。
+	BVHIncrementalResult UpdateIncremental(const Scene& scene, bool upload = true);
+	// 丢弃 BLAS 缓存，下次 UpdateIncremental 从头构建。
+	void ResetIncremental();
+	// 与 GetData().blas[] 一一对应的缓存键。片段每（重新）构建一次就分配新值，
+	// 硬件后端可以直接拿它做 BLAS 缓存键：键不变 = 三角形内容不变。
+	const std::vector<uint64_t>& GetBLASKeys() const { return m_BLASKeys; }
 
-	// ---- 阶段 1：主线程 ----
+	// ---- 整体重建：阶段 1（主线程）----
 	// 遍历 Transform + MeshRender，按 Mesh 去重拷贝几何，记录每个实例的变换。
-	// 模型还在异步加载的实体会被跳过（加载完成后 ResourceLoader 会再次标脏）。
+	// 模型还在异步加载的实体会被跳过（加载完成后 ResourceLoader 会通知 InstanceSet）。
 	void GatherScene(const Scene& scene);
 	void GatherTriangles(Ref<Scene> scene) { if (scene) GatherScene(*scene); } // 旧接口名
 
 	// ---- 阶段 2：任意线程 ----
-	// 对最近一次 Gather 的快照做构建。构建期间可以再次 Gather，互不影响。
 	void BuildBVH(unsigned int maxLeafSize = 4);
 
 	// ---- 阶段 3：主线程 ----
@@ -61,7 +82,7 @@ public:
 	// 同步一条龙：IsDirty() 时依次 Gather → Build → Upload。返回是否发生了重建。
 	bool Update(const Scene& scene);
 
-	// ---- GPU 资源（UploadToGPU 之前为 nullptr）----
+	// ---- GPU 资源（上传之前为 nullptr）----
 	Ref<RHIBuffer> GetTLASNodeBuffer() const { return m_TLASNodeBuffer; }
 	Ref<RHIBuffer> GetInstanceBuffer() const { return m_InstanceBuffer; }
 	Ref<RHIBuffer> GetBLASNodeBuffer() const { return m_BLASNodeBuffer; }
@@ -71,7 +92,7 @@ public:
 	// Instance / Triangle / TriangleAttrib 三个。
 	bool IsGPUReady() const { return m_TriangleBuffer != nullptr && m_InstanceBuffer != nullptr; }
 
-	// 每次 UploadToGPU 成功 +1。使用方据此判断几何是否换过（重建加速结构、清空累积）。
+	// 每次有 buffer 上传成功 +1。
 	uint64_t GetRevision() const { return m_Revision; }
 	float GetUploadMilliseconds() const { return m_UploadMilliseconds; }
 
@@ -84,12 +105,12 @@ public:
 
 	BVHBuildSettings& GetSettings() { return m_Settings; }
 
-	// 脏标记：一帧延迟的旧 BVH 可以接受，避免每帧 O(N log N) 重建。
+	// 整体重建路径的实例脏标记（增量路径不用）。
 	bool IsDirty() const { return m_Dirty.load(std::memory_order_acquire); }
 	void MarkDirty() { m_Dirty.store(true, std::memory_order_release); }
 	void MarkClean() { m_Dirty.store(false, std::memory_order_release); }
 
-	// Engine::Material* → 材质缓冲下标。在 GatherScene 之前设置；
+	// Engine::Material* → 材质缓冲下标。在 Gather / UpdateIncremental 之前设置；
 	// 没有映射或查不到时实例的 materialIndex 为 0。
 	void SetMaterialMap(const std::unordered_map<Engine::Material*, unsigned int>* map) { m_MaterialMap = map; }
 
@@ -100,10 +121,30 @@ private:
 		std::vector<BVHInstanceInput> instances;
 	};
 
+	struct CachedBLAS
+	{
+		uint64_t revision = 0;   // Mesh::GeometryRevision
+		uint64_t key = 0;        // 每次构建唯一
+		bool used = false;
+		BVHMeshBLAS piece;
+	};
+
+	bool UploadGeometryBuffers();   // BLAS 节点（树模式）、三角形、属性
+	bool UploadInstanceBuffers();   // TLAS 节点（树模式）、实例
+	uint32_t LookupMaterial(const Component::MeshRender& meshrender, size_t meshIdx) const;
+
 	std::mutex m_Mutex;                            // 保护 m_Snapshot / m_Data 的交接
 	std::shared_ptr<const SceneSnapshot> m_Snapshot;
 	BVHSceneData m_Data;
 	BVHBuildSettings m_Settings;
+
+	// 增量路径状态
+	std::unordered_map<uint64_t, CachedBLAS> m_BLASCache;   // Mesh::GeometryId → 片段
+	std::vector<uint64_t> m_BLASOrder;                      // 拼接顺序（GeometryId），= m_Data.blas[] 顺序
+	std::vector<uint64_t> m_BLASKeys;
+	std::vector<BVHInstanceInput> m_LastInstances;
+	uint64_t m_NextBLASKey = 1;
+	bool m_IncrementalValid = false;
 
 	Ref<RHIBuffer> m_TLASNodeBuffer;
 	Ref<RHIBuffer> m_InstanceBuffer;
@@ -116,6 +157,4 @@ private:
 
 	std::atomic<bool> m_Dirty{ true };             // 初始为脏，首帧构建
 	const std::unordered_map<Engine::Material*, unsigned int>* m_MaterialMap = nullptr;
-
-	static BVHBuilder* s_ActiveInstance;
 };

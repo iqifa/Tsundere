@@ -63,6 +63,8 @@ public:
 	Ref<RHIShader> GetShader() const { return m_Shader; }
 
 	// Parameter management
+	// 所有 setter 都会自动 MarkChanged()。通过非 const GetParameter() 直接改值的代码
+	// 必须自己调用 MarkChanged()，否则 Path Tracing 等派生数据看不到这次修改。
 	void SetParameter(const std::string& name, const MaterialParameter& param);
 	MaterialParameter* GetParameter(const std::string& name);
 	const MaterialParameter* GetParameter(const std::string& name) const;
@@ -83,6 +85,10 @@ public:
 	glm::vec4 GetVec4(const std::string& name, const glm::vec4& defaultValue = glm::vec4(0.0f)) const;
 	int GetInt(const std::string& name, int defaultValue = 0) const;
 	Ref<RHITexture2D> GetTexture(const std::string& name) const;
+
+	// 修改通知：本材质版本 +1，并通知 SceneChanges::MaterialParameters。
+	void MarkChanged();
+	uint64_t GetRevision() const { return m_Revision; }
 
 	// Metadata
 	const std::string& GetName() const { return m_Name; }
@@ -114,6 +120,7 @@ private:
 	std::string m_AssetPath; // .tmat file path
 	Ref<RHIShader> m_Shader;
 	std::unordered_map<std::string, MaterialParameter> m_Parameters;
+	uint64_t m_Revision = 0;
 
 	// Helper to convert type string from shader reflection to MaterialParameter::Type
 	static MaterialParameter::Type TypeFromString(const std::string& typeStr);

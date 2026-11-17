@@ -241,6 +241,9 @@ struct BVHSceneData
 	std::vector<GPUBVHTriangleAttrib> attribs;
 
 	std::vector<BVHBLASRange>         blas;   // 与输入 meshes[] 一一对应
+	// instances[i] 来自输入实例 instanceSource[i]（树模式按 TLAS 叶子重排、跳过无效实例）。
+	// 只改材质时据此原地修补 materialIndex，不必重建 TLAS。
+	std::vector<uint32_t>             instanceSource;
 	BVHStats                          stats;
 
 	void Clear() { *this = BVHSceneData(); }
@@ -254,8 +257,29 @@ struct BVHSceneData
 T_API void BuildBVHTree(const BVHAABB* bounds, uint32_t count,
 	uint32_t maxLeafSize, uint32_t binCount, uint32_t maxDepth, BVHTree& out);
 
+// 单个网格的 BLAS 片段：节点为树内局部索引，range 的偏移相对片段自身（均为 0），
+// 因此可以缓存、并在任意位置整体拼接（增量更新：只重建变了的网格）。
+struct BVHMeshBLAS
+{
+	std::vector<GPUBVHNode>           nodes;
+	std::vector<GPUBVHTriangle>       triangles;
+	std::vector<GPUBVHTriangleAttrib> attribs;
+	BVHBLASRange                      range;      // triangleCount == 0 表示空网格
+	uint32_t                          skippedTriangles = 0;
+};
+
+// 构建一个网格的 BLAS 片段（settings.buildTrees == false 时为平铺三角形，无节点）。
+T_API void BuildMeshBLAS(const BVHMeshInput& mesh, const BVHBuildSettings& settings, BVHMeshBLAS& out);
+
+// 把片段追加到 data（节点、三角形、属性、blas[]、统计）。返回 blas[] 下标。
+T_API uint32_t AppendMeshBLAS(const BVHMeshBLAS& piece, BVHSceneData& data);
+
 // 追加一个网格的 BLAS 到 data（节点、三角形、属性、blas[]）。返回 blas[] 下标。
 T_API uint32_t AppendBLAS(const BVHMeshInput& mesh, const BVHBuildSettings& settings, BVHSceneData& data);
+
+// 清空 data，写入 0 号占位 BLAS 后按顺序追加 pieces（blas[i] 对应 pieces[i]）。
+// TLAS / 实例需随后用 BuildTLAS 重建（BLAS 偏移可能变了）。
+T_API void AssembleBLAS(const std::vector<const BVHMeshBLAS*>& pieces, BVHSceneData& data);
 
 // 只重建 TLAS + instances（data.blas 必须已就绪）。以后的动态更新入口。
 T_API void BuildTLAS(const std::vector<BVHInstanceInput>& instances,

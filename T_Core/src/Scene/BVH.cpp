@@ -334,14 +334,10 @@ void BuildBVHTree(const BVHAABB* bounds, uint32_t count,
 	builder.Subdivide(0, 0, count, 0);
 }
 
-uint32_t AppendBLAS(const BVHMeshInput& mesh, const BVHBuildSettings& settings, BVHSceneData& data)
+void BuildMeshBLAS(const BVHMeshInput& mesh, const BVHBuildSettings& settings, BVHMeshBLAS& out)
 {
-	if (data.blasNodes.empty())
-		AppendPlaceholderBLAS(data); // 0 号位必须是占位 BLAS
-
-	BVHBLASRange range;
-	range.nodeOffset = static_cast<uint32_t>(data.blasNodes.size());
-	range.triangleOffset = static_cast<uint32_t>(data.triangles.size());
+	out = BVHMeshBLAS();
+	BVHBLASRange& range = out.range;
 
 	const uint32_t vertexCount = static_cast<uint32_t>(mesh.positions.size());
 	const size_t sourceTriangles = mesh.indices.size() / 3;
@@ -361,7 +357,7 @@ uint32_t AppendBLAS(const BVHMeshInput& mesh, const BVHBuildSettings& settings, 
 		if (i0 >= vertexCount || i1 >= vertexCount || i2 >= vertexCount ||
 			!IsFinite(mesh.positions[i0]) || !IsFinite(mesh.positions[i1]) || !IsFinite(mesh.positions[i2]))
 		{
-			++data.stats.skippedTriangles;
+			++out.skippedTriangles;
 			continue;
 		}
 		BVHAABB box;
@@ -371,13 +367,8 @@ uint32_t AppendBLAS(const BVHMeshInput& mesh, const BVHBuildSettings& settings, 
 		source.push_back(static_cast<uint32_t>(t));
 		bounds.push_back(box);
 	}
-
-	const uint32_t blasIndex = static_cast<uint32_t>(data.blas.size());
 	if (source.empty())
-	{
-		data.blas.push_back(range);
-		return blasIndex;
-	}
+		return;
 
 	// 2) 建树（平铺模式只记录原始顺序和整体包围盒）
 	BVHTree tree;
@@ -396,12 +387,12 @@ uint32_t AppendBLAS(const BVHMeshInput& mesh, const BVHBuildSettings& settings, 
 		range.bounds = all;
 	}
 
-	// 3) 节点原样追加（保持树内局部索引，BLAS 可整体搬移）
-	data.blasNodes.insert(data.blasNodes.end(), tree.nodes.begin(), tree.nodes.end());
+	// 3) 节点保持树内局部索引，片段可整体搬移
+	out.nodes = std::move(tree.nodes);
 
 	// 4) 三角形按叶子顺序写出
-	data.triangles.reserve(data.triangles.size() + tree.primitiveOrder.size());
-	data.attribs.reserve(data.attribs.size() + tree.primitiveOrder.size());
+	out.triangles.reserve(tree.primitiveOrder.size());
+	out.attribs.reserve(tree.primitiveOrder.size());
 	for (const uint32_t prim : tree.primitiveOrder)
 	{
 		const size_t t = source[prim];
@@ -411,7 +402,7 @@ uint32_t AppendBLAS(const BVHMeshInput& mesh, const BVHBuildSettings& settings, 
 		tri.v0 = mesh.positions[idx[0]];
 		tri.v1 = mesh.positions[idx[1]];
 		tri.v2 = mesh.positions[idx[2]];
-		data.triangles.push_back(tri);
+		out.triangles.push_back(tri);
 
 		glm::vec3 geometric = glm::cross(tri.v1 - tri.v0, tri.v2 - tri.v0);
 		const float geometricLength = glm::length(geometric);
@@ -440,17 +431,39 @@ uint32_t AppendBLAS(const BVHMeshInput& mesh, const BVHBuildSettings& settings, 
 			attrib.uv1 = mesh.uvs[idx[1]];
 			attrib.uv2 = mesh.uvs[idx[2]];
 		}
-		data.attribs.push_back(attrib);
+		out.attribs.push_back(attrib);
 	}
 
-	range.nodeCount = static_cast<uint32_t>(tree.nodes.size());
-	range.triangleCount = static_cast<uint32_t>(tree.primitiveOrder.size());
+	range.nodeCount = static_cast<uint32_t>(out.nodes.size());
+	range.triangleCount = static_cast<uint32_t>(out.triangles.size());
 	range.depth = tree.depth;
-	if (!tree.nodes.empty())
+	if (!out.nodes.empty())
 	{
-		range.bounds.min = tree.nodes[0].aabbMin;
-		range.bounds.max = tree.nodes[0].aabbMax;
+		range.bounds.min = out.nodes[0].aabbMin;
+		range.bounds.max = out.nodes[0].aabbMax;
 	}
+}
+
+uint32_t AppendMeshBLAS(const BVHMeshBLAS& piece, BVHSceneData& data)
+{
+	if (data.blasNodes.empty())
+		AppendPlaceholderBLAS(data); // 0 号位必须是占位 BLAS
+
+	BVHBLASRange range = piece.range;
+	range.nodeOffset = static_cast<uint32_t>(data.blasNodes.size());
+	range.triangleOffset = static_cast<uint32_t>(data.triangles.size());
+	data.stats.skippedTriangles += piece.skippedTriangles;
+
+	const uint32_t blasIndex = static_cast<uint32_t>(data.blas.size());
+	if (range.triangleCount == 0)
+	{
+		data.blas.push_back(range);
+		return blasIndex;
+	}
+
+	data.blasNodes.insert(data.blasNodes.end(), piece.nodes.begin(), piece.nodes.end());
+	data.triangles.insert(data.triangles.end(), piece.triangles.begin(), piece.triangles.end());
+	data.attribs.insert(data.attribs.end(), piece.attribs.begin(), piece.attribs.end());
 	data.blas.push_back(range);
 
 	++data.stats.meshCount;
@@ -460,11 +473,37 @@ uint32_t AppendBLAS(const BVHMeshInput& mesh, const BVHBuildSettings& settings, 
 	return blasIndex;
 }
 
+uint32_t AppendBLAS(const BVHMeshInput& mesh, const BVHBuildSettings& settings, BVHSceneData& data)
+{
+	BVHMeshBLAS piece;
+	BuildMeshBLAS(mesh, settings, piece);
+	return AppendMeshBLAS(piece, data);
+}
+
+void AssembleBLAS(const std::vector<const BVHMeshBLAS*>& pieces, BVHSceneData& data)
+{
+	data.Clear();
+	AppendPlaceholderBLAS(data);
+	size_t nodes = 1, triangles = 1;
+	for (const BVHMeshBLAS* piece : pieces)
+	{
+		nodes += piece->nodes.size();
+		triangles += piece->triangles.size();
+	}
+	data.blasNodes.reserve(nodes);
+	data.triangles.reserve(triangles);
+	data.attribs.reserve(triangles);
+	data.blas.reserve(pieces.size());
+	for (const BVHMeshBLAS* piece : pieces)
+		AppendMeshBLAS(*piece, data);
+}
+
 void BuildTLAS(const std::vector<BVHInstanceInput>& instances,
 	const BVHBuildSettings& settings, BVHSceneData& data)
 {
 	data.tlasNodes.clear();
 	data.instances.clear();
+	data.instanceSource.clear();
 	data.stats.instanceCount = 0;
 	data.stats.tlasNodeCount = 0;
 	data.stats.tlasDepth = 0;
@@ -475,11 +514,13 @@ void BuildTLAS(const std::vector<BVHInstanceInput>& instances,
 
 	std::vector<GPUBVHInstance> valid;
 	std::vector<BVHAABB>        bounds;
+	std::vector<uint32_t>       source;   // valid[i] 的输入下标
 	valid.reserve(instances.size());
 	bounds.reserve(instances.size());
 
-	for (const BVHInstanceInput& input : instances)
+	for (uint32_t inputIndex = 0; inputIndex < instances.size(); ++inputIndex)
 	{
+		const BVHInstanceInput& input = instances[inputIndex];
 		if (input.meshIndex >= data.blas.size() || data.blas[input.meshIndex].triangleCount == 0)
 		{
 			++data.stats.skippedInstances;
@@ -512,12 +553,14 @@ void BuildTLAS(const std::vector<BVHInstanceInput>& instances,
 		instance.entityID = input.entityID;
 		valid.push_back(instance);
 		bounds.push_back(worldBounds);
+		source.push_back(inputIndex);
 	}
 
 	if (!settings.buildTrees)
 	{
 		// 平铺：实例保持输入顺序（= Vulkan TLAS 的 instanceIndex），不建 TLAS 树。
 		data.instances = std::move(valid);
+		data.instanceSource = std::move(source);
 		data.stats.instanceCount = static_cast<uint32_t>(data.instances.size());
 		if (data.instances.empty())
 			data.instances.emplace_back(); // 保证 buffer 非空；不会被任何 TLAS 实例引用
@@ -541,8 +584,12 @@ void BuildTLAS(const std::vector<BVHInstanceInput>& instances,
 
 	data.tlasNodes = std::move(tree.nodes);
 	data.instances.reserve(valid.size());
+	data.instanceSource.reserve(valid.size());
 	for (const uint32_t prim : tree.primitiveOrder)
+	{
 		data.instances.push_back(valid[prim]);
+		data.instanceSource.push_back(source[prim]);
+	}
 
 	data.stats.instanceCount = static_cast<uint32_t>(data.instances.size());
 	data.stats.tlasNodeCount = static_cast<uint32_t>(data.tlasNodes.size());

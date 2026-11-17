@@ -1,7 +1,7 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include "VulkanExample.h"
 #include <Scene/SceneRaycast.h>
-#include <Scene/BVHBuilder.h>
+#include <Scene/SceneChanges.h>
 #include <glm/gtx/euler_angles.hpp>
 #include <algorithm>
 #include <array>
@@ -154,7 +154,7 @@ void VulkanExampleLayer::DrawViewportTools(const ImVec2& min, const ImVec2& max,
 			transform->Rotation != edited.Rotation || transform->Scale != edited.Scale))
 		{
 			*transform = edited;
-			BVHBuilder::MarkActiveDirty();
+			SceneChanges::NotifyTransform(m_Context->m_Registry, drag.entity);
 		}
 		if (cancel || !ImGui::IsMouseDown(ImGuiMouseButton_Left))
 			drag.entity = entt::null;
