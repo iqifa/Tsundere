@@ -3,6 +3,10 @@
 #include <algorithm>
 #include <cmath>
 #include <numeric>
+#include <utility>
+#if defined(_MSC_VER)
+#include <intrin.h>
+#endif
 
 namespace
 {
@@ -177,6 +181,114 @@ namespace
 		}
 	};
 
+	// -----------------------------------------------------------------------
+	// LBVH 构建器
+	//
+	// 图元按质心 Morton 码排序后，任意子区间都是空间上连续的一块；节点在区间内
+	// 首个与末个编码的最高不同位处切开（二分查找），等价于 Karras 的基数树。
+	// 编码完全相同的区间（质心重合 / 量化后相同）按下标对半切。
+	// 包围盒自底向上合并，整个构建除排序外是线性的。
+	// -----------------------------------------------------------------------
+
+	inline int CountLeadingZeros64(uint64_t x)
+	{
+		if (x == 0)
+			return 64;
+#if defined(_MSC_VER)
+		unsigned long index;
+		_BitScanReverse64(&index, x);
+		return 63 - static_cast<int>(index);
+#else
+		return __builtin_clzll(x);
+#endif
+	}
+
+	// 21 位 → 每两个空位插一位（63 位 Morton 的单轴分量）
+	inline uint64_t SpreadBits21(uint64_t v)
+	{
+		v &= 0x1FFFFFull;
+		v = (v | (v << 32)) & 0x001F00000000FFFFull;
+		v = (v | (v << 16)) & 0x001F0000FF0000FFull;
+		v = (v | (v << 8))  & 0x100F00F00F00F00Full;
+		v = (v | (v << 4))  & 0x10C30C30C30C30C3ull;
+		v = (v | (v << 2))  & 0x1249249249249249ull;
+		return v;
+	}
+
+	struct LBVHBuilder
+	{
+		const BVHAABB*  bounds = nullptr;
+		const uint64_t* codes = nullptr;   // 与 out->primitiveOrder 同序（已排序）
+		uint32_t        maxLeafSize = 1;
+		uint32_t        maxDepth = 24;
+		BVHTree*        out = nullptr;
+
+		// [first, first + count) 的切分点（右半区间的起点）
+		uint32_t FindSplit(uint32_t first, uint32_t count) const
+		{
+			const uint32_t last = first + count - 1;
+			const uint64_t a = codes[first];
+			const uint64_t b = codes[last];
+			if (a == b)
+				return first + count / 2;
+
+			// 找最后一个与 a 的公共前缀比 [a, b] 整体更长的位置
+			const int common = CountLeadingZeros64(a ^ b);
+			uint32_t split = first;
+			uint32_t step = last - first;
+			do
+			{
+				step = (step + 1) >> 1;
+				const uint32_t candidate = split + step;
+				if (candidate < last && CountLeadingZeros64(a ^ codes[candidate]) > common)
+					split = candidate;
+			} while (step > 1);
+			return split + 1;
+		}
+
+		BVHAABB Build(uint32_t nodeIndex, uint32_t first, uint32_t count, uint32_t depth)
+		{
+			out->depth = (std::max)(out->depth, depth);
+			const uint32_t remaining = maxDepth - depth;
+			if (count <= maxLeafSize || remaining == 0)
+			{
+				BVHAABB box;
+				for (uint32_t i = 0; i < count; ++i)
+					box.Grow(bounds[out->primitiveOrder[first + i]]);
+				GPUBVHNode& node = out->nodes[nodeIndex];
+				node.aabbMin = box.min;
+				node.aabbMax = box.max;
+				node.leftFirst = first;
+				node.count = count;
+				return box;
+			}
+
+			// 与 SAH 构建器相同的深度保证：任何一侧超出孩子的容量就对半切
+			const uint64_t childCapacity = (remaining - 1 >= 40)
+				? UINT64_MAX
+				: (static_cast<uint64_t>(maxLeafSize) << (remaining - 1));
+			uint32_t mid = FindSplit(first, count);
+			if (static_cast<uint64_t>(mid - first) > childCapacity ||
+				static_cast<uint64_t>(first + count - mid) > childCapacity)
+				mid = first + count / 2;
+
+			// nodes 已预留 2n，emplace_back 不会重新分配；仍按下标访问以防万一
+			const uint32_t left = static_cast<uint32_t>(out->nodes.size());
+			out->nodes.emplace_back();
+			out->nodes.emplace_back();
+
+			BVHAABB box = Build(left, first, mid - first, depth + 1);
+			box.Grow(Build(left + 1, mid, first + count - mid, depth + 1));
+
+			GPUBVHNode& node = out->nodes[nodeIndex];
+			node.aabbMin = box.min;
+			node.aabbMax = box.max;
+			node.leftFirst = left;
+			node.count = 0;
+			return box;
+		}
+	};
+
 	// 占位 BLAS：1 个叶子 + 1 个全零的退化三角形。固定占据 0 号位。
 	void AppendPlaceholderBLAS(BVHSceneData& data)
 	{
@@ -332,6 +444,59 @@ void BuildBVHTree(const BVHAABB* bounds, uint32_t count,
 	out.nodes.reserve(static_cast<size_t>(count) * 2);
 	out.nodes.emplace_back();
 	builder.Subdivide(0, 0, count, 0);
+}
+
+void BuildLBVHTree(const BVHAABB* bounds, uint32_t count,
+	uint32_t maxLeafSize, uint32_t maxDepth, BVHTree& out)
+{
+	out.nodes.clear();
+	out.primitiveOrder.clear();
+	out.depth = 0;
+	if (!bounds || count == 0)
+		return;
+
+	// 1) 质心归一化到 [0, 1]³ 后量化为 21 位 / 轴
+	BVHAABB centroidBounds;
+	for (uint32_t i = 0; i < count; ++i)
+		centroidBounds.Grow(bounds[i].Centroid());
+	const glm::vec3 extent = centroidBounds.Extent();
+	glm::vec3 scale(0.0f);
+	for (int a = 0; a < 3; ++a)
+		if (extent[a] > 0.0f)
+			scale[a] = 1.0f / extent[a];
+
+	constexpr float kQuant = static_cast<float>((1u << 21) - 1);
+	std::vector<std::pair<uint64_t, uint32_t>> keyed(count);
+	for (uint32_t i = 0; i < count; ++i)
+	{
+		const glm::vec3 t = glm::clamp((bounds[i].Centroid() - centroidBounds.min) * scale, 0.0f, 1.0f);
+		const uint64_t x = static_cast<uint64_t>(t.x * kQuant);
+		const uint64_t y = static_cast<uint64_t>(t.y * kQuant);
+		const uint64_t z = static_cast<uint64_t>(t.z * kQuant);
+		keyed[i] = { (SpreadBits21(x) << 2) | (SpreadBits21(y) << 1) | SpreadBits21(z), i };
+	}
+	// 2) 排序；同码按下标，结果确定
+	std::sort(keyed.begin(), keyed.end());
+
+	std::vector<uint64_t> codes(count);
+	out.primitiveOrder.resize(count);
+	for (uint32_t i = 0; i < count; ++i)
+	{
+		codes[i] = keyed[i].first;
+		out.primitiveOrder[i] = keyed[i].second;
+	}
+
+	// 3) 自顶向下切分 + 自底向上包围盒
+	LBVHBuilder builder;
+	builder.bounds = bounds;
+	builder.codes = codes.data();
+	builder.maxLeafSize = (std::max)(maxLeafSize, 1u);
+	builder.maxDepth = (std::min)(maxDepth, kBVHMaxSupportedDepth);
+	builder.out = &out;
+
+	out.nodes.reserve(static_cast<size_t>(count) * 2);
+	out.nodes.emplace_back();
+	builder.Build(0, 0, count, 0);
 }
 
 void BuildMeshBLAS(const BVHMeshInput& mesh, const BVHBuildSettings& settings, BVHMeshBLAS& out)
@@ -579,8 +744,11 @@ void BuildTLAS(const std::vector<BVHInstanceInput>& instances,
 	}
 
 	BVHTree tree;
-	BuildBVHTree(bounds.data(), static_cast<uint32_t>(bounds.size()),
-		1, settings.binCount, settings.maxTLASDepth, tree);
+	if (settings.tlasBuilder == BVHTLASBuilder::SAH)
+		BuildBVHTree(bounds.data(), static_cast<uint32_t>(bounds.size()),
+			1, settings.binCount, settings.maxTLASDepth, tree);
+	else
+		BuildLBVHTree(bounds.data(), static_cast<uint32_t>(bounds.size()), 1, settings.maxTLASDepth, tree);
 
 	data.tlasNodes = std::move(tree.nodes);
 	data.instances.reserve(valid.size());

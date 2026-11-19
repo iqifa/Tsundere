@@ -44,6 +44,7 @@ public:
 		float debugDepthRange = 50.0f;
 		bool paused = false;
 		bool forceSoftwareBVH = false;    // Vulkan 上强制走软件 BVH（对照用）
+		int tlasBuilder = 0;              // BVHTLASBuilder：0 = LBVH，1 = SAH（仅软件 BVH）
 		bool resetRequested = false;
 		// 开发期漏标校验（仅 ENABLE_PT_DIRTY_VALIDATION 构建）：每 validationInterval 帧检查一次
 		bool validateDirtyFlags = true;
@@ -128,6 +129,7 @@ public:
 
 		// ---- 场景数据（几何 / 材质 / 灯光），由 SceneChanges 版本号驱动 ----
 		m_PTScene->SetValidation(settings.validateDirtyFlags, static_cast<uint32_t>(std::max(settings.validationInterval, 1)));
+		m_PTScene->SetTLASBuilder(static_cast<BVHTLASBuilder>(settings.tlasBuilder));
 		if (m_PTScene->Update(*m_Scene))
 			reset = true;
 		if (m_PTScene->HasFailed() && m_Backend == PathTracing::Backend::RayQuery)
@@ -263,6 +265,7 @@ private:
 		if (!m_PTScene || backend != m_Backend)
 		{
 			m_PTScene = std::make_unique<PathTraceScene>(backend);
+			m_PTScene->SetTLASBuilder(static_cast<BVHTLASBuilder>(GetSettings().tlasBuilder));
 			m_Backend = backend;
 			m_SampleCount = 0;
 			if (backend == Backend::SoftwareBVH && RHIRayTracingScene::IsSupported() == false)

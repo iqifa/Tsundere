@@ -183,7 +183,8 @@ BVHIncrementalResult BVHBuilder::UpdateIncremental(const Scene& scene, bool uplo
 	}
 
 	// ---- 5) 差异：TLAS 重建 / 只修补材质 / 什么都不做 ----
-	bool sameInstances = !result.geometryChanged && inputs.size() == m_LastInstances.size();
+	bool sameInstances = !result.geometryChanged && !m_ForceTLAS && inputs.size() == m_LastInstances.size();
+	m_ForceTLAS = false;
 	bool sameMaterials = true;
 	for (size_t i = 0; sameInstances && i < inputs.size(); ++i)
 	{

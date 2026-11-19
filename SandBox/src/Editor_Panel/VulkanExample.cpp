@@ -189,6 +189,17 @@ void VulkanExampleLayer::DrawPathTracingPanel()
         ImGui::BeginDisabled(!RHIRayTracingScene::IsSupported());
         ImGui::Checkbox("Force software BVH", &s.forceSoftwareBVH);
         ImGui::EndDisabled();
+        {
+            // 硬件 Ray Query 的 TLAS 由驱动构建，这个选项只影响软件 BVH
+            const bool softwareBVH = st.backend.rfind("Software", 0) == 0;
+            const char* builders[] = { "LBVH (fast build)", "SAH (better tree)" };
+            ImGui::BeginDisabled(!softwareBVH);
+            ImGui::Combo("TLAS builder", &s.tlasBuilder, builders, IM_ARRAYSIZE(builders));
+            ImGui::EndDisabled();
+            ImGui::SetItemTooltip(softwareBVH
+                ? "Rebuilt whenever instances move or change. LBVH builds several times faster; SAH gives a slightly cheaper tree."
+                : "Hardware ray query: the driver builds the TLAS; this option applies to the software BVH only.");
+        }
 
         ImGui::Separator();
         ImGui::Text("Samples: %u   (%u x %u)", st.samples, st.width, st.height);

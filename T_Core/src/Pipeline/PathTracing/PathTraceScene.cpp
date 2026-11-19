@@ -119,6 +119,19 @@ bool PathTraceScene::IsReady() const
 	return m_Backend == Backend::SoftwareBVH || (m_RayTracing && m_RayTracing->IsValid());
 }
 
+void PathTraceScene::SetTLASBuilder(BVHTLASBuilder builder)
+{
+	BVHBuildSettings& settings = m_Geometry.GetSettings();
+	if (settings.tlasBuilder == builder)
+		return;
+	settings.tlasBuilder = builder;
+	if (settings.buildTrees)
+	{
+		m_Geometry.InvalidateTLAS();
+		m_ForceTLAS = true;
+	}
+}
+
 void PathTraceScene::SetValidation(bool enabled, uint32_t interval)
 {
 	const bool enable = ValidationCompiled && enabled;
@@ -289,7 +302,10 @@ bool PathTraceScene::Update(const Scene& scene)
 
 	// ---- 取快照后再处理：处理期间发生的修改让版本继续前进，下一帧照常看到 ----
 	const SceneChanges::Versions now = SceneChanges::Snapshot();
-	const uint32_t dirty = sceneSwapped ? SceneChanges::AllCategories : now.ChangedSince(m_Seen);
+	uint32_t dirty = sceneSwapped ? SceneChanges::AllCategories : now.ChangedSince(m_Seen);
+	if (m_ForceTLAS)
+		dirty |= Bit(Category::InstanceTransform);   // 走实例 / TLAS 路径
+	m_ForceTLAS = false;
 	m_Seen = now;
 	m_HasSeen = true;
 	if (dirty == 0)
