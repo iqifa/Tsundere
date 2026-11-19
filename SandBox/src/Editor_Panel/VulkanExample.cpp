@@ -327,6 +327,12 @@ void VulkanExampleLayer::DrawSceneViewport()
 	toolButton("Rotate (E)", ViewportTool::Rotate);
 	ImGui::SameLine();
 	toolButton("Scale (R)", ViewportTool::Scale);
+	ImGui::SameLine(0.0f, ImGui::GetFontSize());
+	ImGui::Checkbox("Light icons", &m_ShowLightIcons);
+	ImGui::SameLine();
+	ImGui::Checkbox("All light ranges", &m_ShowAllLightRanges);
+	ImGui::SetItemTooltip("Point: attenuation radius. Spot: cone (outer solid, inner faint).\n"
+		"The selected light always shows its range.");
 
 	DrawViewportPreviewControls();
 
