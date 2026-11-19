@@ -119,23 +119,54 @@ int main()
     assert(!metadataError.empty());
     const std::string path = "build/activation-tests/state.tscene";
     std::string error;
+    child.GetComponent<Component::Tag>().Static = true;
     assert(SceneSerializer::Save(scene, path, error));
     Scene loaded;
     assert(SceneSerializer::Load(loaded, path, error));
     for (auto id : loaded.m_Registry.view<Component::Tag>()) assert(!loaded.IsActive(id));
-    // Reject version 2 without replacing the loaded scene.
-    std::ifstream saved(path);
-    std::ostringstream legacy;
-    for (std::string line; std::getline(saved, line); )
+    // Static round-trips (version 4).
+    int staticCount = 0;
+    for (auto id : loaded.m_Registry.view<Component::Tag>())
     {
-        if (line.rfind("Active:", 0) == 0) continue;
-        legacy << (line == "Version: 3" ? "Version: 2" : line) << '\n';
+        const auto& tag = loaded.m_Registry.get<Component::Tag>(id);
+        staticCount += tag.Static;
+        assert(tag.Static == (tag.tag == "Child"));
     }
+    assert(staticCount == 1);
+    const auto rewrite = [&](const std::string& target, auto&& transformLine)
+    {
+        std::ifstream saved(path);
+        std::ostringstream text;
+        for (std::string line; std::getline(saved, line); )
+            if (transformLine(line))
+                text << line << '\n';
+        std::ofstream file(target);
+        file << text.str();
+    };
+    // Version 3 files (no Static field) still load, with Static = false.
+    const std::string v3Path = "build/activation-tests/v3.tscene";
+    rewrite(v3Path, [](std::string& line) {
+        if (line.rfind("Static:", 0) == 0) return false;
+        if (line == "Version: 4") line = "Version: 3";
+        return true;
+    });
+    {
+        Scene v3;
+        assert(SceneSerializer::Load(v3, v3Path, error));
+        assert(v3.m_Registry.view<Component::Tag>().size() == 2);
+        for (auto id : v3.m_Registry.view<Component::Tag>())
+            assert(!v3.m_Registry.get<Component::Tag>(id).Static);
+    }
+    // Reject version 2 without replacing the loaded scene.
     const std::string legacyPath = "build/activation-tests/legacy.tscene";
-    { std::ofstream file(legacyPath); file << legacy.str(); }
+    rewrite(legacyPath, [](std::string& line) {
+        if (line.rfind("Active:", 0) == 0 || line.rfind("Static:", 0) == 0) return false;
+        if (line == "Version: 4") line = "Version: 2";
+        return true;
+    });
     const auto revision = loaded.Revision;
     assert(!SceneSerializer::Load(loaded, legacyPath, error));
-    assert(error == "Unsupported scene version: 2 (expected 3)");
+    assert(error == "Unsupported scene version: 2 (expected 3 or 4)");
     assert(loaded.Revision == revision);
     assert(loaded.m_Registry.view<Component::Tag>().size() == 2);
     for (auto id : loaded.m_Registry.view<Component::Tag>()) assert(!loaded.IsActive(id));
