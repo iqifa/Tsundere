@@ -26,6 +26,9 @@ inline void RenderTagInspector(Entity& entity)
 		auto& tag = entity.GetComponent<Tag>();
 		if (ImGui::Checkbox("Active##Tag", &tag.Active))
 			SceneChanges::NotifyActivation();
+		ImGui::SameLine();
+		ImGui::Checkbox("Static##Tag", &tag.Static);
+		ImGui::SetItemTooltip("Marks this entity as static: it is not expected to move or change at runtime.");
 		char buffer[256];
 		memset(buffer, 0, sizeof(buffer));
 		strcpy_s(buffer, sizeof(buffer), tag.tag.c_str());

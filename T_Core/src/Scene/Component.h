@@ -73,6 +73,8 @@ namespace Component
 	struct Tag {
 		std::string tag;
 		bool Active = true;
+		// 静态实体：编辑器标记，表示运行时不会移动 / 变化（供后续优化使用，如 TLAS 静态 / 动态分离）。
+		bool Static = false;
 
 		Tag() = default;
 		Tag(const Tag&) = default;
