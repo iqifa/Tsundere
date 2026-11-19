@@ -34,6 +34,10 @@ private:
 
 	enum class ViewportTool { Select, Move, Rotate, Scale };
 	ViewportTool m_ViewportTool = ViewportTool::Move;
+	// Light overlay: type icons (also the pick target for lights) and range wireframes.
+	// Ranges are always drawn for the selected light; "All ranges" shows every light.
+	bool m_ShowLightIcons = true;
+	bool m_ShowAllLightRanges = false;
 	struct TransformDrag
 	{
 		entt::entity entity = entt::null;
