@@ -62,6 +62,8 @@ public:
 	BVHIncrementalResult UpdateIncremental(const Scene& scene, bool upload = true);
 	// 丢弃 BLAS 缓存，下次 UpdateIncremental 从头构建。
 	void ResetIncremental();
+	// 下次 UpdateIncremental 必定重建 TLAS（BLAS 不动）。切换 TLAS 构建算法时用。
+	void InvalidateTLAS() { m_LastInstances.clear(); m_ForceTLAS = true; }
 	// 与 GetData().blas[] 一一对应的缓存键。片段每（重新）构建一次就分配新值，
 	// 硬件后端可以直接拿它做 BLAS 缓存键：键不变 = 三角形内容不变。
 	const std::vector<uint64_t>& GetBLASKeys() const { return m_BLASKeys; }
@@ -104,6 +106,7 @@ public:
 	unsigned int GetInstanceCount() const { return m_Data.stats.instanceCount; }
 
 	BVHBuildSettings& GetSettings() { return m_Settings; }
+	const BVHBuildSettings& GetSettings() const { return m_Settings; }
 
 	// 整体重建路径的实例脏标记（增量路径不用）。
 	bool IsDirty() const { return m_Dirty.load(std::memory_order_acquire); }
@@ -145,6 +148,7 @@ private:
 	std::vector<BVHInstanceInput> m_LastInstances;
 	uint64_t m_NextBLASKey = 1;
 	bool m_IncrementalValid = false;
+	bool m_ForceTLAS = false;
 
 	Ref<RHIBuffer> m_TLASNodeBuffer;
 	Ref<RHIBuffer> m_InstanceBuffer;

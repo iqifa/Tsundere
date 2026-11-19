@@ -132,6 +132,11 @@ public:
 	// 开发期漏标校验（仅 ENABLE_PT_DIRTY_VALIDATION 构建生效）。interval = 每几帧检查一次。
 	static constexpr bool ValidationCompiled = ENABLE_PT_DIRTY_VALIDATION != 0;
 	void SetValidation(bool enabled, uint32_t interval);
+
+	// 软件 BVH 的 TLAS 构建算法（LBVH / SAH）。变化时下一次 Update 只重建 TLAS。
+	// 硬件 Ray Query 没有自建的树，设置无效。
+	void SetTLASBuilder(BVHTLASBuilder builder);
+	BVHTLASBuilder GetTLASBuilder() const { return m_Geometry.GetSettings().tlasBuilder; }
 	uint64_t GetMissedNotificationTotal() const;
 	const std::string& GetLastValidationReport() const;
 
@@ -173,6 +178,7 @@ private:
 	bool m_ValidationEnabled = ENABLE_PT_DIRTY_VALIDATION != 0;
 	uint32_t m_ValidationInterval = 1;
 	uint32_t m_ValidationCountdown = 0;
+	bool m_ForceTLAS = false;   // TLAS 构建算法换了：即使场景没变也要重建
 
 	uint64_t m_GeometryRevision = 0;
 	UpdateInfo m_LastUpdate;

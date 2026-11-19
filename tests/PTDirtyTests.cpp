@@ -150,6 +150,17 @@ int main()
 	r = builder.UpdateIncremental(scene, false);
 	assert(r.blasBuilt == 1 && builder.GetInstanceCount() == 4);
 
+	// 切换 TLAS 构建算法：只重建 TLAS，BLAS 全部复用；切回来同样
+	for (BVHTLASBuilder tlas : { BVHTLASBuilder::SAH, BVHTLASBuilder::LBVH })
+	{
+		builder.GetSettings().tlasBuilder = tlas;
+		builder.InvalidateTLAS();
+		r = builder.UpdateIncremental(scene, false);
+		assert(r.instancesChanged && !r.geometryChanged && r.blasBuilt == 0 && builder.GetInstanceCount() == 4);
+		r = builder.UpdateIncremental(scene, false);
+		assert(!r.Changed());
+	}
+
 	// ---- 漏标校验 ----
 	PTDirtyValidator validator;
 	assert(validator.Check(scene).missedMask == 0);   // 基线

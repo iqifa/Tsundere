@@ -177,12 +177,22 @@ struct BVHInstanceInput
 	uint32_t  entityID = kBVHInvalidIndex;
 };
 
+// TLAS 的构建算法。TLAS 在实例移动 / 增删时整棵重建（不做 refit），构建速度比树质量更重要：
+//   LBVH  Morton 码排序 + 按最高不同位二分（O(n log n) 排序，其余线性），默认
+//   SAH   分箱 SAH（与 BLAS 相同），树质量略好、构建慢，对照用
+enum class BVHTLASBuilder : uint32_t
+{
+	LBVH = 0,
+	SAH = 1
+};
+
 struct BVHBuildSettings
 {
 	uint32_t maxLeafSize = 4;    // BLAS 叶子最多几个三角形（TLAS 固定为 1）
 	uint32_t binCount = 16;      // SAH 分箱数（2..32）
 	uint32_t maxBLASDepth = 32;  // 深度上限 = 着色器遍历栈需求；超限前自动退化为中位切分
 	uint32_t maxTLASDepth = 24;
+	BVHTLASBuilder tlasBuilder = BVHTLASBuilder::LBVH;   // BLAS 始终用 SAH
 
 	// false = “平铺”几何：三角形按网格原始顺序写出、不建任何树（blasNodes 只有占位、
 	// tlasNodes 为空），实例按输入顺序排列。给硬件光追（Vulkan BLAS/TLAS）使用：
@@ -256,6 +266,12 @@ struct BVHSceneData
 // 对任意一组 AABB 做分箱 SAH 构建。BLAS 和 TLAS 都走这里。
 T_API void BuildBVHTree(const BVHAABB* bounds, uint32_t count,
 	uint32_t maxLeafSize, uint32_t binCount, uint32_t maxDepth, BVHTree& out);
+
+// LBVH：按 AABB 质心的 63 位 Morton 码排序，自顶向下在最高不同位处切分（Karras 2012）。
+// 输出布局与 BuildBVHTree 相同（孩子成对相邻、叶子区间引用 primitiveOrder），深度保证也相同：
+// 某侧超出剩余深度容量（maxLeaf * 2^剩余深度）时改为按 Morton 顺序对半切。
+T_API void BuildLBVHTree(const BVHAABB* bounds, uint32_t count,
+	uint32_t maxLeafSize, uint32_t maxDepth, BVHTree& out);
 
 // 单个网格的 BLAS 片段：节点为树内局部索引，range 的偏移相对片段自身（均为 0），
 // 因此可以缓存、并在任意位置整体拼接（增量更新：只重建变了的网格）。

@@ -454,6 +454,135 @@ int main()
 				data.blasNodes.size(), data.stats.blasDepth, ms);
 		}
 
+		// 9) LBVH（TLAS 默认构建器）：结构不变式、深度上限、退化分布；两种 TLAS 构建器与暴力求交一致
+		{
+			const auto checkRawTree = [](const std::vector<BVHAABB>& boxes, const BVHTree& tree,
+				uint32_t maxLeaf, uint32_t maxDepth, const char* what)
+			{
+				const uint32_t n = static_cast<uint32_t>(boxes.size());
+				Require(tree.primitiveOrder.size() == n, std::string(what) + ": primitive order size");
+				std::vector<uint8_t> seen(n, 0);
+				for (uint32_t prim : tree.primitiveOrder)
+				{
+					Require(prim < n && !seen[prim], std::string(what) + ": primitive order is not a permutation");
+					seen[prim] = 1;
+				}
+				std::vector<uint8_t> covered(n, 0);
+				TreeCheck check;
+				CheckTree(tree.nodes.data(), static_cast<uint32_t>(tree.nodes.size()), 0, 0, covered,
+					[&](uint32_t slot) { return boxes[tree.primitiveOrder[slot]]; }, check);
+				Require(check.leafPrimitives == n, std::string(what) + ": leaves do not cover all primitives");
+				Require(check.visited == tree.nodes.size(), std::string(what) + ": unreachable nodes");
+				Require(check.maxDepth == tree.depth && tree.depth <= maxDepth, std::string(what) + ": depth");
+				Require(check.maxLeaf <= maxLeaf, std::string(what) + ": leaf too large");
+			};
+			// SAH 代价（相对根节点面积），用于比较两种构建器的树质量
+			const auto sahCost = [](const BVHTree& tree)
+			{
+				const auto area = [](const GPUBVHNode& node) {
+					BVHAABB box; box.min = node.aabbMin; box.max = node.aabbMax;
+					return box.HalfArea();
+				};
+				const float root = (std::max)(area(tree.nodes[0]), 1e-12f);
+				double cost = 0.0;
+				for (const GPUBVHNode& node : tree.nodes)
+					cost += area(node) / root * (node.IsLeaf() ? node.count : 1u);
+				return cost;
+			};
+			const auto randomBoxes = [](uint32_t count, uint32_t seed, float extent, float size)
+			{
+				std::mt19937 rng(seed);
+				std::uniform_real_distribution<float> position(-extent, extent);
+				std::uniform_real_distribution<float> half(0.01f, size);
+				std::vector<BVHAABB> boxes(count);
+				for (BVHAABB& box : boxes)
+				{
+					const glm::vec3 c(position(rng), position(rng), position(rng));
+					const glm::vec3 h(half(rng), half(rng), half(rng));
+					box.min = c - h;
+					box.max = c + h;
+				}
+				return boxes;
+			};
+
+			// 随机分布
+			{
+				const std::vector<BVHAABB> boxes = randomBoxes(5000, 31, 100.0f, 2.0f);
+				BVHTree tree;
+				BuildLBVHTree(boxes.data(), 5000, 1, 24, tree);
+				checkRawTree(boxes, tree, 1, 24, "LBVH random");
+				Require(tree.nodes.size() == 2 * 5000 - 1, "LBVH with leaf size 1 must be a full binary tree");
+			}
+			// 全部重合（Morton 码全相同）→ 按下标对半切，树平衡
+			{
+				std::vector<BVHAABB> boxes(1000);
+				for (BVHAABB& box : boxes) { box.min = glm::vec3(-1.0f); box.max = glm::vec3(1.0f); }
+				BVHTree tree;
+				BuildLBVHTree(boxes.data(), 1000, 1, 24, tree);
+				checkRawTree(boxes, tree, 1, 24, "LBVH coincident");
+				Require(tree.depth == 10, "coincident primitives must produce a balanced LBVH (ceil(log2 1000))");
+			}
+			// 极不均匀 + 深度上限压到最低（2^10 = 1024 >= 1000）：深度保护生效
+			{
+				std::vector<BVHAABB> boxes = randomBoxes(1000, 32, 0.001f, 0.0001f);
+				for (int i = 0; i < 10; ++i) { boxes[i].min *= 1e6f; boxes[i].max *= 1e6f; }
+				for (int i = 10; i < 600; ++i) { boxes[i].min += glm::vec3(1e-7f * i); boxes[i].max += glm::vec3(1e-7f * i); }
+				BVHTree tree;
+				BuildLBVHTree(boxes.data(), 1000, 1, 10, tree);
+				checkRawTree(boxes, tree, 1, 10, "LBVH depth-limited");
+			}
+			// 单个图元 / 空输入
+			{
+				std::vector<BVHAABB> one = randomBoxes(1, 33, 1.0f, 1.0f);
+				BVHTree tree;
+				BuildLBVHTree(one.data(), 1, 1, 24, tree);
+				Require(tree.nodes.size() == 1 && tree.nodes[0].count == 1 && tree.depth == 0, "LBVH single primitive");
+				BuildLBVHTree(nullptr, 0, 1, 24, tree);
+				Require(tree.nodes.empty() && tree.primitiveOrder.empty(), "LBVH empty input");
+			}
+
+			// 两种 TLAS 构建器：同一场景都与暴力求交一致
+			std::vector<BVHMeshInput> meshes = { RandomSoup(400, 41, 2.0f, 0.4f), RandomSoup(120, 42, 1.0f, 0.3f) };
+			std::vector<BVHInstanceInput> instances;
+			std::mt19937 rng(77);
+			std::uniform_real_distribution<float> position(-40.0f, 40.0f);
+			std::uniform_real_distribution<float> angle(0.0f, 6.28f);
+			for (uint32_t i = 0; i < 300; ++i)
+			{
+				BVHInstanceInput instance;
+				instance.meshIndex = i % 2;
+				instance.objectToWorld = Translate({ position(rng), position(rng) * 0.2f, position(rng) }) *
+					RotateY(angle(rng)) * Scale(glm::vec3(0.5f + (i % 4) * 0.5f));
+				instance.entityID = i;
+				instances.push_back(instance);
+			}
+			for (BVHTLASBuilder builder : { BVHTLASBuilder::LBVH, BVHTLASBuilder::SAH })
+			{
+				BVHBuildSettings s = settings;
+				s.tlasBuilder = builder;
+				BVHSceneData data;
+				BuildSceneBVH(meshes, instances, s, data);
+				CheckScene(data, s);
+				uint32_t hits = 0;
+				CompareWithBruteForce(meshes, instances, data, 1500, 45.0f, 555, hits);
+				Require(hits > 100, "TLAS builder comparison rays barely hit anything");
+			}
+
+			// 规模与树质量：20 万实例的 TLAS
+			const std::vector<BVHAABB> boxes = randomBoxes(200000, 34, 500.0f, 1.5f);
+			BVHTree lbvh, sah;
+			auto start = std::chrono::steady_clock::now();
+			BuildLBVHTree(boxes.data(), 200000, 1, 24, lbvh);
+			const float lbvhMs = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - start).count();
+			start = std::chrono::steady_clock::now();
+			BuildBVHTree(boxes.data(), 200000, 1, settings.binCount, 24, sah);
+			const float sahMs = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - start).count();
+			checkRawTree(boxes, lbvh, 1, 24, "LBVH 200k");
+			checkRawTree(boxes, sah, 1, 24, "SAH 200k");
+			std::printf("200000-instance TLAS: LBVH %.1f ms (depth %u, SAH cost %.1f) | SAH %.1f ms (depth %u, SAH cost %.1f)\n",
+				lbvhMs, lbvh.depth, sahCost(lbvh), sahMs, sah.depth, sahCost(sah));
+		}
+
 		std::printf("BVH tests passed\n");
 		return 0;
 	}
