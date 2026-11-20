@@ -203,7 +203,7 @@ bool PathTraceScene::UpdateGeometry(const Scene& scene, UpdateInfo& info)
 		(result.geometryChanged || result.instancesChanged))
 	{
 		info.accelUpdated = true;
-		if (!m_RayTracing->Update(m_Geometry.GetData(), m_Geometry.GetBLASKeys()))
+		if (!m_RayTracing->Update(m_Geometry.GetData(), m_Geometry.GetBLASKeys(), m_Geometry.GetBLASHints()))
 		{
 			m_Failed = true;
 			m_Status = "acceleration structure build failed";

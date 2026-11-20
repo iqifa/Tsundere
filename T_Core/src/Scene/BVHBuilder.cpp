@@ -65,6 +65,7 @@ void BVHBuilder::ResetIncremental()
 	m_BLASCache.clear();
 	m_BLASOrder.clear();
 	m_BLASKeys.clear();
+	m_BLASHints.clear();
 	m_LastInstances.clear();
 	m_IncrementalValid = false;
 }
@@ -75,7 +76,10 @@ BVHIncrementalResult BVHBuilder::UpdateIncremental(const Scene& scene, bool uplo
 	const auto start = std::chrono::steady_clock::now();
 
 	for (auto& [id, entry] : m_BLASCache)
+	{
 		entry.used = false;
+		entry.refitFrom = 0;
+	}
 
 	// ---- 1) 遍历实例；缓存缺失 / 几何版本变化的网格才拷贝顶点并构建 BLAS ----
 	std::vector<BVHInstanceInput> inputs;
@@ -99,17 +103,36 @@ BVHIncrementalResult BVHBuilder::UpdateIncremental(const Scene& scene, bool uplo
 
 			const uint64_t geometryId = mesh.GeometryId.Get();
 			auto it = m_BLASCache.find(geometryId);
-			if (it == m_BLASCache.end() || it->second.revision != mesh.GeometryRevision)
+			if (it == m_BLASCache.end())
 			{
-				const bool isNew = it == m_BLASCache.end();
 				CachedBLAS entry;
 				entry.revision = mesh.GeometryRevision;
 				entry.key = m_NextBLASKey++;
 				BuildMeshBLAS(CopyMeshInput(mesh), m_Settings, entry.piece);
-				it = m_BLASCache.insert_or_assign(geometryId, std::move(entry)).first;
-				if (isNew)
-					newGeometry.push_back(geometryId);
+				it = m_BLASCache.emplace(geometryId, std::move(entry)).first;
+				newGeometry.push_back(geometryId);
 				++result.blasBuilt;
+			}
+			else if (it->second.revision != mesh.GeometryRevision)
+			{
+				// 几何改了：拓扑不变且树还没退化太多就 refit，否则重建
+				CachedBLAS& entry = it->second;
+				const BVHMeshInput input = CopyMeshInput(mesh);
+				const uint64_t oldKey = entry.key;
+				bool refitted = false;
+				if (m_Settings.blasRefit && entry.piece.refitCount < m_Settings.maxBLASRefits &&
+					RefitMeshBLAS(input, entry.piece))
+				{
+					refitted = !(entry.piece.buildCost > 0.0f) ||
+						entry.piece.cost <= entry.piece.buildCost * m_Settings.blasRefitCostRatio;
+				}
+				if (!refitted)
+					BuildMeshBLAS(input, m_Settings, entry.piece);
+				entry.revision = mesh.GeometryRevision;
+				entry.key = m_NextBLASKey++;
+				entry.refitFrom = refitted ? oldKey : 0;
+				entry.dynamic = true;
+				++(refitted ? result.blasRefitted : result.blasBuilt);
 			}
 			else if (!it->second.used)
 			{
@@ -137,7 +160,7 @@ BVHIncrementalResult BVHBuilder::UpdateIncremental(const Scene& scene, bool uplo
 		else
 			++it;
 	}
-	result.geometryChanged = !m_IncrementalValid || result.blasBuilt > 0 || result.blasReleased > 0;
+	result.geometryChanged = !m_IncrementalValid || result.blasBuilt > 0 || result.blasRefitted > 0 || result.blasReleased > 0;
 
 	// ---- 3) BLAS 集合变了：保持已有顺序、追加新网格，重新拼接 ----
 	BVHSceneData assembled;
@@ -162,11 +185,14 @@ BVHIncrementalResult BVHBuilder::UpdateIncremental(const Scene& scene, bool uplo
 		pieces.reserve(order.size());
 		m_BLASKeys.clear();
 		m_BLASKeys.reserve(order.size());
+		m_BLASHints.clear();
+		m_BLASHints.reserve(order.size());
 		for (uint64_t id : order)
 		{
 			const CachedBLAS& entry = m_BLASCache.at(id);
 			pieces.push_back(&entry.piece);
 			m_BLASKeys.push_back(entry.key);
+			m_BLASHints.push_back({ entry.refitFrom, entry.dynamic });
 		}
 		AssembleBLAS(pieces, assembled);
 		m_BLASOrder = std::move(order);

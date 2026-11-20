@@ -227,18 +227,20 @@ void VulkanRayTracingScene::Clear()
 	Retire(std::move(handles), std::move(storage));
 }
 
-bool VulkanRayTracingScene::Update(const BVHSceneData& g, const std::vector<uint64_t>& blasKeys)
+bool VulkanRayTracingScene::Update(const BVHSceneData& g, const std::vector<uint64_t>& blasKeys,
+	const std::vector<BVHBLASHint>& hints)
 {
 	if (g.triangles.empty() || g.instances.empty())
 	{
 		Error_Core("[RayTracing] Update called without flat geometry");
 		return false;
 	}
-	if (blasKeys.size() != g.blas.size())
+	if (blasKeys.size() != g.blas.size() || (!hints.empty() && hints.size() != g.blas.size()))
 	{
-		Error_Core("[RayTracing] {} BLAS keys for {} meshes", blasKeys.size(), g.blas.size());
+		Error_Core("[RayTracing] {} BLAS keys / {} hints for {} meshes", blasKeys.size(), hints.size(), g.blas.size());
 		return false;
 	}
+	const auto hintOf = [&](uint32_t mesh) { return hints.empty() ? BVHBLASHint{} : hints[mesh]; };
 
 	const auto cpuStart = std::chrono::steady_clock::now();
 
@@ -255,6 +257,8 @@ bool VulkanRayTracingScene::Update(const BVHSceneData& g, const std::vector<uint
 	{
 		uint32_t meshIndex = 0;
 		uint64_t key = 0;
+		uint64_t updateFrom = 0;   // 非 0：对缓存里这个键的 BLAS 原地 UPDATE（result 即该缓存条目）
+		bool allowUpdate = false;
 		VkAccelerationStructureGeometryKHR geometry{};
 		VkAccelerationStructureBuildGeometryInfoKHR info{};
 		VkAccelerationStructureBuildRangeInfoKHR range{};
@@ -295,6 +299,19 @@ bool VulkanRayTracingScene::Update(const BVHSceneData& g, const std::vector<uint
 			BlasBuild b;
 			b.meshIndex = mesh;
 			b.key = blasKeys[mesh];
+			const BVHBLASHint hint = hintOf(mesh);
+			b.allowUpdate = hint.dynamic;
+			if (hint.refitFrom != 0)
+			{
+				// UPDATE 要求：旧 BLAS 带 ALLOW_UPDATE 构建、图元数相同；否则退回完整构建
+				const auto old = m_BLASCache.find(hint.refitFrom);
+				if (old != m_BLASCache.end() && old->second.allowUpdate && old->second.primitiveCount == r.triangleCount)
+				{
+					b.updateFrom = hint.refitFrom;
+					b.allowUpdate = true;
+					b.result = old->second;
+				}
+			}
 			b.vertexOffset = vertexBytes;
 			vertexBytes += VkDeviceSize(r.triangleCount) * sizeof(GPUBVHTriangle);
 			pending.emplace(b.key, static_cast<uint32_t>(builds.size()));
@@ -330,8 +347,11 @@ bool VulkanRayTracingScene::Update(const BVHSceneData& g, const std::vector<uint
 
 			b.info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
 			b.info.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-			b.info.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
-			b.info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+			// UPDATE 的 flags 必须与原构建一致：动态网格始终 ALLOW_UPDATE | PREFER_FAST_TRACE
+			b.info.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR |
+				(b.allowUpdate ? VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR : 0);
+			b.info.mode = b.updateFrom ? VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR
+				: VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
 			b.info.geometryCount = 1;
 			b.info.pGeometries = &b.geometry;   // builds 不再扩容
 			b.range.primitiveCount = r.triangleCount;
@@ -340,13 +360,17 @@ bool VulkanRayTracingScene::Update(const BVHSceneData& g, const std::vector<uint
 			sizes.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
 			g_RT.getBuildSizes(m_Device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
 				&b.info, &b.range.primitiveCount, &sizes);
-			b.asSize = sizes.accelerationStructureSize;
 			b.scratchOffset = AlignUp(blasScratchBytes, scratchAlign);
-			blasScratchBytes = b.scratchOffset + sizes.buildScratchSize;
+			blasScratchBytes = b.scratchOffset + (b.updateFrom ? sizes.updateScratchSize : sizes.buildScratchSize);
+			if (b.updateFrom)
+				continue;   // 原地更新：沿用旧 BLAS 的存储
 
+			b.asSize = sizes.accelerationStructureSize;
 			b.result.storage = CreateDeviceBuffer(m_Device, m_PhysicalDevice, b.asSize,
 				VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR, false);
 			b.result.bytes = b.asSize;
+			b.result.primitiveCount = r.triangleCount;
+			b.result.allowUpdate = b.allowUpdate;
 		}
 
 		// ---- 3. TLAS 尺寸 ----
@@ -385,6 +409,14 @@ bool VulkanRayTracingScene::Update(const BVHSceneData& g, const std::vector<uint
 		// ---- 4. 创建新 BLAS 对象、取地址 ----
 		for (BlasBuild& b : builds)
 		{
+			b.info.scratchData.deviceAddress = scratchBase + b.scratchOffset;
+			if (b.updateFrom)
+			{
+				// src == dst：规范允许 UPDATE 原地进行。地址不变，TLAS 照常引用
+				b.info.srcAccelerationStructure = b.result.handle;
+				b.info.dstAccelerationStructure = b.result.handle;
+				continue;
+			}
 			VkAccelerationStructureCreateInfoKHR create{};
 			create.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
 			create.buffer = b.result.storage.buffer;
@@ -393,7 +425,6 @@ bool VulkanRayTracingScene::Update(const BVHSceneData& g, const std::vector<uint
 			if (g_RT.createAS(m_Device, &create, nullptr, &b.result.handle) != VK_SUCCESS)
 				throw std::runtime_error("vkCreateAccelerationStructureKHR (BLAS) failed");
 			b.info.dstAccelerationStructure = b.result.handle;
-			b.info.scratchData.deviceAddress = scratchBase + b.scratchOffset;
 
 			VkAccelerationStructureDeviceAddressInfoKHR address{};
 			address.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR;
@@ -493,6 +524,18 @@ bool VulkanRayTracingScene::Update(const BVHSceneData& g, const std::vector<uint
 		barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
 		if (!builds.empty())
 		{
+			// 原地 UPDATE 改写的 BLAS 可能正被之前提交的帧读取（同一队列）：先等这些读取结束
+			const bool anyUpdate = std::any_of(builds.begin(), builds.end(), [](const BlasBuild& b) { return b.updateFrom != 0; });
+			if (anyUpdate)
+			{
+				barrier.srcAccessMask = 0;
+				barrier.dstAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR |
+					VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+				vkCmdPipelineBarrier(cmd,
+					VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+					VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+					0, 1, &barrier, 0, nullptr, 0, nullptr);
+			}
 			std::vector<VkAccelerationStructureBuildGeometryInfoKHR> infos;
 			std::vector<const VkAccelerationStructureBuildRangeInfoKHR*> ranges;
 			infos.reserve(builds.size());
@@ -550,7 +593,8 @@ bool VulkanRayTracingScene::Update(const BVHSceneData& g, const std::vector<uint
 			}
 		}
 
-		stats.blasBuilt = static_cast<uint32_t>(builds.size());
+		for (const BlasBuild& b : builds)
+			++(b.updateFrom ? stats.blasRefitted : stats.blasBuilt);
 		stats.instanceCount = instanceCount;
 		stats.triangleCount = g.stats.triangleCount;
 		stats.tlasBytes = tlasSizes.accelerationStructureSize;
@@ -560,8 +604,14 @@ bool VulkanRayTracingScene::Update(const BVHSceneData& g, const std::vector<uint
 	{
 		Error_Core("[RayTracing] acceleration structure update failed: {}", e.what());
 		// 新建但未启用的对象：队列此时空闲或从未提交，可以直接销毁
+		bool anyUpdate = false;
 		for (BlasBuild& b : builds)
 		{
+			if (b.updateFrom)
+			{
+				anyUpdate = true;   // 缓存里的对象，不在这里销毁
+				continue;
+			}
 			if (b.result.handle != VK_NULL_HANDLE)
 				g_RT.destroyAS(m_Device, b.result.handle, nullptr);
 			DestroyDeferred(m_Device, b.result.storage);
@@ -570,6 +620,9 @@ bool VulkanRayTracingScene::Update(const BVHSceneData& g, const std::vector<uint
 			g_RT.destroyAS(m_Device, tlas, nullptr);
 		DestroyDeferred(m_Device, tlasStorage);
 		cleanupTemporaries();
+		// 原地 UPDATE 可能做了一半：旧 BLAS（以及引用它的 TLAS）内容不再可信，全部丢弃重建
+		if (anyUpdate)
+			Clear();
 		return false;
 	}
 
@@ -585,7 +638,11 @@ bool VulkanRayTracingScene::Update(const BVHSceneData& g, const std::vector<uint
 	m_TLASStorage = tlasStorage;
 
 	for (BlasBuild& b : builds)
+	{
+		if (b.updateFrom)
+			m_BLASCache.erase(b.updateFrom);   // 同一个 BLAS 对象换成新键
 		m_BLASCache.emplace(b.key, b.result);
+	}
 	std::unordered_set<uint64_t> live;
 	for (uint32_t mesh = 0; mesh < g.blas.size(); ++mesh)
 		if (g.blas[mesh].triangleCount > 0)
@@ -614,10 +671,11 @@ bool VulkanRayTracingScene::Update(const BVHSceneData& g, const std::vector<uint
 	m_Stats = stats;
 
 	// 只重建 TLAS（拖动物体时每帧一次）不刷日志
+	// refit（变形网格每帧一次）同样不刷日志
 	if (stats.blasBuilt > 0)
-		Info_Core("[RayTracing] {} BLAS resident ({} built, {:.1f} MB), TLAS {} instances ({:.2f} MB) | "
+		Info_Core("[RayTracing] {} BLAS resident ({} built, {} refitted, {:.1f} MB), TLAS {} instances ({:.2f} MB) | "
 		"GPU BLAS {:.2f} ms, TLAS {:.2f} ms | CPU {:.1f} ms",
-		stats.blasCount, stats.blasBuilt, stats.blasBytes / 1048576.0, stats.instanceCount,
+		stats.blasCount, stats.blasBuilt, stats.blasRefitted, stats.blasBytes / 1048576.0, stats.instanceCount,
 		stats.tlasBytes / 1048576.0, stats.gpuBlasMilliseconds, stats.gpuTlasMilliseconds,
 		stats.cpuMilliseconds);
 	return true;

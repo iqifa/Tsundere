@@ -121,11 +121,35 @@ int main()
 		assert(sawBlue);
 	}
 
-	// Mesh 顶点就地修改 + 通知：只重建这一个 BLAS
+	// Mesh 顶点就地修改 + 通知：拓扑没变，只 refit 这一个 BLAS
 	modelA->meshes[1].vertices[2].Position.y = 2;
 	SceneChanges::NotifyMeshGeometry(modelA->meshes[1]);
 	r = builder.UpdateIncremental(scene, false);
-	assert(r.geometryChanged && r.blasBuilt == 1 && r.blasReused == 2 && r.blasReleased == 0);
+	assert(r.geometryChanged && r.blasRefitted == 1 && r.blasBuilt == 0 && r.blasReused == 2 && r.blasReleased == 0);
+	{
+		// 硬件后端提示：被 refit 的槽位指向旧键、标为动态；其余槽位无提示
+		const auto& hints = builder.GetBLASHints();
+		const auto& now = builder.GetBLASKeys();
+		assert(hints.size() == now.size());
+		int refitSlots = 0;
+		for (size_t i = 0; i < hints.size(); ++i)
+		{
+			if (hints[i].refitFrom == 0)
+			{
+				assert(!hints[i].dynamic && now[i] == keys[i]);
+				continue;
+			}
+			++refitSlots;
+			assert(hints[i].dynamic && hints[i].refitFrom == keys[i] && now[i] != keys[i]);
+		}
+		assert(refitSlots == 1);
+		// TLAS 也跟着重建（实例包围盒变了），树内容与新顶点一致
+		const auto& data = builder.GetData();
+		bool sawMovedVertex = false;
+		for (const auto& tri : data.triangles)
+			sawMovedVertex = sawMovedVertex || tri.v2.y == 2.0f;
+		assert(sawMovedVertex && r.instancesChanged);
+	}
 	{
 		// 拼接顺序保持不变，只有被改的那个网格换了键
 		const auto& now = builder.GetBLASKeys();
@@ -135,6 +159,47 @@ int main()
 			differing += now[i] != keys[i];
 		assert(differing == 1);
 	}
+
+	// 下一次无关更新：提示清空（refitFrom 只描述最近一次更新），动态标记保留
+	SceneChanges::NotifyMeshGeometry(modelA->meshes[1]);
+	modelA->meshes[1].vertices[2].Position.y = 2.5f;
+	r = builder.UpdateIncremental(scene, false);
+	assert(r.blasRefitted == 1);
+	e2.GetComponent<Component::Transform>().Position = { 6, 0, 0 };
+	r = builder.UpdateIncremental(scene, false);
+	assert(r.instancesChanged && !r.geometryChanged && r.blasRefitted == 0);
+
+	// refit 次数上限：第 maxBLASRefits + 1 次几何变化改为完整重建，之后重新计数
+	builder.GetSettings().maxBLASRefits = 3;   // 已 refit 2 次
+	modelA->meshes[1].vertices[2].Position.y = 3;
+	SceneChanges::NotifyMeshGeometry(modelA->meshes[1]);
+	r = builder.UpdateIncremental(scene, false);
+	assert(r.blasRefitted == 1);
+	modelA->meshes[1].vertices[2].Position.y = 3.5f;
+	SceneChanges::NotifyMeshGeometry(modelA->meshes[1]);
+	r = builder.UpdateIncremental(scene, false);
+	assert(r.blasRefitted == 0 && r.blasBuilt == 1);
+	for (const auto& hint : builder.GetBLASHints())
+		assert(hint.refitFrom == 0);   // 重建：硬件后端也完整 BUILD
+	modelA->meshes[1].vertices[2].Position.y = 4;
+	SceneChanges::NotifyMeshGeometry(modelA->meshes[1]);
+	r = builder.UpdateIncremental(scene, false);
+	assert(r.blasRefitted == 1);
+	builder.GetSettings().maxBLASRefits = 32;
+
+	// 拓扑变化（索引变了）：不能 refit，完整重建
+	std::swap(modelA->meshes[1].indices[0], modelA->meshes[1].indices[1]);
+	SceneChanges::NotifyMeshGeometry(modelA->meshes[1]);
+	r = builder.UpdateIncremental(scene, false);
+	assert(r.blasRefitted == 0 && r.blasBuilt == 1);
+
+	// 关闭 refit：几何变化一律重建
+	builder.GetSettings().blasRefit = false;
+	modelA->meshes[1].vertices[2].Position.y = 5;
+	SceneChanges::NotifyMeshGeometry(modelA->meshes[1]);
+	r = builder.UpdateIncremental(scene, false);
+	assert(r.blasRefitted == 0 && r.blasBuilt == 1);
+	builder.GetSettings().blasRefit = true;
 
 	// 实例删除：引用 B 的实体没了 → 释放 B 的 BLAS
 	scene.m_Registry.destroy(e3);
@@ -184,7 +249,7 @@ int main()
 	assert(report.missedMask == Bit(Category::MeshGeometry));
 	assert(modelA->meshes[0].GeometryRevision == meshRevision + 1);   // 自愈后 BLAS 会重建
 	r = builder.UpdateIncremental(scene, false);
-	assert(r.blasBuilt == 1);
+	assert(r.blasRefitted == 1);   // 只改法线：拓扑不变，refit
 
 	red->GetParameter("u_BaseColor")->value = glm::vec4(0, 1, 0, 1);   // 绕过 setter
 	report = validator.Check(scene);

@@ -21,7 +21,9 @@
 // compute 读取一定看到完整的加速结构（与 VulkanBuffer::Upload 同一模式）。
 // 旧的 AS / buffer 走 VulkanDeletionQueue，等在途帧结束后再释放。
 //
-// 不做 refit / compaction：BLAS 不带 ALLOW_UPDATE，几何变化即换键重建。
+// Refit：动态网格（hint.dynamic）的 BLAS 带 ALLOW_UPDATE 构建；之后 BVHBuilder 判定可以 refit
+// （hint.refitFrom = 旧键）时，对旧 BLAS 原地 UPDATE（src == dst，三角形数不变）并换成新键。
+// 何时改为重建由 BVHBuilder 决定（refit 次数 / 包围盒膨胀）。静态网格不带 ALLOW_UPDATE，不做 compaction。
 // ---------------------------------------------------------------------------
 class T_API VulkanRayTracingScene final : public RHIRayTracingScene
 {
@@ -29,7 +31,8 @@ public:
 	VulkanRayTracingScene();
 	~VulkanRayTracingScene() override;
 
-	bool Update(const BVHSceneData& flatGeometry, const std::vector<uint64_t>& blasKeys) override;
+	bool Update(const BVHSceneData& flatGeometry, const std::vector<uint64_t>& blasKeys,
+		const std::vector<BVHBLASHint>& hints) override;
 	void Clear() override;
 	bool IsValid() const override { return m_TLAS != VK_NULL_HANDLE; }
 	const RHIRayTracingBuildStats& GetStats() const override { return m_Stats; }
@@ -52,6 +55,8 @@ private:
 		DeviceBuffer storage;
 		VkDeviceAddress address = 0;
 		VkDeviceSize bytes = 0;
+		uint32_t primitiveCount = 0;
+		bool allowUpdate = false;
 	};
 
 	// 延迟销毁：AS 对象先、存储 buffer 后。

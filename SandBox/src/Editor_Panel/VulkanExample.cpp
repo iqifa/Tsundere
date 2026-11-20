@@ -200,6 +200,19 @@ void VulkanExampleLayer::DrawPathTracingPanel()
                 ? "Rebuilt whenever instances move or change. LBVH builds several times faster; SAH gives a slightly cheaper tree."
                 : "Hardware ray query: the driver builds the TLAS; this option applies to the software BVH only.");
         }
+        ImGui::Checkbox("BLAS refit", &s.blasRefit);
+        ImGui::SetItemTooltip("When a mesh deforms without changing topology, refit its BLAS (keep the tree, recompute bounds) "
+            "instead of rebuilding. Hardware ray query uses an in-place UPDATE build.");
+        ImGui::BeginDisabled(!s.blasRefit);
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 5.0f);
+        ImGui::DragInt("max refits", &s.maxBLASRefits, 0.2f, 1, 1000);
+        ImGui::SetItemTooltip("Rebuild after this many consecutive refits of the same mesh.");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 5.0f);
+        ImGui::DragFloat("cost ratio", &s.blasRefitCostRatio, 0.01f, 1.0f, 10.0f, "%.2fx");
+        ImGui::SetItemTooltip("Rebuild when the refitted tree's cost exceeds the freshly built cost by this factor "
+            "(software BVH: normalized SAH cost; hardware: mesh bounds surface area).");
+        ImGui::EndDisabled();
 
         ImGui::Separator();
         ImGui::Text("Samples: %u   (%u x %u)", st.samples, st.width, st.height);
@@ -217,9 +230,9 @@ void VulkanExampleLayer::DrawPathTracingPanel()
                 : u.geometry.instancesChanged ? "TLAS only"
                 : u.geometry.materialsPatched ? "material indices only"
                 : "no geometry work";
-            ImGui::TextWrapped("Last change: %s -> %s | BLAS built %u, reused %u, released %u%s%s",
+            ImGui::TextWrapped("Last change: %s -> %s | BLAS built %u, refitted %u, reused %u, released %u%s%s",
                 SceneChanges::DescribeMask(u.dirtyMask).c_str(), kind,
-                u.geometry.blasBuilt, u.geometry.blasReused, u.geometry.blasReleased,
+                u.geometry.blasBuilt, u.geometry.blasRefitted, u.geometry.blasReused, u.geometry.blasReleased,
                 u.materialsUploaded ? " | materials" : "", u.lightsUploaded ? " | lights" : "");
         }
         if (PathTraceScene::ValidationCompiled)
@@ -238,8 +251,8 @@ void VulkanExampleLayer::DrawPathTracingPanel()
             }
         }
         if (st.accel.blasCount > 0 || st.accel.instanceCount > 0)
-            ImGui::Text("BLAS x%u (built %u) %.2f ms, TLAS %.2f ms (GPU) | %.2f ms CPU incl. wait",
-                st.accel.blasCount, st.accel.blasBuilt, st.accel.gpuBlasMilliseconds, st.accel.gpuTlasMilliseconds, st.accel.cpuMilliseconds);
+            ImGui::Text("BLAS x%u (built %u, refit %u) %.2f ms, TLAS %.2f ms (GPU) | %.2f ms CPU incl. wait",
+                st.accel.blasCount, st.accel.blasBuilt, st.accel.blasRefitted, st.accel.gpuBlasMilliseconds, st.accel.gpuTlasMilliseconds, st.accel.cpuMilliseconds);
         else
             ImGui::Text("BVH depth: TLAS %u, BLAS %u", st.tlasDepth, st.blasDepth);
         if (!m_PostProcess.toneMapping)

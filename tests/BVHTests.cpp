@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <random>
 #include <stdexcept>
 #include <string>
@@ -581,6 +582,127 @@ int main()
 			checkRawTree(boxes, sah, 1, 24, "SAH 200k");
 			std::printf("200000-instance TLAS: LBVH %.1f ms (depth %u, SAH cost %.1f) | SAH %.1f ms (depth %u, SAH cost %.1f)\n",
 				lbvhMs, lbvh.depth, sahCost(lbvh), sahMs, sah.depth, sahCost(sah));
+		}
+
+		// 10) BLAS refit：拓扑不变时保留树结构、更新包围盒；拓扑变化拒绝；代价反映退化
+		{
+			BVHMeshInput mesh = RandomSoup(5000, 77, 20.0f, 0.6f);
+			BVHMeshBLAS piece;
+			BuildMeshBLAS(mesh, settings, piece);
+			Require(piece.sourceTriangles.size() == 5000 && piece.refitCount == 0 && piece.buildCost > 0.0f &&
+				piece.cost == piece.buildCost, "fresh BLAS refit bookkeeping");
+			const std::vector<GPUBVHNode> builtNodes = piece.nodes;
+
+			// 平滑变形（波浪）：refit 成功，结构不变，几何正确
+			const auto wave = [](BVHMeshInput& m, float phase)
+			{
+				for (glm::vec3& p : m.positions)
+					p += glm::vec3(0.0f, std::sin(p.x * 0.3f + phase) * 0.8f, 0.0f);
+			};
+			wave(mesh, 0.5f);
+			Require(RefitMeshBLAS(mesh, piece) && piece.refitCount == 1, "refit of a deformed mesh failed");
+			Require(piece.nodes.size() == builtNodes.size(), "refit changed the node count");
+			for (size_t n = 0; n < builtNodes.size(); ++n)
+				Require(piece.nodes[n].leftFirst == builtNodes[n].leftFirst && piece.nodes[n].count == builtNodes[n].count,
+					"refit changed the tree structure");
+			for (size_t i = 0; i < piece.triangles.size(); ++i)
+			{
+				const uint32_t t = piece.sourceTriangles[i];
+				Require(piece.triangles[i].v0 == mesh.positions[mesh.indices[t * 3]] &&
+					piece.triangles[i].v2 == mesh.positions[mesh.indices[t * 3 + 2]], "refit wrote stale vertices");
+			}
+			Require(piece.cost < piece.buildCost * 1.5f, "gentle deformation should barely change the cost");
+			{
+				BVHSceneData data;
+				AssembleBLAS({ &piece }, data);
+				std::vector<BVHInstanceInput> instances(2);
+				instances[1].objectToWorld = Translate({ 5.0f, 0.0f, 0.0f }) * RotateY(0.7f);
+				BuildTLAS(instances, settings, data);
+				CheckScene(data, settings);   // 含每个节点包围盒覆盖孩子 / 三角形
+				uint32_t hits = 0;
+				CompareWithBruteForce({ mesh }, instances, data, 1500, 30.0f, 999, hits);
+				Require(hits > 100, "refit comparison rays barely hit anything");
+			}
+
+			// 打乱顶点（三角形之间大范围互换位置）：refit 仍然正确，但代价明显上升
+			{
+				BVHMeshInput scrambled = mesh;
+				std::mt19937 rng(5);
+				std::uniform_real_distribution<float> position(-20.0f, 20.0f);
+				for (size_t t = 0; t < scrambled.indices.size() / 3; ++t)
+				{
+					const glm::vec3 delta = glm::vec3(position(rng), position(rng), position(rng)) - scrambled.positions[scrambled.indices[t * 3]];
+					for (int k = 0; k < 3; ++k)
+						scrambled.positions[scrambled.indices[t * 3 + k]] += delta;
+				}
+				BVHMeshBLAS degraded = piece;
+				Require(RefitMeshBLAS(scrambled, degraded), "refit of a scrambled mesh failed");
+				Require(degraded.cost > degraded.buildCost * settings.blasRefitCostRatio,
+					"scrambled refit should exceed the rebuild cost ratio");
+				BVHMeshBLAS rebuilt;
+				BuildMeshBLAS(scrambled, settings, rebuilt);
+				std::printf("refit cost: built %.1f, wave %.1f, scrambled %.1f (rebuilt %.1f)\n",
+					piece.buildCost, piece.cost, degraded.cost, rebuilt.cost);
+				BVHSceneData data;
+				AssembleBLAS({ &degraded }, data);
+				BuildTLAS({ BVHInstanceInput{} }, settings, data);
+				CheckScene(data, settings);
+				uint32_t hits = 0;
+				CompareWithBruteForce({ scrambled }, { BVHInstanceInput{} }, data, 800, 25.0f, 321, hits);
+			}
+
+			// 拓扑变化 / 有效集合变化：拒绝，piece 不变
+			{
+				const GPUBVHTriangle before = piece.triangles[0];
+				BVHMeshInput reindexed = mesh;
+				std::swap(reindexed.indices[0], reindexed.indices[1]);
+				Require(!RefitMeshBLAS(reindexed, piece), "refit must reject changed indices");
+				BVHMeshInput grown = mesh;
+				grown.positions.push_back(glm::vec3(0.0f));
+				Require(!RefitMeshBLAS(grown, piece), "refit must reject a changed vertex count");
+				BVHMeshInput broken = mesh;
+				broken.positions[broken.indices[piece.sourceTriangles[0] * 3]] = glm::vec3(NAN);
+				Require(!RefitMeshBLAS(broken, piece), "refit must reject a triangle that became invalid");
+				Require(piece.refitCount == 1 && std::memcmp(&before, &piece.triangles[0], sizeof(before)) == 0,
+					"rejected refit modified the piece");
+			}
+			// 构建时就无效的三角形后来变有效：有效集合变了，也拒绝
+			{
+				BVHMeshInput partial = RandomSoup(50, 3, 5.0f, 0.5f);
+				partial.positions[0] = glm::vec3(INFINITY);
+				BVHMeshBLAS small;
+				BuildMeshBLAS(partial, settings, small);
+				Require(small.skippedTriangles == 1 && small.sourceTriangles.size() == 49, "invalid triangle not skipped");
+				partial.positions[0] = glm::vec3(1.0f);
+				Require(!RefitMeshBLAS(partial, small), "refit must reject a newly valid triangle");
+			}
+
+			// 平铺（硬件路径）：没有节点，三角形按原顺序，代价 = 包围盒面积
+			{
+				BVHBuildSettings flat = settings;
+				flat.buildTrees = false;
+				BVHMeshInput m = RandomSoup(200, 9, 4.0f, 0.4f);
+				BVHMeshBLAS f;
+				BuildMeshBLAS(m, flat, f);
+				Require(f.nodes.empty() && f.buildCost == f.range.bounds.HalfArea(), "flat cost");
+				for (glm::vec3& p : m.positions) p *= 2.0f;
+				Require(RefitMeshBLAS(m, f) && f.triangles[7].v1 == m.positions[m.indices[7 * 3 + 1]], "flat refit");
+				Require(std::fabs(f.cost - 4.0f * f.buildCost) <= 1e-3f * f.cost, "flat refit should track bounds area");
+			}
+
+			// 速度：refit 是线性扫描，比 SAH 构建快得多
+			{
+				BVHMeshInput big = RandomSoup(262144, 11, 100.0f, 0.5f);
+				BVHMeshBLAS bigPiece;
+				auto start = std::chrono::steady_clock::now();
+				BuildMeshBLAS(big, settings, bigPiece);
+				const float buildMs = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - start).count();
+				wave(big, 1.0f);
+				start = std::chrono::steady_clock::now();
+				Require(RefitMeshBLAS(big, bigPiece), "big refit failed");
+				const float refitMs = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - start).count();
+				std::printf("262144 tris: BLAS build %.1f ms, refit %.1f ms\n", buildMs, refitMs);
+			}
 		}
 
 		std::printf("BVH tests passed\n");
