@@ -144,7 +144,7 @@ public:
 
 			GPULight Glight;
 
-			Glight.direc_ambient = { light.Direction,(float)light.Ambient };
+			Glight.direc_ambient = { Component::LightDirection(trans),(float)light.Ambient };
 			Glight.color_intens = { light.Color ,light.Intensity };
 			Glight.pos_type = { trans.Position ,static_cast<float>(light.type) };
 			Glight.Param = { light.Params.Data[0], light.Params.Data[1], light.Params.Data[2], light.Params.Data[3] };

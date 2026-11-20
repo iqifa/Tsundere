@@ -4,6 +4,10 @@
 #include "Scene/LocalLights.h"
 #include <cassert>
 #include <iostream>
+#include <fstream>
+#include <sstream>
+#include <vector>
+#include <glm/gtc/constants.hpp>
 
 int main()
 {
@@ -40,6 +44,21 @@ int main()
     lights = GatherLocalLights(scene);
     assert(lights.size() == 1 && lights[0].positionType.w == 2);
     assert(lights[0].params.z == 12 && lights[0].params.w == 28);
+    // Direction follows Transform rotation: zero rotation points along local -Y.
+    {
+        const auto approx = [](glm::vec3 a, glm::vec3 b) { return glm::length(a - b) < 1e-4f; };
+        auto& rotation = child.GetComponent<Component::Transform>().Rotation;
+        assert(approx(glm::vec3(lights[0].directionAmbient), glm::vec3(0, -1, 0)));
+        rotation = {0, 0, glm::half_pi<float>()};   // Rz(90) maps -Y to +X
+        assert(approx(glm::vec3(GatherLocalLights(scene)[0].directionAmbient), glm::vec3(1, 0, 0)));
+        for (glm::vec3 d : {glm::vec3(0.6f, -0.8f, 0), glm::vec3(-0.5f, -1, -0.5f), glm::vec3(0, 1, 0),
+                 glm::vec3(0, 0, 1), glm::vec3(1, 0, 0), glm::vec3(0.3f, 0.2f, -0.9f)})
+        {
+            rotation = Component::LightRotationFromDirection(d);
+            assert(approx(Component::LightDirection(child.GetComponent<Component::Transform>()), glm::normalize(d)));
+        }
+        rotation = {};
+    }
     local.type = Component::Light::LightType::Area;
     local.ResetParams();
     local.Params.Area.Width = 4;
@@ -147,7 +166,7 @@ int main()
     const std::string v3Path = "build/activation-tests/v3.tscene";
     rewrite(v3Path, [](std::string& line) {
         if (line.rfind("Static:", 0) == 0) return false;
-        if (line == "Version: 4") line = "Version: 3";
+        if (line == "Version: 5") line = "Version: 3";
         return true;
     });
     {
@@ -157,16 +176,61 @@ int main()
         for (auto id : v3.m_Registry.view<Component::Tag>())
             assert(!v3.m_Registry.get<Component::Tag>(id).Static);
     }
+    // Version 4 lights stored a direction vector; loading moves it into Transform rotation.
+    {
+        Scene lit;
+        auto lamp = lit.CreateEntity("Lamp");
+        auto& spot = lamp.AddComponent<Component::Light>();
+        spot.type = Component::Light::LightType::Spot;
+        spot.ResetParams();
+        lamp.GetComponent<Component::Transform>().Rotation = {0.4f, 0.0f, 0.0f};
+        const std::string litPath = "build/activation-tests/lit.tscene";
+        assert(SceneSerializer::Save(lit, litPath, error));
+        Scene roundTrip;
+        assert(SceneSerializer::Load(roundTrip, litPath, error));
+        for (auto [id, t, l] : roundTrip.m_Registry.view<Component::Transform, Component::Light>().each())
+            assert(t.Rotation == glm::vec3(0.4f, 0.0f, 0.0f));
+        const std::string v4Path = "build/activation-tests/v4-light.tscene";
+        std::ifstream saved(litPath);
+        std::ostringstream text;
+        for (std::string line; std::getline(saved, line); )
+        {
+            if (line == "Version: 5") line = "Version: 4";
+            if (line.rfind("Light: 1 ", 0) == 0)
+            {
+                std::istringstream tokens(line);
+                std::vector<std::string> parts;
+                for (std::string token; tokens >> token; ) parts.push_back(token);
+                // "Light:" present type r g b | direction | intensity ambient params...
+                parts.insert(parts.begin() + 6, {"0.6", "-0.8", "0"});
+                line.clear();
+                for (const auto& part : parts) line += part + ' ';
+            }
+            text << line << "\n";
+        }
+        saved.close();
+        std::ofstream(v4Path) << text.str();
+        Scene v4;
+        assert(SceneSerializer::Load(v4, v4Path, error));
+        int lampCount = 0;
+        for (auto [id, t, l] : v4.m_Registry.view<Component::Transform, Component::Light>().each())
+        {
+            ++lampCount;
+            assert(l.type == Component::Light::LightType::Spot && l.Params.Spot.OuterAngle == spot.Params.Spot.OuterAngle);
+            assert(glm::length(Component::LightDirection(t) - glm::vec3(0.6f, -0.8f, 0.0f)) < 1e-4f);
+        }
+        assert(lampCount == 1);
+    }
     // Reject version 2 without replacing the loaded scene.
     const std::string legacyPath = "build/activation-tests/legacy.tscene";
     rewrite(legacyPath, [](std::string& line) {
         if (line.rfind("Active:", 0) == 0 || line.rfind("Static:", 0) == 0) return false;
-        if (line == "Version: 4") line = "Version: 2";
+        if (line == "Version: 5") line = "Version: 2";
         return true;
     });
     const auto revision = loaded.Revision;
     assert(!SceneSerializer::Load(loaded, legacyPath, error));
-    assert(error == "Unsupported scene version: 2 (expected 3 or 4)");
+    assert(error == "Unsupported scene version: 2 (expected 3 to 5)");
     assert(loaded.Revision == revision);
     assert(loaded.m_Registry.view<Component::Tag>().size() == 2);
     for (auto id : loaded.m_Registry.view<Component::Tag>()) assert(!loaded.IsActive(id));

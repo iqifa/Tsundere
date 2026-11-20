@@ -241,7 +241,7 @@ bool PathTraceScene::UpdateLights(const Scene& scene)
 		if (!scene.IsActive(entity))
 			continue;   // 与延迟光照 / 局部光一致：停用的实体不发光
 		GPULight g;
-		g.directionAmbient = glm::vec4(light.Direction, light.Ambient);
+		g.directionAmbient = glm::vec4(Component::LightDirection(transform), light.Ambient);
 		g.colorIntensity = glm::vec4(light.Color, light.Intensity);
 		g.positionType = glm::vec4(transform.Position, static_cast<float>(light.type));
 		g.params = glm::vec4(light.Params.Data[0], light.Params.Data[1], light.Params.Data[2], light.Params.Data[3]);

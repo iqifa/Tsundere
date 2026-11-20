@@ -146,10 +146,10 @@ namespace
 
 	// Range / shape wireframe in world space.
 	void DrawLightExtent(ImDrawList* draw, const ViewportProjection& viewport, const glm::vec3& position,
-		const Component::Light& light, ImU32 color, ImU32 faint)
+		const glm::vec3& direction, const Component::Light& light, ImU32 color, ImU32 faint)
 	{
 		using Type = Component::Light::LightType;
-		const glm::vec3 dir = SafeDirection(light.Direction);
+		const glm::vec3 dir = SafeDirection(direction);
 		glm::vec3 right, up;
 		LightBasis(dir, right, up);
 		const float wpp = WorldPerPixel(viewport, position);
@@ -223,7 +223,7 @@ namespace
 
 	// Screen-space icon, one glyph per light type.
 	void DrawLightIcon(ImDrawList* draw, const ViewportProjection& viewport, const glm::vec3& position,
-		const Component::Light& light, glm::vec2 c, ImU32 color, bool selected)
+		const glm::vec3& direction, const Component::Light& light, glm::vec2 c, ImU32 color, bool selected)
 	{
 		using Type = Component::Light::LightType;
 		const ImVec2 p = ToImVec(c);
@@ -252,7 +252,7 @@ namespace
 			glm::vec2 tip;
 			glm::vec2 d(0.0f, 1.0f);
 			const float wpp = WorldPerPixel(viewport, position);
-			if (viewport.Project(position + SafeDirection(light.Direction) * (20.0f * wpp), tip) &&
+			if (viewport.Project(position + SafeDirection(direction) * (20.0f * wpp), tip) &&
 				glm::length(tip - c) > 1.0f)
 				d = glm::normalize(tip - c);
 			const glm::vec2 side(-d.y, d.x);
@@ -494,14 +494,15 @@ entt::entity DrawLightOverlay(Scene& scene, entt::entity selectedEntity, bool sh
 		const bool active = scene.IsActive(entity);
 		const int alpha = active ? 255 : 110;
 
+		const glm::vec3 direction = Component::LightDirection(transform);
 		if (selected || showAllRanges)
-			DrawLightExtent(draw, viewport, transform.Position, light,
+			DrawLightExtent(draw, viewport, transform.Position, direction, light,
 				LightTint(light, selected ? alpha * 9 / 10 : alpha / 2), LightTint(light, alpha * 2 / 5));
 
 		glm::vec2 center;
 		if (!showIcons || !viewport.Project(transform.Position, center))
 			continue;
-		DrawLightIcon(draw, viewport, transform.Position, light, center, LightTint(light, alpha), selected);
+		DrawLightIcon(draw, viewport, transform.Position, direction, light, center, LightTint(light, alpha), selected);
 		const float distance = glm::length(mouse - center);
 		if (distance < hoveredDistance)
 		{

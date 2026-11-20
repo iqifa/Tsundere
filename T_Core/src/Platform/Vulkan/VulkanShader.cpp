@@ -27,6 +27,7 @@ void VulkanShader::Build(const std::string& filepath)
 	if (!compiled.Success)
 	{
 		Error_Core("Vulkan Shader[{0}] build failed", m_Name);
+		Error_Client("Vulkan Shader[{0}] build failed", m_Name);
 		return;
 	}
 
@@ -44,7 +45,8 @@ void VulkanShader::Build(const std::string& filepath)
 		if (auto it = spirv.find(ShaderStage::Fragment); it != spirv.end())
 			fragmentShader = CreateShaderModule(it->second);
 	}
-	Info_Core("Successful Parse Shader:" + m_Name);
+	Info_Core("Successful Parse Shader:{}!", m_Name);
+	Info_Client("Successful Parse Shader:{}!", m_Name);
 }
 
 VulkanShader::~VulkanShader()
@@ -128,6 +130,7 @@ VkShaderModule VulkanShader::CreateShaderModule(const std::vector<uint32_t>& spi
 	if (!vkcontext || vkcontext->GetDevice() == VK_NULL_HANDLE)
 	{
 		Error_Core("Vulkan Shader[{0}] requires an active Vulkan context", m_Name);
+		Error_Client("Vulkan Shader[{0}] requires an active Vulkan context", m_Name);
 		return VK_NULL_HANDLE;
 	}
 
@@ -140,6 +143,7 @@ VkShaderModule VulkanShader::CreateShaderModule(const std::vector<uint32_t>& spi
 	if (vkCreateShaderModule(vkcontext->GetDevice(), &createInfo, nullptr, &shaderModuleHandle) != VK_SUCCESS)
 	{
 		Error_Core("Vulkan Shader[{0}] Create Shader Moudle Error", m_Name);
+		Error_Client("Vulkan Shader[{0}] Create Shader Moudle Error", m_Name);
 		return VK_NULL_HANDLE;
 	}
 

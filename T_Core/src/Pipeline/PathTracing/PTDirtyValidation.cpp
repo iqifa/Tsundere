@@ -168,10 +168,10 @@ PTDirtyValidator::Baseline PTDirtyValidator::Capture(const Scene& scene) const
 		Hasher h;
 		h.Value(scene.IsActive(entity));
 		h.Value(transform.Position);
+		h.Value(transform.Rotation);   // 光源方向来自 Transform 旋转
 		h.Value(light.type);
 		h.Value(light.Color);
 		h.Value(light.Intensity);
-		h.Value(light.Direction);
 		h.Value(light.Ambient);
 		h.Value(light.Params.Data);
 		b.lights[static_cast<uint32_t>(entity)] = h.value;

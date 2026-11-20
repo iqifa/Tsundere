@@ -46,13 +46,19 @@ namespace Component
 		Transform(const Transform&) = default;
 		Transform(const glm::vec3& Position) :Position(Position) {}
 
-		glm::mat4 GetTransform() const
+		// Euler angles (radians) applied as Rx * Ry * Rz.
+		glm::mat4 GetRotation() const
 		{
-			glm::mat4 rotation = translate(glm::identity<glm::mat4>(), glm::vec3(0.0f, 0.0f, 0.0f));
+			glm::mat4 rotation = glm::identity<glm::mat4>();
 			rotation = rotate(rotation, Rotation.x, glm::vec3(1.0f, 0.0f, 0.0f));
 			rotation = rotate(rotation, Rotation.y, glm::vec3(0.0f, 1.0f, 0.0f));
 			rotation = rotate(rotation, Rotation.z, glm::vec3(0.0f, 0.0f, 1.0f));
-			return translate(glm::mat4(1.0f), Position) * rotation * scale(glm::mat4(1.0f), Scale);
+			return rotation;
+		}
+
+		glm::mat4 GetTransform() const
+		{
+			return translate(glm::mat4(1.0f), Position) * GetRotation() * scale(glm::mat4(1.0f), Scale);
 		}
 
 		glm::mat4 GetMVP()const
@@ -130,7 +136,7 @@ namespace Component
 		glm::vec3 Color = { 1.0f, 1.0f, 1.0f };
 		float Intensity = 1.0f;
 
-		glm::vec3 Direction = { -0.5f, -1.0f, -0.5f };
+		// 方向不存在组件里，由 Transform.Rotation 决定，见 LightDirection()。
 		float Ambient = 0.1f;
 
 
@@ -178,6 +184,26 @@ namespace Component
 			}
 		}
 	};
+
+	// 光的传播方向 = 实体局部 -Y 轴经 Transform 旋转后的方向（Rotation 全 0 时竖直向下）。
+	inline glm::vec3 LightDirection(const Transform& transform)
+	{
+		return glm::normalize(glm::vec3(transform.GetRotation() * glm::vec4(0.0f, -1.0f, 0.0f, 0.0f)));
+	}
+
+	// LightDirection 的反函数：返回让局部 -Y 指向 direction 的 Euler 角（取 Rotation.y = 0）。
+	// 用于把旧场景文件里存的方向迁移成 Transform 旋转。
+	inline glm::vec3 LightRotationFromDirection(const glm::vec3& direction)
+	{
+		const float length = glm::length(direction);
+		if (!(length > 1e-6f))
+			return glm::vec3(0.0f);
+		const glm::vec3 d = direction / length;
+		// Rx(x) * Rz(z) * (0,-1,0) = (sin z, -cos z cos x, -cos z sin x)
+		const float z = std::asin(glm::clamp(d.x, -1.0f, 1.0f));
+		const float x = std::abs(d.y) + std::abs(d.z) > 1e-6f ? std::atan2(-d.z, -d.y) : 0.0f;
+		return glm::vec3(x, 0.0f, z);
+	}
 }
 
 #endif // !COMPONENT
