@@ -200,7 +200,7 @@ public:
             std::vector<entt::entity> entities;
             std::unordered_map<const Engine::Material*, size_t> materialIds;
             for (auto entity : scene.m_Registry.view<Component::ID>()) entities.push_back(entity);
-            out << "# Tsundere Scene File\nVersion: 4\nEntities: " << entities.size() << '\n';
+            out << "# Tsundere Scene File\nVersion: 5\nEntities: " << entities.size() << '\n';
             for (auto entity : entities)
             {
                 auto& registry = scene.m_Registry;
@@ -221,7 +221,6 @@ public:
                 {
                     out << int(light->type) << ' ';
                     WriteVector(out, light->Color);
-                    WriteVector(out, light->Direction);
                     out << light->Intensity << ' ' << light->Ambient << ' ';
                     if (light->type == Component::Light::LightType::Area)
                         out << light->Params.Area.Width << ' ' << light->Params.Area.Height << ' ' << light->Params.Area.Shape << ' ';
@@ -285,9 +284,9 @@ public:
                 throw std::runtime_error("Unsupported scene format");
             Field(in, "Version:");
             in >> version;
-            // 4 = Tag 增加 Static；3 仍可读取（Static 默认 false）
-            if (version != 3 && version != 4)
-                throw std::runtime_error("Unsupported scene version: " + std::to_string(version) + " (expected 3 or 4)");
+            // 5 = Light 不再存方向（改由 Transform.Rotation 决定）；4 = Tag 增加 Static；3 仍可读取（Static 默认 false）
+            if (version < 3 || version > 5)
+                throw std::runtime_error("Unsupported scene version: " + std::to_string(version) + " (expected 3 to 5)");
             Field(in, "Entities:");
             Scene loaded;
             std::unordered_map<uint64_t, entt::entity> entities;
@@ -326,7 +325,14 @@ public:
                     if (type < 0 || type > 3) throw std::runtime_error("Invalid light type");
                     light.type = Component::Light::LightType(type);
                     ReadVector(in, light.Color);
-                    ReadVector(in, light.Direction);
+                    if (version < 5)
+                    {
+                        // 版本 5 之前方向存在组件里，旋转对光源不生效：把方向迁移成 Transform 旋转。
+                        glm::vec3 direction(0.0f);
+                        ReadVector(in, direction);
+                        if (light.type != Component::Light::LightType::Point)
+                            transform.Rotation = Component::LightRotationFromDirection(direction);
+                    }
                     in >> light.Intensity >> light.Ambient;
                     if (light.type == Component::Light::LightType::Area)
                         in >> light.Params.Area.Width >> light.Params.Area.Height >> light.Params.Area.Shape;

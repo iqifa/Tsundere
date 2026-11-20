@@ -83,13 +83,12 @@ public:
 		float ambientStrength = 0.0f;
 		glm::vec3 viewPos = currentcamera->getpos();
 
-		for (auto entityID : scene.m_Registry.view<Component::Light>())
+		for (auto [entityID, transform, dl] : scene.m_Registry.view<const Component::Transform, const Component::Light>().each())
 		{
 			if (!scene.IsActive(entityID)) continue;
-			auto& dl = scene.m_Registry.get<Component::Light>(entityID);
 			if (dl.type != Component::Light::LightType::Directional)
 				continue;
-			lightDir = dl.Direction;
+			lightDir = Component::LightDirection(transform);
 			lightColor = dl.Color * dl.Intensity;
 			ambientStrength = dl.Ambient;
 			break;

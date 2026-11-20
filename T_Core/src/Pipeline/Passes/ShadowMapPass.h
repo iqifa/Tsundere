@@ -136,7 +136,7 @@ public:
 
 				lightViewProjs.push_back(BuildSpotViewProj(
 					transform.Position,
-					light.Direction,
+					Component::LightDirection(transform),
 					light.Params.Spot.OuterAngle,
 					light.Params.Spot.Radius));
 			}
@@ -465,4 +465,4 @@ public:
 
 	PipelineDesc m_ScenePipelineDesc;
 };
-REGISTER_RENDER_PASS(ShadowMapPass, "ShadowMap", "Base", 10, true)
+REGISTER_RENDER_PASS(ShadowMapPass, "InDirectShadowMap", "Base", 10, true)

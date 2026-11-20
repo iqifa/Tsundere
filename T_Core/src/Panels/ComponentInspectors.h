@@ -96,7 +96,7 @@ inline void RenderLightInspector(Entity& entity)
 			~NotifyOnChange()
 			{
 				if (before.type != after.type || before.Color != after.Color || before.Intensity != after.Intensity ||
-					before.Direction != after.Direction || before.Ambient != after.Ambient ||
+					before.Ambient != after.Ambient ||
 					std::memcmp(before.Params.Data, after.Params.Data, sizeof(before.Params.Data)) != 0)
 					SceneChanges::Notify(SceneChanges::Category::Lights);
 			}
@@ -128,9 +128,13 @@ inline void RenderLightInspector(Entity& entity)
 
 		if (light.type != LightType::Point)
 		{
+			// 方向由 Transform 的 Rotation 控制，这里只显示结果。
+			const glm::vec3 dir = LightDirection(entity.GetComponent<Transform>());
 			ImGui::Text("Direction");
 			ImGui::NextColumn();
-			ImGui::DragFloat3("##lDirection", &light.Direction[0], 0.05f);
+			ImGui::TextDisabled("%.2f, %.2f, %.2f", dir.x, dir.y, dir.z);
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Driven by Transform rotation (local -Y axis)");
 			ImGui::NextColumn();
 		}
 
