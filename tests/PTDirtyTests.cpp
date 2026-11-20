@@ -26,6 +26,37 @@ namespace
 	{
 		return SceneChanges::Snapshot().ChangedSince(before);
 	}
+
+	// 每个 BLAS：根包围盒 = range.bounds，节点包围盒覆盖孩子 / 叶子三角形（原地覆盖后也必须成立）
+	void CheckBLASConsistent(const BVHSceneData& data)
+	{
+		const auto inside = [](const glm::vec3& p, const GPUBVHNode& n)
+		{
+			return glm::all(glm::greaterThanEqual(p, n.aabbMin - 1e-5f)) && glm::all(glm::lessThanEqual(p, n.aabbMax + 1e-5f));
+		};
+		for (const BVHBLASRange& range : data.blas)
+		{
+			if (range.triangleCount == 0 || range.nodeCount == 0)
+				continue;
+			const GPUBVHNode* nodes = data.blasNodes.data() + range.nodeOffset;
+			assert(nodes[0].aabbMin == range.bounds.min && nodes[0].aabbMax == range.bounds.max);
+			for (uint32_t n = 0; n < range.nodeCount; ++n)
+			{
+				const GPUBVHNode& node = nodes[n];
+				if (node.IsLeaf())
+				{
+					for (uint32_t t = node.leftFirst; t < node.leftFirst + node.count; ++t)
+					{
+						const GPUBVHTriangle& tri = data.triangles[range.triangleOffset + t];
+						assert(inside(tri.v0, node) && inside(tri.v1, node) && inside(tri.v2, node));
+					}
+					continue;
+				}
+				for (uint32_t c = node.leftFirst; c < node.leftFirst + 2; ++c)
+					assert(inside(nodes[c].aabbMin, node) && inside(nodes[c].aabbMax, node));
+			}
+		}
+	}
 }
 
 int main()
@@ -125,7 +156,13 @@ int main()
 	modelA->meshes[1].vertices[2].Position.y = 2;
 	SceneChanges::NotifyMeshGeometry(modelA->meshes[1]);
 	r = builder.UpdateIncremental(scene, false);
+	const size_t nodesBeforeRefit = builder.GetData().blasNodes.size();
+	const size_t trisBeforeRefit = builder.GetData().triangles.size();
 	assert(r.geometryChanged && r.blasRefitted == 1 && r.blasBuilt == 0 && r.blasReused == 2 && r.blasReleased == 0);
+	// 只有 refit：原地覆盖，不重新拼接（大小、偏移不变），树一致
+	assert(r.geometryPatched && r.instancesChanged);
+	assert(builder.GetData().blasNodes.size() == nodesBeforeRefit && builder.GetData().triangles.size() == trisBeforeRefit);
+	CheckBLASConsistent(builder.GetData());
 	{
 		// 硬件后端提示：被 refit 的槽位指向旧键、标为动态；其余槽位无提示
 		const auto& hints = builder.GetBLASHints();
@@ -168,9 +205,32 @@ int main()
 	e2.GetComponent<Component::Transform>().Position = { 6, 0, 0 };
 	r = builder.UpdateIncremental(scene, false);
 	assert(r.instancesChanged && !r.geometryChanged && r.blasRefitted == 0);
+	for (const auto& hint : builder.GetBLASHints())
+		assert(hint.refitFrom == 0);
+	{
+		int dynamicSlots = 0;
+		for (const auto& hint : builder.GetBLASHints())
+			dynamicSlots += hint.dynamic;
+		assert(dynamicSlots == 1);
+	}
+
+	// 同一次更新里一个网格 refit、另一个重建：不能原地覆盖（片段大小可能变了），整体重新拼接
+	modelA->meshes[1].vertices[2].Position.y = 2.75f;
+	SceneChanges::NotifyMeshGeometry(modelA->meshes[1]);
+	modelB->meshes[0].vertices.push_back(modelB->meshes[0].vertices[0]);   // 顶点数变了 → 拓扑变化
+	SceneChanges::NotifyMeshGeometry(modelB->meshes[0]);
+	r = builder.UpdateIncremental(scene, false);
+	assert(r.blasRefitted == 1 && r.blasBuilt == 1 && !r.geometryPatched && r.geometryChanged);
+	CheckBLASConsistent(builder.GetData());
+	{
+		int refitSlots = 0;
+		for (const auto& hint : builder.GetBLASHints())
+			refitSlots += hint.refitFrom != 0;
+		assert(refitSlots == 1);   // 重新拼接时提示照样带上
+	}
 
 	// refit 次数上限：第 maxBLASRefits + 1 次几何变化改为完整重建，之后重新计数
-	builder.GetSettings().maxBLASRefits = 3;   // 已 refit 2 次
+	builder.GetSettings().maxBLASRefits = 4;   // 已 refit 3 次
 	modelA->meshes[1].vertices[2].Position.y = 3;
 	SceneChanges::NotifyMeshGeometry(modelA->meshes[1]);
 	r = builder.UpdateIncremental(scene, false);

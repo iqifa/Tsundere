@@ -211,11 +211,24 @@ void VulkanBuffer::Upload(const void* data, uint32_t size, uint32_t offset)
         if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS)
             throw std::runtime_error("Failed to begin Vulkan buffer upload commands");
 
+        // 局部覆盖（BVH refit 等）时目标 buffer 可能仍被之前提交的帧读取：
+        // 拷贝前等同一队列上先前的命令结束（WAR），拷贝后让写入对后续任意读取可见。
+        VkMemoryBarrier barrier{};
+        barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+            0, 1, &barrier, 0, nullptr, 0, nullptr);
+
         VkBufferCopy copy{};
         copy.srcOffset = 0;
         copy.dstOffset = offset;
         copy.size = size;
         vkCmdCopyBuffer(commandBuffer, stagingBuffer, m_Buffer, 1, &copy);
+
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+        vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+            0, 1, &barrier, 0, nullptr, 0, nullptr);
 
         if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS)
             throw std::runtime_error("Failed to end Vulkan buffer upload commands");

@@ -11,6 +11,7 @@
 //        * 新网格 / 拓扑变了        → 只构建该网格的 BLAS 片段
 //        * 几何版本变了、拓扑没变   → refit 该片段（超出 refit 次数 / 代价比例时改为重建）
 //        * 不再被引用的网格         → 释放片段
+//        * 只有 refit（集合不变）     → 原地覆盖这些片段，GPU 上只写对应区段，重建 TLAS
 //        * BLAS 集合有变化          → 重新拼接 BLAS / 三角形 buffer（拷贝，不重建），重建 TLAS
 //        * 只有变换 / 实例增删      → 只重建 TLAS + 实例 buffer，BLAS 原样复用
 //        * 只有材质下标变           → 原地修补实例 buffer 的 materialIndex，不碰任何树
@@ -42,6 +43,7 @@ struct BVHIncrementalResult
 	bool geometryChanged = false;   // BLAS 集合 / 内容变了：BLAS 与三角形 buffer 重传，TLAS 重建
 	bool instancesChanged = false;  // 实例列表或变换变了：TLAS + 实例 buffer 重建
 	bool materialsPatched = false;  // 只有 materialIndex 变了：实例 buffer 原地修补
+	bool geometryPatched = false;   // geometryChanged 的子情况：只有 refit，几何 buffer 只覆盖被 refit 的区段
 	bool uploadFailed = false;
 	uint32_t blasBuilt = 0;         // 本次完整构建的 BLAS 片段数（新网格 / 拓扑变了 / refit 超限）
 	uint32_t blasRefitted = 0;      // 本次 refit 的 BLAS 片段数（几何变了、拓扑没变）
@@ -139,6 +141,7 @@ private:
 	};
 
 	bool UploadGeometryBuffers();   // BLAS 节点（树模式）、三角形、属性
+	bool UploadGeometryPatches();   // 只写 m_PatchedSlots 的区段；不可行时退回整体上传
 	bool UploadInstanceBuffers();   // TLAS 节点（树模式）、实例
 	uint32_t LookupMaterial(const Component::MeshRender& meshrender, size_t meshIdx) const;
 
@@ -152,6 +155,7 @@ private:
 	std::vector<uint64_t> m_BLASOrder;                      // 拼接顺序（GeometryId），= m_Data.blas[] 顺序
 	std::vector<uint64_t> m_BLASKeys;
 	std::vector<BVHBLASHint> m_BLASHints;
+	std::vector<uint32_t> m_PatchedSlots;                   // 本次原地覆盖的 blas[] 下标
 	std::vector<BVHInstanceInput> m_LastInstances;
 	uint64_t m_NextBLASKey = 1;
 	bool m_IncrementalValid = false;

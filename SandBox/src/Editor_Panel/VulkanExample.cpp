@@ -226,7 +226,8 @@ void VulkanExampleLayer::DrawPathTracingPanel()
             st.geometryCpuMs, st.bvhBuildCpuMs, st.uploadCpuMs);
         {
             const auto& u = st.lastUpdate;
-            const char* kind = u.geometry.geometryChanged ? "BLAS set + TLAS"
+            const char* kind = u.geometry.geometryPatched ? "BLAS refit in place + TLAS"
+                : u.geometry.geometryChanged ? "BLAS set + TLAS"
                 : u.geometry.instancesChanged ? "TLAS only"
                 : u.geometry.materialsPatched ? "material indices only"
                 : "no geometry work";
