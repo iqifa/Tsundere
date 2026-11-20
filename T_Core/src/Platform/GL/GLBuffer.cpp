@@ -1,6 +1,7 @@
 #include "GLBuffer.h"
 #include "GLDebug.h"
 #include "Platform/RenderAPIConfig.h"
+#include <stdexcept>
 
 #ifdef RenderAPI_OpenGL
 Ref<RHIBuffer> RHIBuffer::Create(const BufferDesc& desc)
@@ -97,3 +98,16 @@ unsigned int GLBuffer::GetGLTarget() const
     default:                    return GL_ARRAY_BUFFER;
     }
 }
+
+#ifdef RenderAPI_OpenGL
+void RHIBuffer::UploadBatch(const std::vector<BufferUploadRegion>& regions)
+{
+    for (const BufferUploadRegion& region : regions)
+        if (!region.buffer || !region.data || region.offset > region.buffer->GetSize() ||
+            region.size > region.buffer->GetSize() - region.offset)
+            throw std::invalid_argument("RHIBuffer::UploadBatch: invalid region");
+    for (const BufferUploadRegion& region : regions)
+        if (region.size > 0)
+            region.buffer->Upload(region.data, region.size, region.offset);
+}
+#endif

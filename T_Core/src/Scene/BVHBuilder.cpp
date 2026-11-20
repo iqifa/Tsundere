@@ -422,20 +422,24 @@ bool BVHBuilder::UploadGeometryPatches()
 		{
 			try
 			{
-				// 原地写入；后端负责与在途帧的读取同步（Vulkan Upload 内有屏障，GL BufferSubData 隐式同步）
+				// 所有被 refit 的网格的 3 段（平铺模式 2 段）合成一批：Vulkan 只提交、等待一次。
+				// 原地写入与在途帧读取的同步由后端负责（Vulkan 批量上传前后有屏障，GL BufferSubData 隐式同步）。
+				std::vector<BufferUploadRegion> regions;
+				regions.reserve(m_PatchedSlots.size() * 3);
 				for (const uint32_t slot : m_PatchedSlots)
 				{
 					const BVHBLASRange& r = m_Data.blas[slot];
 					if (r.triangleCount == 0)
 						continue;
 					if (trees && r.nodeCount > 0)
-						m_BLASNodeBuffer->Upload(m_Data.blasNodes.data() + r.nodeOffset,
-							r.nodeCount * uint32_t(sizeof(GPUBVHNode)), r.nodeOffset * uint32_t(sizeof(GPUBVHNode)));
-					m_TriangleBuffer->Upload(m_Data.triangles.data() + r.triangleOffset,
-						r.triangleCount * uint32_t(sizeof(GPUBVHTriangle)), r.triangleOffset * uint32_t(sizeof(GPUBVHTriangle)));
-					m_TriangleAttribBuffer->Upload(m_Data.attribs.data() + r.triangleOffset,
-						r.triangleCount * uint32_t(sizeof(GPUBVHTriangleAttrib)), r.triangleOffset * uint32_t(sizeof(GPUBVHTriangleAttrib)));
+						regions.push_back({ m_BLASNodeBuffer.get(), m_Data.blasNodes.data() + r.nodeOffset,
+							r.nodeCount * uint32_t(sizeof(GPUBVHNode)), r.nodeOffset * uint32_t(sizeof(GPUBVHNode)) });
+					regions.push_back({ m_TriangleBuffer.get(), m_Data.triangles.data() + r.triangleOffset,
+						r.triangleCount * uint32_t(sizeof(GPUBVHTriangle)), r.triangleOffset * uint32_t(sizeof(GPUBVHTriangle)) });
+					regions.push_back({ m_TriangleAttribBuffer.get(), m_Data.attribs.data() + r.triangleOffset,
+						r.triangleCount * uint32_t(sizeof(GPUBVHTriangleAttrib)), r.triangleOffset * uint32_t(sizeof(GPUBVHTriangleAttrib)) });
 				}
+				RHIBuffer::UploadBatch(regions);
 				return true;
 			}
 			catch (const std::exception& e)

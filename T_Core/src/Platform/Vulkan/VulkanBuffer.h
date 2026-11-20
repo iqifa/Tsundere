@@ -10,6 +10,8 @@ public:
     ~VulkanBuffer() override;
 
     void Upload(const void* data, uint32_t size, uint32_t offset = 0) override;
+    // RHIBuffer::UploadBatch 的实现：设备本地区段一次提交、一次等待。
+    static void UploadRegions(const std::vector<BufferUploadRegion>& regions);
     void* Map() override;
     void Unmap() override;
     uint32_t GetSize() const override { return m_Size; }
