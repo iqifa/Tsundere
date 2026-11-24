@@ -34,20 +34,29 @@ public:
 	void Setup(RenderGraphBuilder& builder) override
 	{
 		m_SceneColor = {};
-		const auto opaque = ReadOpaqueSceneInputs(builder);
-		if (!opaque.IsValid())
-			return;
-
-		m_OpaqueColor = builder.ReadTexture(opaque.colorName, RGAccess::CopySrc);
-		const auto taaColor = builder.ReadTexture("TAA.SceneColor", RGAccess::CopySrc);
-		m_BaseColor = taaColor.id != InvalidResourceId ? taaColor : m_OpaqueColor;
-		m_OpaqueDepth = builder.ReadTexture(opaque.depthName, RGAccess::CopySrc);
+		m_BaseColor = builder.ReadTexture("TAA.SceneColor");
+		m_StableProjection = m_BaseColor.id != InvalidResourceId;
+		if (m_StableProjection)
+		{
+			builder.ReadTexture("TAA.SceneColor", RGAccess::CopySrc);
+			m_OpaqueDepth = builder.ReadTexture("TAA.Depth", RGAccess::CopySrc);
+			if (m_OpaqueDepth.id == InvalidResourceId)
+				return;
+		}
+		else
+		{
+			const auto opaque = ReadOpaqueSceneInputs(builder);
+			if (!opaque.IsValid())
+				return;
+			m_BaseColor = builder.ReadTexture(opaque.colorName, RGAccess::CopySrc);
+			m_OpaqueDepth = builder.ReadTexture(opaque.depthName, RGAccess::CopySrc);
+		}
 		m_ShadowMap = builder.ReadTexture("ShadowMap.Depth");
 
 		RDGTextureDesc color;
 		color.width = m_Width;
 		color.height = m_Height;
-		color.format = opaque.ColorFormat();
+		color.format = builder.GetTextureDesc(m_BaseColor).format;
 		color.usage = TextureUsage::ColorAttachment | TextureUsage::Sampled | TextureUsage::TransferDst;
 
 		PipelineDesc pipeDesc;
@@ -75,6 +84,8 @@ public:
 		m_OpaqueDepthSample = builder.CreateTexture("OpaqueDepth", depth);
 		builder.WriteTexture(m_OpaqueDepthSample, RGAccess::CopyDst);
 		builder.ReadTexture("OpaqueDepth");
+		builder.DescribeTextureCopy(m_BaseColor, m_SceneColor);
+		builder.DescribeTextureCopy(m_OpaqueDepth, m_OpaqueDepthSample);
 		builder.Export(m_SceneColor);
 	}
 
@@ -117,10 +128,10 @@ public:
 		auto& cmd = context.GetCmd();
 		const ForwardMeshRenderer::Textures textures{
 			m_ShadowMap.id != InvalidResourceId ? context.GetTexture(m_ShadowMap) : nullptr,
-			context.GetTexture(m_OpaqueColor),
+			context.GetTexture(m_BaseColor),
 			context.GetTexture(m_OpaqueDepthSample)
 		};
-		m_MeshRenderer.UploadFrame(*m_Scene, *m_FrameData, textures.shadow);
+		m_MeshRenderer.UploadFrame(*m_Scene, *m_FrameData, textures.shadow, m_StableProjection);
 		for (const auto& item : items)
 			m_MeshRenderer.Draw(cmd, *item.mesh, item.material, item.model, item.previous, textures);
 	}
@@ -130,7 +141,7 @@ private:
 	Ref<RGFrameData> m_FrameData;
 	ForwardMeshRenderer m_MeshRenderer;
 	RGTextureHandle m_ShadowMap;
-	RGTextureHandle m_OpaqueColor;
+	bool m_StableProjection = false;
 	RGTextureHandle m_BaseColor;
 	RGTextureHandle m_OpaqueDepth;
 	RGTextureHandle m_OpaqueDepthSample;

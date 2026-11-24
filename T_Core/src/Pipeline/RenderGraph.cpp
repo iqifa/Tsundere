@@ -142,6 +142,8 @@ void RenderGraph::Compile()
 
     edges_.clear();
     edges_.resize(passes_.size());
+    edgeInfos_.clear();
+    ++compileSerial_;
 
     executionOrder_.clear();
 
@@ -204,6 +206,7 @@ void RenderGraph::Compile()
             if (state.lastWriter != InvalidPassId)
             {
                 AddEdge(state.lastWriter, index);
+                RecordEdge(state.lastWriter, index, resourceid, RGHazard::RAW);
 
                 // RAW: this pass reads what lastWriter wrote. If that write was
                 // an image store, the read needs a barrier before this pass.
@@ -248,6 +251,7 @@ void RenderGraph::Compile()
             if (state.lastWriter != InvalidPassId)
             {
                 AddEdge(state.lastWriter, index);
+                RecordEdge(state.lastWriter, index, resourceid, RGHazard::WAW);
 
                 // WAW: two image stores to the same resource are not ordered
                 // against each other without a barrier.
@@ -258,6 +262,7 @@ void RenderGraph::Compile()
             for (auto reader : state.readers)
             {
                 AddEdge(reader, index);
+                RecordEdge(reader, index, resourceid, RGHazard::WAR);
             }
             state.readers.clear();
 
@@ -578,6 +583,16 @@ void RenderGraph::AddEdge(PassId from, PassId to)
         list.push_back(to);
 }
 
+void RenderGraph::RecordEdge(PassId from, PassId to, ResourceId resource, RGHazard hazard)
+{
+    // Same filtering as AddEdge, so the debug record never shows an edge the
+    // sort did not see.
+    if (from == to || from >= passes_.size() || to >= passes_.size())
+        return;
+
+    edgeInfos_.push_back({ from, to, resource, hazard });
+}
+
 void RenderGraph::AllocateTransientResources()
 {
     for (auto& resource : resources_)
@@ -823,6 +838,7 @@ void RenderGraph::Reset()
     framebuffers_.clear();
     executionOrder_.clear();
     edges_.clear();
+    edgeInfos_.clear();
     passes_.clear();
     resources_.clear();
 

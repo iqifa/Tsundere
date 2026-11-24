@@ -440,6 +440,9 @@ void VulkanExampleLayer::OnImGuiRender()
 		ImGui::End();
 	}
 
+	if (EditorWindows::RenderGraph())
+		m_GraphViewer.Draw(m_RenderGraph, &EditorWindows::RenderGraph());
+
 	// 渲染 Pass 管理面板
 	if (m_ShowPassManager)
 	{

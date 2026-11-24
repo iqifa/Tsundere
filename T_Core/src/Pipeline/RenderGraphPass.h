@@ -53,6 +53,9 @@ public:
 	// ========================================
 	// 读取已存在的纹理资源。如果资源不存在，返回 invalid handle。
 	RGTextureHandle ReadTexture(const std::string& name, RGAccess access = RGAccess::ReadSRV);
+	const RDGTextureDesc& GetTextureDesc(RGTextureHandle handle) const;
+	// Debug metadata for explicitly declared CopySrc/CopyDst accesses.
+	void DescribeTextureCopy(RGTextureHandle source, RGTextureHandle destination, bool afterRender = false);
 	RGBufferHandle ReadBuffer(const std::string& name, RGAccess access = RGAccess::ReadSRV);
 
 	// ========================================

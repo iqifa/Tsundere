@@ -7,6 +7,7 @@
 #include <Pipeline/Passes/PostProcessPass.h>
 #include <Pipeline/Passes/ViewportPreviewPass.h>
 #include <Platform/RHI/RHIGpuTimer.h>
+#include <Panels/RenderGraphViewer.h>
 
 class VulkanExampleLayer :public BasePanel {
 public:
@@ -89,6 +90,7 @@ private:
 	Ref<RHIGpuTimer> m_GraphTimer;
 	RenderGraph m_RenderGraph;
 	RenderPassManager m_PassManager;  // Pass 管理器
+	RenderGraphViewer m_GraphViewer;  // Window -> Render Graph
 	bool m_GeometryMSAAEnabled = true;
 	bool m_TAAOutputAvailable = false;
 

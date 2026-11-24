@@ -71,8 +71,10 @@ public:
 		pipeDesc.vertexLayout = ScreenVertexLayout;
 		pipeDesc.topology = PrimitiveTopology::Triangles;
 		pipeDesc.cullMode = CullMode::None;
-		pipeDesc.depthTest = false;
-		pipeDesc.depthWrite = false;
+		pipeDesc.depthTest = true;
+		pipeDesc.depthWrite = true;
+		pipeDesc.depthOp = CompareOp::Always;
+		pipeDesc.renderingSignature.depthFormat = Format::D24_UNORM_S8_UINT;
 		m_TAApiplineDesc = pipeDesc;
 		m_ScreenVertexLayout = ScreenVertexLayout;
 	}
@@ -104,6 +106,16 @@ public:
 		builder.ReadTexture("SceneColor", RGAccess::CopySrc);
 		builder.Export(m_OutputColor);
 
+		// Current-frame depth on the same stable grid as the resolved color.
+		// Do not accumulate depth in history: transparency needs current occlusion.
+		RDGTextureDesc depthDesc = colorDesc;
+		depthDesc.format = Format::D24_UNORM_S8_UINT;
+		depthDesc.usage = TextureUsage::DepthStencil | TextureUsage::Sampled | TextureUsage::TransferSrc;
+		depthDesc.minFilter = depthDesc.magFilter = FilterMode::Nearest;
+		const auto stableDepth = builder.CreateTexture("Depth", depthDesc);
+		builder.SetDepthOutput(stableDepth);
+		builder.Export(stableDepth);
+
 		Texture2DDesc historyDesc;
 		historyDesc.width = m_Width;
 		historyDesc.height = m_Height;
@@ -119,6 +131,7 @@ public:
 		builder.ImportTexture(m_HistoryColorTex.get(), historyResource, "HistoryColor");
 		m_HistoryColor = builder.ReadTexture("HistoryColor");
 		builder.WriteTexture(m_HistoryColor, RGAccess::CopyDst);
+		builder.DescribeTextureCopy(m_OutputColor, m_HistoryColor, true);
 
 		if (m_TAApiplineDesc.renderingSignature.colorFormats != std::vector<Format>{ colorDesc.format })
 		{
@@ -144,7 +157,7 @@ public:
 			return;
 
 		auto& cmd = context.GetCmd();
-		cmd.SetDepthTest(false);
+		cmd.SetDepthTest(true);
 		cmd.SetDepthFunc(CompareOp::Always);
 
 
