@@ -14,6 +14,7 @@ Ref<RHIBuffer> RHIBuffer::Create(const BufferDesc& desc)
 
 #include <cstring>
 #include <stdexcept>
+#include <utility>
 
 namespace
 {
@@ -156,6 +157,62 @@ void VulkanBuffer::Upload(const void* data, uint32_t size, uint32_t offset)
         m_Buffer == VK_NULL_HANDLE || m_QueueFamily == VK_QUEUE_FAMILY_IGNORED)
         return;
 
+    UploadRegions({ BufferUploadRegion{ this, data, size, offset } });
+}
+
+#ifdef RenderAPI_Vulkan
+void RHIBuffer::UploadBatch(const std::vector<BufferUploadRegion>& regions)
+{
+    VulkanBuffer::UploadRegions(regions);
+}
+#endif
+
+void VulkanBuffer::UploadRegions(const std::vector<BufferUploadRegion>& regions)
+{
+    // ---- 1. 全部校验通过之前不写任何数据 ----
+    struct Copy
+    {
+        VulkanBuffer* dst = nullptr;
+        const BufferUploadRegion* region = nullptr;
+        VkDeviceSize stagingOffset = 0;
+    };
+    std::vector<Copy> copies;
+    std::vector<std::pair<VulkanBuffer*, const BufferUploadRegion*>> hostWrites;
+    VkDeviceSize stagingBytes = 0;
+    VulkanBuffer* first = nullptr;
+    for (const BufferUploadRegion& region : regions)
+    {
+        auto* vk = dynamic_cast<VulkanBuffer*>(region.buffer);
+        if (!vk || !region.data || region.offset > vk->m_Size || region.size > vk->m_Size - region.offset)
+            throw std::invalid_argument("UploadBatch: invalid region");
+        if (region.size == 0)
+            continue;
+        if (vk->m_HostVisible)
+        {
+            if (!vk->m_Mapped)
+                throw std::invalid_argument("UploadBatch: host-visible buffer is not mapped");
+            hostWrites.emplace_back(vk, &region);
+            continue;
+        }
+        if (vk->m_Device == VK_NULL_HANDLE || vk->m_Queue == VK_NULL_HANDLE ||
+            vk->m_Buffer == VK_NULL_HANDLE || vk->m_QueueFamily == VK_QUEUE_FAMILY_IGNORED)
+            throw std::invalid_argument("UploadBatch: buffer has no device");
+        if (first && (vk->m_Device != first->m_Device || vk->m_Queue != first->m_Queue))
+            throw std::invalid_argument("UploadBatch: regions span devices or queues");
+        if (!first)
+            first = vk;
+        stagingBytes = (stagingBytes + 15) & ~VkDeviceSize(15);
+        copies.push_back({ vk, &region, stagingBytes });
+        stagingBytes += region.size;
+    }
+
+    for (const auto& write : hostWrites)
+        std::memcpy(static_cast<char*>(write.first->m_Mapped) + write.second->offset, write.second->data, write.second->size);
+    if (copies.empty())
+        return;
+
+    // ---- 2. 一个暂存 buffer + 一个命令缓冲：所有拷贝一次提交、一次等待 ----
+    const VkDevice device = first->m_Device;
     VkBuffer stagingBuffer = VK_NULL_HANDLE;
     VkDeviceMemory stagingMemory = VK_NULL_HANDLE;
     VkCommandPool commandPool = VK_NULL_HANDLE;
@@ -165,36 +222,37 @@ void VulkanBuffer::Upload(const void* data, uint32_t size, uint32_t offset)
     {
         VkBufferCreateInfo bufferInfo{};
         bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-        bufferInfo.size = size;
+        bufferInfo.size = stagingBytes;
         bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
         bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-        if (vkCreateBuffer(m_Device, &bufferInfo, nullptr, &stagingBuffer) != VK_SUCCESS)
+        if (vkCreateBuffer(device, &bufferInfo, nullptr, &stagingBuffer) != VK_SUCCESS)
             throw std::runtime_error("Failed to create Vulkan buffer staging buffer");
 
         VkMemoryRequirements requirements{};
-        vkGetBufferMemoryRequirements(m_Device, stagingBuffer, &requirements);
+        vkGetBufferMemoryRequirements(device, stagingBuffer, &requirements);
         VkMemoryAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         allocInfo.allocationSize = requirements.size;
-        allocInfo.memoryTypeIndex = FindMemoryType(
+        allocInfo.memoryTypeIndex = first->FindMemoryType(
             requirements.memoryTypeBits,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-        if (vkAllocateMemory(m_Device, &allocInfo, nullptr, &stagingMemory) != VK_SUCCESS)
+        if (vkAllocateMemory(device, &allocInfo, nullptr, &stagingMemory) != VK_SUCCESS)
             throw std::runtime_error("Failed to allocate Vulkan buffer staging memory");
-        if (vkBindBufferMemory(m_Device, stagingBuffer, stagingMemory, 0) != VK_SUCCESS)
+        if (vkBindBufferMemory(device, stagingBuffer, stagingMemory, 0) != VK_SUCCESS)
             throw std::runtime_error("Failed to bind Vulkan buffer staging memory");
 
         void* mapped = nullptr;
-        if (vkMapMemory(m_Device, stagingMemory, 0, size, 0, &mapped) != VK_SUCCESS)
+        if (vkMapMemory(device, stagingMemory, 0, stagingBytes, 0, &mapped) != VK_SUCCESS)
             throw std::runtime_error("Failed to map Vulkan buffer staging memory");
-        std::memcpy(mapped, data, size);
-        vkUnmapMemory(m_Device, stagingMemory);
+        for (const Copy& copy : copies)
+            std::memcpy(static_cast<char*>(mapped) + copy.stagingOffset, copy.region->data, copy.region->size);
+        vkUnmapMemory(device, stagingMemory);
 
         VkCommandPoolCreateInfo poolInfo{};
         poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
         poolInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
-        poolInfo.queueFamilyIndex = m_QueueFamily;
-        if (vkCreateCommandPool(m_Device, &poolInfo, nullptr, &commandPool) != VK_SUCCESS)
+        poolInfo.queueFamilyIndex = first->m_QueueFamily;
+        if (vkCreateCommandPool(device, &poolInfo, nullptr, &commandPool) != VK_SUCCESS)
             throw std::runtime_error("Failed to create Vulkan buffer upload command pool");
 
         VkCommandBufferAllocateInfo commandAlloc{};
@@ -202,7 +260,7 @@ void VulkanBuffer::Upload(const void* data, uint32_t size, uint32_t offset)
         commandAlloc.commandPool = commandPool;
         commandAlloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         commandAlloc.commandBufferCount = 1;
-        if (vkAllocateCommandBuffers(m_Device, &commandAlloc, &commandBuffer) != VK_SUCCESS)
+        if (vkAllocateCommandBuffers(device, &commandAlloc, &commandBuffer) != VK_SUCCESS)
             throw std::runtime_error("Failed to allocate Vulkan buffer upload command buffer");
 
         VkCommandBufferBeginInfo beginInfo{};
@@ -211,11 +269,27 @@ void VulkanBuffer::Upload(const void* data, uint32_t size, uint32_t offset)
         if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS)
             throw std::runtime_error("Failed to begin Vulkan buffer upload commands");
 
-        VkBufferCopy copy{};
-        copy.srcOffset = 0;
-        copy.dstOffset = offset;
-        copy.size = size;
-        vkCmdCopyBuffer(commandBuffer, stagingBuffer, m_Buffer, 1, &copy);
+        // 局部覆盖（BVH refit 等）时目标 buffer 可能仍被之前提交的帧读取：
+        // 拷贝前等同一队列上先前的命令结束（WAR），拷贝后让写入对后续任意读取可见。
+        VkMemoryBarrier barrier{};
+        barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+            0, 1, &barrier, 0, nullptr, 0, nullptr);
+
+        for (const Copy& copy : copies)
+        {
+            VkBufferCopy region{};
+            region.srcOffset = copy.stagingOffset;
+            region.dstOffset = copy.region->offset;
+            region.size = copy.region->size;
+            vkCmdCopyBuffer(commandBuffer, stagingBuffer, copy.dst->m_Buffer, 1, &region);
+        }
+
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+        vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+            0, 1, &barrier, 0, nullptr, 0, nullptr);
 
         if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS)
             throw std::runtime_error("Failed to end Vulkan buffer upload commands");
@@ -224,8 +298,8 @@ void VulkanBuffer::Upload(const void* data, uint32_t size, uint32_t offset)
         submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
         submitInfo.commandBufferCount = 1;
         submitInfo.pCommandBuffers = &commandBuffer;
-        if (vkQueueSubmit(m_Queue, 1, &submitInfo, VK_NULL_HANDLE) != VK_SUCCESS ||
-            vkQueueWaitIdle(m_Queue) != VK_SUCCESS)
+        if (vkQueueSubmit(first->m_Queue, 1, &submitInfo, VK_NULL_HANDLE) != VK_SUCCESS ||
+            vkQueueWaitIdle(first->m_Queue) != VK_SUCCESS)
         {
             throw std::runtime_error("Failed to submit Vulkan buffer upload commands");
         }
@@ -233,13 +307,13 @@ void VulkanBuffer::Upload(const void* data, uint32_t size, uint32_t offset)
     catch (...)
     {
         if (commandPool != VK_NULL_HANDLE)
-            vkDestroyCommandPool(m_Device, commandPool, nullptr);
-        DestroyBuffer(m_Device, stagingBuffer, stagingMemory);
+            vkDestroyCommandPool(device, commandPool, nullptr);
+        DestroyBuffer(device, stagingBuffer, stagingMemory);
         throw;
     }
 
-    vkDestroyCommandPool(m_Device, commandPool, nullptr);
-    DestroyBuffer(m_Device, stagingBuffer, stagingMemory);
+    vkDestroyCommandPool(device, commandPool, nullptr);
+    DestroyBuffer(device, stagingBuffer, stagingMemory);
 }
 
 void* VulkanBuffer::Map()

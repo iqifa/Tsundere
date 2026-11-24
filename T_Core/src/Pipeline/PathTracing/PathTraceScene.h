@@ -137,6 +137,14 @@ public:
 	// 硬件 Ray Query 没有自建的树，设置无效。
 	void SetTLASBuilder(BVHTLASBuilder builder);
 	BVHTLASBuilder GetTLASBuilder() const { return m_Geometry.GetSettings().tlasBuilder; }
+	// BLAS refit 策略（两个后端都生效；硬件后端用 UPDATE 模式）。只影响之后的几何变化，不触发重建。
+	void SetBLASRefit(bool enabled, uint32_t maxRefits, float costRatio)
+	{
+		BVHBuildSettings& settings = m_Geometry.GetSettings();
+		settings.blasRefit = enabled;
+		settings.maxBLASRefits = maxRefits;
+		settings.blasRefitCostRatio = costRatio;
+	}
 	uint64_t GetMissedNotificationTotal() const;
 	const std::string& GetLastValidationReport() const;
 

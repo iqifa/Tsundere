@@ -177,6 +177,16 @@ struct BVHInstanceInput
 	uint32_t  entityID = kBVHInvalidIndex;
 };
 
+// 增量更新时每个 BLAS 槽位的附加信息（与 BVHBuilder::GetBLASKeys 一一对应），给硬件后端用：
+//   refitFrom  非 0：本次的新键由旧键 refitFrom 的 BLAS refit 而来（三角形数 / 顺序不变），
+//              硬件后端可以对旧 BLAS 做 UPDATE 而不是重新 BUILD
+//   dynamic    该网格的几何改过（变形网格）：硬件后端构建时带 ALLOW_UPDATE，以后才能 refit
+struct BVHBLASHint
+{
+	uint64_t refitFrom = 0;
+	bool     dynamic = false;
+};
+
 // TLAS 的构建算法。TLAS 在实例移动 / 增删时整棵重建（不做 refit），构建速度比树质量更重要：
 //   LBVH  Morton 码排序 + 按最高不同位二分（O(n log n) 排序，其余线性），默认
 //   SAH   分箱 SAH（与 BLAS 相同），树质量略好、构建慢，对照用
@@ -193,6 +203,16 @@ struct BVHBuildSettings
 	uint32_t maxBLASDepth = 32;  // 深度上限 = 着色器遍历栈需求；超限前自动退化为中位切分
 	uint32_t maxTLASDepth = 24;
 	BVHTLASBuilder tlasBuilder = BVHTLASBuilder::LBVH;   // BLAS 始终用 SAH
+
+	// BLAS refit：网格几何变了但拓扑（索引、有效三角形集合）没变时，保留树结构、只按新顶点
+	// 自底向上重算包围盒（BuildMeshBLAS 的 SAH 要排序分箱，refit 只是一遍线性扫描）。
+	// refit 不改变树结构，顶点移动越多树越松；满足任一条件就改为完整重建：
+	//   * 自上次完整构建以来已 refit maxBLASRefits 次
+	//   * 当前代价 / 构建时代价 > blasRefitCostRatio（代价见 BLASQualityCost）
+	// 只看 refit 次数而不看帧数：没有几何变化的帧不会让树变差。
+	bool     blasRefit = true;
+	uint32_t maxBLASRefits = 32;
+	float    blasRefitCostRatio = 1.5f;
 
 	// false = “平铺”几何：三角形按网格原始顺序写出、不建任何树（blasNodes 只有占位、
 	// tlasNodes 为空），实例按输入顺序排列。给硬件光追（Vulkan BLAS/TLAS）使用：
@@ -282,10 +302,27 @@ struct BVHMeshBLAS
 	std::vector<GPUBVHTriangleAttrib> attribs;
 	BVHBLASRange                      range;      // triangleCount == 0 表示空网格
 	uint32_t                          skippedTriangles = 0;
+
+	// ---- refit 用（不上传）----
+	std::vector<uint32_t> sourceTriangles;    // triangles[i] 来自输入的第 sourceTriangles[i] 个三角形
+	uint64_t topologyHash = 0;                // 顶点数 + 索引内容
+	uint32_t refitCount = 0;                  // 自上次完整构建以来的 refit 次数
+	float    buildCost = 0.0f;                // 完整构建时的 BLASQualityCost
+	float    cost = 0.0f;                     // 当前（最近一次构建 / refit 后）
 };
 
 // 构建一个网格的 BLAS 片段（settings.buildTrees == false 时为平铺三角形，无节点）。
 T_API void BuildMeshBLAS(const BVHMeshInput& mesh, const BVHBuildSettings& settings, BVHMeshBLAS& out);
+
+// 树质量代价，用来判断 refit 后要不要重建：
+//   树模式  ∑内部节点面积 + ∑叶子面积 × 三角形数，除以根面积（SAH 代价，与整体缩放无关）
+//   平铺    包围盒半表面积（硬件 BLAS 的树看不到，只能用整体膨胀程度近似）
+T_API float BLASQualityCost(const BVHMeshBLAS& piece);
+
+// 就地 refit：拓扑与构建时一致（顶点数 / 索引相同、有效三角形集合相同）时，按新顶点重写
+// 三角形与属性、自底向上重算节点包围盒，refitCount + 1、更新 cost，返回 true。
+// 拓扑变了返回 false，piece 不变（调用方改为 BuildMeshBLAS）。
+T_API bool RefitMeshBLAS(const BVHMeshInput& mesh, BVHMeshBLAS& piece);
 
 // 把片段追加到 data（节点、三角形、属性、blas[]、统计）。返回 blas[] 下标。
 T_API uint32_t AppendMeshBLAS(const BVHMeshBLAS& piece, BVHSceneData& data);

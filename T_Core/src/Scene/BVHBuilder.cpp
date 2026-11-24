@@ -1,5 +1,6 @@
 #include "BVHBuilder.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstring>
 #include <exception>
@@ -65,6 +66,7 @@ void BVHBuilder::ResetIncremental()
 	m_BLASCache.clear();
 	m_BLASOrder.clear();
 	m_BLASKeys.clear();
+	m_BLASHints.clear();
 	m_LastInstances.clear();
 	m_IncrementalValid = false;
 }
@@ -75,7 +77,10 @@ BVHIncrementalResult BVHBuilder::UpdateIncremental(const Scene& scene, bool uplo
 	const auto start = std::chrono::steady_clock::now();
 
 	for (auto& [id, entry] : m_BLASCache)
+	{
 		entry.used = false;
+		entry.refitFrom = 0;
+	}
 
 	// ---- 1) 遍历实例；缓存缺失 / 几何版本变化的网格才拷贝顶点并构建 BLAS ----
 	std::vector<BVHInstanceInput> inputs;
@@ -99,17 +104,36 @@ BVHIncrementalResult BVHBuilder::UpdateIncremental(const Scene& scene, bool uplo
 
 			const uint64_t geometryId = mesh.GeometryId.Get();
 			auto it = m_BLASCache.find(geometryId);
-			if (it == m_BLASCache.end() || it->second.revision != mesh.GeometryRevision)
+			if (it == m_BLASCache.end())
 			{
-				const bool isNew = it == m_BLASCache.end();
 				CachedBLAS entry;
 				entry.revision = mesh.GeometryRevision;
 				entry.key = m_NextBLASKey++;
 				BuildMeshBLAS(CopyMeshInput(mesh), m_Settings, entry.piece);
-				it = m_BLASCache.insert_or_assign(geometryId, std::move(entry)).first;
-				if (isNew)
-					newGeometry.push_back(geometryId);
+				it = m_BLASCache.emplace(geometryId, std::move(entry)).first;
+				newGeometry.push_back(geometryId);
 				++result.blasBuilt;
+			}
+			else if (it->second.revision != mesh.GeometryRevision)
+			{
+				// 几何改了：拓扑不变且树还没退化太多就 refit，否则重建
+				CachedBLAS& entry = it->second;
+				const BVHMeshInput input = CopyMeshInput(mesh);
+				const uint64_t oldKey = entry.key;
+				bool refitted = false;
+				if (m_Settings.blasRefit && entry.piece.refitCount < m_Settings.maxBLASRefits &&
+					RefitMeshBLAS(input, entry.piece))
+				{
+					refitted = !(entry.piece.buildCost > 0.0f) ||
+						entry.piece.cost <= entry.piece.buildCost * m_Settings.blasRefitCostRatio;
+				}
+				if (!refitted)
+					BuildMeshBLAS(input, m_Settings, entry.piece);
+				entry.revision = mesh.GeometryRevision;
+				entry.key = m_NextBLASKey++;
+				entry.refitFrom = refitted ? oldKey : 0;
+				entry.dynamic = true;
+				++(refitted ? result.blasRefitted : result.blasBuilt);
 			}
 			else if (!it->second.used)
 			{
@@ -137,11 +161,40 @@ BVHIncrementalResult BVHBuilder::UpdateIncremental(const Scene& scene, bool uplo
 		else
 			++it;
 	}
-	result.geometryChanged = !m_IncrementalValid || result.blasBuilt > 0 || result.blasReleased > 0;
+	result.geometryChanged = !m_IncrementalValid || result.blasBuilt > 0 || result.blasRefitted > 0 || result.blasReleased > 0;
 
-	// ---- 3) BLAS 集合变了：保持已有顺序、追加新网格，重新拼接 ----
+	// refitFrom 只描述本次更新
+	for (BVHBLASHint& hint : m_BLASHints)
+		hint.refitFrom = 0;
+	m_PatchedSlots.clear();
+
+	// ---- 3a) 只有 refit（集合、顺序、各片段大小都没变）：原地覆盖这些片段 ----
+	result.geometryPatched = m_IncrementalValid && result.blasRefitted > 0 &&
+		result.blasBuilt == 0 && result.blasReleased == 0 && m_BLASOrder.size() == m_Data.blas.size();
+	if (result.geometryPatched)
+	{
+		std::lock_guard<std::mutex> lock(m_Mutex);
+		for (uint32_t slot = 0; slot < m_BLASOrder.size(); ++slot)
+		{
+			const CachedBLAS& entry = m_BLASCache.at(m_BLASOrder[slot]);
+			if (entry.refitFrom == 0)
+				continue;
+			const BVHMeshBLAS& piece = entry.piece;
+			BVHBLASRange& range = m_Data.blas[slot];
+			// refit 不改变节点 / 三角形数，偏移照旧
+			std::copy(piece.nodes.begin(), piece.nodes.end(), m_Data.blasNodes.begin() + range.nodeOffset);
+			std::copy(piece.triangles.begin(), piece.triangles.end(), m_Data.triangles.begin() + range.triangleOffset);
+			std::copy(piece.attribs.begin(), piece.attribs.end(), m_Data.attribs.begin() + range.triangleOffset);
+			range.bounds = piece.range.bounds;
+			m_BLASKeys[slot] = entry.key;
+			m_BLASHints[slot] = { entry.refitFrom, entry.dynamic };
+			m_PatchedSlots.push_back(slot);
+		}
+	}
+
+	// ---- 3b) BLAS 集合变了：保持已有顺序、追加新网格，重新拼接 ----
 	BVHSceneData assembled;
-	if (result.geometryChanged)
+	if (result.geometryChanged && !result.geometryPatched)
 	{
 		std::vector<uint64_t> order;
 		order.reserve(m_BLASCache.size());
@@ -162,11 +215,14 @@ BVHIncrementalResult BVHBuilder::UpdateIncremental(const Scene& scene, bool uplo
 		pieces.reserve(order.size());
 		m_BLASKeys.clear();
 		m_BLASKeys.reserve(order.size());
+		m_BLASHints.clear();
+		m_BLASHints.reserve(order.size());
 		for (uint64_t id : order)
 		{
 			const CachedBLAS& entry = m_BLASCache.at(id);
 			pieces.push_back(&entry.piece);
 			m_BLASKeys.push_back(entry.key);
+			m_BLASHints.push_back({ entry.refitFrom, entry.dynamic });
 		}
 		AssembleBLAS(pieces, assembled);
 		m_BLASOrder = std::move(order);
@@ -194,13 +250,13 @@ BVHIncrementalResult BVHBuilder::UpdateIncremental(const Scene& scene, bool uplo
 
 	{
 		std::lock_guard<std::mutex> lock(m_Mutex);
-		if (result.geometryChanged)
+		if (result.geometryChanged && !result.geometryPatched)
 		{
 			BuildTLAS(inputs, m_Settings, assembled);
 			m_Data = std::move(assembled);
 			result.instancesChanged = true;
 		}
-		else if (!sameInstances)
+		else if (result.geometryPatched || !sameInstances)   // refit 后实例包围盒变了，TLAS 照样重建
 		{
 			BuildTLAS(inputs, m_Settings, m_Data);
 			result.instancesChanged = true;
@@ -218,12 +274,14 @@ BVHIncrementalResult BVHBuilder::UpdateIncremental(const Scene& scene, bool uplo
 	m_LastInstances = std::move(inputs);
 	m_IncrementalValid = true;
 
-	// ---- 6) 上传：几何 buffer 只在 BLAS 集合变化时重传 ----
+	// ---- 6) 上传：BLAS 集合变化时整体重传几何 buffer；只有 refit 时只写被 refit 的区段 ----
 	if (upload && result.Changed())
 	{
 		const auto uploadStart = std::chrono::steady_clock::now();
 		bool ok = true;
-		if (result.geometryChanged)
+		if (result.geometryPatched)
+			ok = UploadGeometryPatches();
+		else if (result.geometryChanged)
 			ok = UploadGeometryBuffers();
 		if (ok && !UploadInstanceBuffers())
 		{
@@ -349,6 +407,49 @@ bool BVHBuilder::UploadGeometryBuffers()
 	m_TriangleBuffer = std::move(triangles);
 	m_TriangleAttribBuffer = std::move(attribs);
 	return true;
+}
+
+bool BVHBuilder::UploadGeometryPatches()
+{
+	{
+		std::lock_guard<std::mutex> lock(m_Mutex);
+		const bool trees = !m_Data.tlasNodes.empty();
+		const bool buffersMatch = m_TriangleBuffer && m_TriangleAttribBuffer && (!trees || m_BLASNodeBuffer) &&
+			m_TriangleBuffer->GetSize() == m_Data.triangles.size() * sizeof(GPUBVHTriangle) &&
+			m_TriangleAttribBuffer->GetSize() == m_Data.attribs.size() * sizeof(GPUBVHTriangleAttrib) &&
+			(!trees || m_BLASNodeBuffer->GetSize() == m_Data.blasNodes.size() * sizeof(GPUBVHNode));
+		if (buffersMatch)
+		{
+			try
+			{
+				// 所有被 refit 的网格的 3 段（平铺模式 2 段）合成一批：Vulkan 只提交、等待一次。
+				// 原地写入与在途帧读取的同步由后端负责（Vulkan 批量上传前后有屏障，GL BufferSubData 隐式同步）。
+				std::vector<BufferUploadRegion> regions;
+				regions.reserve(m_PatchedSlots.size() * 3);
+				for (const uint32_t slot : m_PatchedSlots)
+				{
+					const BVHBLASRange& r = m_Data.blas[slot];
+					if (r.triangleCount == 0)
+						continue;
+					if (trees && r.nodeCount > 0)
+						regions.push_back({ m_BLASNodeBuffer.get(), m_Data.blasNodes.data() + r.nodeOffset,
+							r.nodeCount * uint32_t(sizeof(GPUBVHNode)), r.nodeOffset * uint32_t(sizeof(GPUBVHNode)) });
+					regions.push_back({ m_TriangleBuffer.get(), m_Data.triangles.data() + r.triangleOffset,
+						r.triangleCount * uint32_t(sizeof(GPUBVHTriangle)), r.triangleOffset * uint32_t(sizeof(GPUBVHTriangle)) });
+					regions.push_back({ m_TriangleAttribBuffer.get(), m_Data.attribs.data() + r.triangleOffset,
+						r.triangleCount * uint32_t(sizeof(GPUBVHTriangleAttrib)), r.triangleOffset * uint32_t(sizeof(GPUBVHTriangleAttrib)) });
+				}
+				RHIBuffer::UploadBatch(regions);
+				return true;
+			}
+			catch (const std::exception& e)
+			{
+				Error_Core("[BVH] partial geometry upload failed, re-uploading everything: {}", e.what());
+			}
+		}
+	}
+	// 还没上传过 / 尺寸对不上 / 局部写入失败：整体重传
+	return UploadGeometryBuffers();
 }
 
 bool BVHBuilder::UploadInstanceBuffers()

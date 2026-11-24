@@ -26,6 +26,37 @@ namespace
 	{
 		return SceneChanges::Snapshot().ChangedSince(before);
 	}
+
+	// 每个 BLAS：根包围盒 = range.bounds，节点包围盒覆盖孩子 / 叶子三角形（原地覆盖后也必须成立）
+	void CheckBLASConsistent(const BVHSceneData& data)
+	{
+		const auto inside = [](const glm::vec3& p, const GPUBVHNode& n)
+		{
+			return glm::all(glm::greaterThanEqual(p, n.aabbMin - 1e-5f)) && glm::all(glm::lessThanEqual(p, n.aabbMax + 1e-5f));
+		};
+		for (const BVHBLASRange& range : data.blas)
+		{
+			if (range.triangleCount == 0 || range.nodeCount == 0)
+				continue;
+			const GPUBVHNode* nodes = data.blasNodes.data() + range.nodeOffset;
+			assert(nodes[0].aabbMin == range.bounds.min && nodes[0].aabbMax == range.bounds.max);
+			for (uint32_t n = 0; n < range.nodeCount; ++n)
+			{
+				const GPUBVHNode& node = nodes[n];
+				if (node.IsLeaf())
+				{
+					for (uint32_t t = node.leftFirst; t < node.leftFirst + node.count; ++t)
+					{
+						const GPUBVHTriangle& tri = data.triangles[range.triangleOffset + t];
+						assert(inside(tri.v0, node) && inside(tri.v1, node) && inside(tri.v2, node));
+					}
+					continue;
+				}
+				for (uint32_t c = node.leftFirst; c < node.leftFirst + 2; ++c)
+					assert(inside(nodes[c].aabbMin, node) && inside(nodes[c].aabbMax, node));
+			}
+		}
+	}
 }
 
 int main()
@@ -121,11 +152,41 @@ int main()
 		assert(sawBlue);
 	}
 
-	// Mesh 顶点就地修改 + 通知：只重建这一个 BLAS
+	// Mesh 顶点就地修改 + 通知：拓扑没变，只 refit 这一个 BLAS
 	modelA->meshes[1].vertices[2].Position.y = 2;
 	SceneChanges::NotifyMeshGeometry(modelA->meshes[1]);
 	r = builder.UpdateIncremental(scene, false);
-	assert(r.geometryChanged && r.blasBuilt == 1 && r.blasReused == 2 && r.blasReleased == 0);
+	const size_t nodesBeforeRefit = builder.GetData().blasNodes.size();
+	const size_t trisBeforeRefit = builder.GetData().triangles.size();
+	assert(r.geometryChanged && r.blasRefitted == 1 && r.blasBuilt == 0 && r.blasReused == 2 && r.blasReleased == 0);
+	// 只有 refit：原地覆盖，不重新拼接（大小、偏移不变），树一致
+	assert(r.geometryPatched && r.instancesChanged);
+	assert(builder.GetData().blasNodes.size() == nodesBeforeRefit && builder.GetData().triangles.size() == trisBeforeRefit);
+	CheckBLASConsistent(builder.GetData());
+	{
+		// 硬件后端提示：被 refit 的槽位指向旧键、标为动态；其余槽位无提示
+		const auto& hints = builder.GetBLASHints();
+		const auto& now = builder.GetBLASKeys();
+		assert(hints.size() == now.size());
+		int refitSlots = 0;
+		for (size_t i = 0; i < hints.size(); ++i)
+		{
+			if (hints[i].refitFrom == 0)
+			{
+				assert(!hints[i].dynamic && now[i] == keys[i]);
+				continue;
+			}
+			++refitSlots;
+			assert(hints[i].dynamic && hints[i].refitFrom == keys[i] && now[i] != keys[i]);
+		}
+		assert(refitSlots == 1);
+		// TLAS 也跟着重建（实例包围盒变了），树内容与新顶点一致
+		const auto& data = builder.GetData();
+		bool sawMovedVertex = false;
+		for (const auto& tri : data.triangles)
+			sawMovedVertex = sawMovedVertex || tri.v2.y == 2.0f;
+		assert(sawMovedVertex && r.instancesChanged);
+	}
 	{
 		// 拼接顺序保持不变，只有被改的那个网格换了键
 		const auto& now = builder.GetBLASKeys();
@@ -135,6 +196,70 @@ int main()
 			differing += now[i] != keys[i];
 		assert(differing == 1);
 	}
+
+	// 下一次无关更新：提示清空（refitFrom 只描述最近一次更新），动态标记保留
+	SceneChanges::NotifyMeshGeometry(modelA->meshes[1]);
+	modelA->meshes[1].vertices[2].Position.y = 2.5f;
+	r = builder.UpdateIncremental(scene, false);
+	assert(r.blasRefitted == 1);
+	e2.GetComponent<Component::Transform>().Position = { 6, 0, 0 };
+	r = builder.UpdateIncremental(scene, false);
+	assert(r.instancesChanged && !r.geometryChanged && r.blasRefitted == 0);
+	for (const auto& hint : builder.GetBLASHints())
+		assert(hint.refitFrom == 0);
+	{
+		int dynamicSlots = 0;
+		for (const auto& hint : builder.GetBLASHints())
+			dynamicSlots += hint.dynamic;
+		assert(dynamicSlots == 1);
+	}
+
+	// 同一次更新里一个网格 refit、另一个重建：不能原地覆盖（片段大小可能变了），整体重新拼接
+	modelA->meshes[1].vertices[2].Position.y = 2.75f;
+	SceneChanges::NotifyMeshGeometry(modelA->meshes[1]);
+	modelB->meshes[0].vertices.push_back(modelB->meshes[0].vertices[0]);   // 顶点数变了 → 拓扑变化
+	SceneChanges::NotifyMeshGeometry(modelB->meshes[0]);
+	r = builder.UpdateIncremental(scene, false);
+	assert(r.blasRefitted == 1 && r.blasBuilt == 1 && !r.geometryPatched && r.geometryChanged);
+	CheckBLASConsistent(builder.GetData());
+	{
+		int refitSlots = 0;
+		for (const auto& hint : builder.GetBLASHints())
+			refitSlots += hint.refitFrom != 0;
+		assert(refitSlots == 1);   // 重新拼接时提示照样带上
+	}
+
+	// refit 次数上限：第 maxBLASRefits + 1 次几何变化改为完整重建，之后重新计数
+	builder.GetSettings().maxBLASRefits = 4;   // 已 refit 3 次
+	modelA->meshes[1].vertices[2].Position.y = 3;
+	SceneChanges::NotifyMeshGeometry(modelA->meshes[1]);
+	r = builder.UpdateIncremental(scene, false);
+	assert(r.blasRefitted == 1);
+	modelA->meshes[1].vertices[2].Position.y = 3.5f;
+	SceneChanges::NotifyMeshGeometry(modelA->meshes[1]);
+	r = builder.UpdateIncremental(scene, false);
+	assert(r.blasRefitted == 0 && r.blasBuilt == 1);
+	for (const auto& hint : builder.GetBLASHints())
+		assert(hint.refitFrom == 0);   // 重建：硬件后端也完整 BUILD
+	modelA->meshes[1].vertices[2].Position.y = 4;
+	SceneChanges::NotifyMeshGeometry(modelA->meshes[1]);
+	r = builder.UpdateIncremental(scene, false);
+	assert(r.blasRefitted == 1);
+	builder.GetSettings().maxBLASRefits = 32;
+
+	// 拓扑变化（索引变了）：不能 refit，完整重建
+	std::swap(modelA->meshes[1].indices[0], modelA->meshes[1].indices[1]);
+	SceneChanges::NotifyMeshGeometry(modelA->meshes[1]);
+	r = builder.UpdateIncremental(scene, false);
+	assert(r.blasRefitted == 0 && r.blasBuilt == 1);
+
+	// 关闭 refit：几何变化一律重建
+	builder.GetSettings().blasRefit = false;
+	modelA->meshes[1].vertices[2].Position.y = 5;
+	SceneChanges::NotifyMeshGeometry(modelA->meshes[1]);
+	r = builder.UpdateIncremental(scene, false);
+	assert(r.blasRefitted == 0 && r.blasBuilt == 1);
+	builder.GetSettings().blasRefit = true;
 
 	// 实例删除：引用 B 的实体没了 → 释放 B 的 BLAS
 	scene.m_Registry.destroy(e3);
@@ -184,7 +309,7 @@ int main()
 	assert(report.missedMask == Bit(Category::MeshGeometry));
 	assert(modelA->meshes[0].GeometryRevision == meshRevision + 1);   // 自愈后 BLAS 会重建
 	r = builder.UpdateIncremental(scene, false);
-	assert(r.blasBuilt == 1);
+	assert(r.blasRefitted == 1);   // 只改法线：拓扑不变，refit
 
 	red->GetParameter("u_BaseColor")->value = glm::vec4(0, 1, 0, 1);   // 绕过 setter
 	report = validator.Check(scene);

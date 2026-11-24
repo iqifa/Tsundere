@@ -499,9 +499,62 @@ void BuildLBVHTree(const BVHAABB* bounds, uint32_t count,
 	builder.Build(0, 0, count, 0);
 }
 
+namespace
+{
+	uint64_t TopologyHash(const BVHMeshInput& mesh)
+	{
+		uint64_t h = 1469598103934665603ull;   // FNV-1a
+		const auto mix = [&h](uint64_t value) { h = (h ^ value) * 1099511628211ull; };
+		mix(mesh.positions.size());
+		mix(mesh.indices.size());
+		for (const uint32_t index : mesh.indices)
+			mix(index);
+		return h;
+	}
+
+	void WriteTriangle(const BVHMeshInput& mesh, size_t t, bool hasNormals, bool hasUVs,
+		GPUBVHTriangle& tri, GPUBVHTriangleAttrib& attrib)
+	{
+		const uint32_t idx[3] = { mesh.indices[t * 3 + 0], mesh.indices[t * 3 + 1], mesh.indices[t * 3 + 2] };
+		tri = GPUBVHTriangle();
+		tri.v0 = mesh.positions[idx[0]];
+		tri.v1 = mesh.positions[idx[1]];
+		tri.v2 = mesh.positions[idx[2]];
+
+		glm::vec3 geometric = glm::cross(tri.v1 - tri.v0, tri.v2 - tri.v0);
+		const float geometricLength = glm::length(geometric);
+		geometric = geometricLength > 0.0f ? geometric / geometricLength : glm::vec3(0.0f, 1.0f, 0.0f);
+
+		glm::vec3 normals[3];
+		for (int k = 0; k < 3; ++k)
+		{
+			normals[k] = geometric;
+			if (hasNormals)
+			{
+				const glm::vec3& n = mesh.normals[idx[k]];
+				const float length = glm::length(n);
+				if (IsFinite(n) && length > 1e-12f)
+					normals[k] = n / length;
+			}
+		}
+
+		attrib = GPUBVHTriangleAttrib();
+		attrib.n0 = glm::vec4(normals[0], 0.0f);
+		attrib.n1 = glm::vec4(normals[1], 0.0f);
+		attrib.n2 = glm::vec4(normals[2], 0.0f);
+		if (hasUVs)
+		{
+			attrib.uv0 = mesh.uvs[idx[0]];
+			attrib.uv1 = mesh.uvs[idx[1]];
+			attrib.uv2 = mesh.uvs[idx[2]];
+		}
+	}
+}
+
 void BuildMeshBLAS(const BVHMeshInput& mesh, const BVHBuildSettings& settings, BVHMeshBLAS& out)
 {
 	out = BVHMeshBLAS();
+	out.topologyHash = TopologyHash(mesh);
 	BVHBLASRange& range = out.range;
 
 	const uint32_t vertexCount = static_cast<uint32_t>(mesh.positions.size());
@@ -556,47 +609,13 @@ void BuildMeshBLAS(const BVHMeshInput& mesh, const BVHBuildSettings& settings, B
 	out.nodes = std::move(tree.nodes);
 
 	// 4) 三角形按叶子顺序写出
-	out.triangles.reserve(tree.primitiveOrder.size());
-	out.attribs.reserve(tree.primitiveOrder.size());
-	for (const uint32_t prim : tree.primitiveOrder)
+	out.triangles.resize(tree.primitiveOrder.size());
+	out.attribs.resize(tree.primitiveOrder.size());
+	out.sourceTriangles.resize(tree.primitiveOrder.size());
+	for (size_t i = 0; i < tree.primitiveOrder.size(); ++i)
 	{
-		const size_t t = source[prim];
-		const uint32_t idx[3] = { mesh.indices[t * 3 + 0], mesh.indices[t * 3 + 1], mesh.indices[t * 3 + 2] };
-
-		GPUBVHTriangle tri;
-		tri.v0 = mesh.positions[idx[0]];
-		tri.v1 = mesh.positions[idx[1]];
-		tri.v2 = mesh.positions[idx[2]];
-		out.triangles.push_back(tri);
-
-		glm::vec3 geometric = glm::cross(tri.v1 - tri.v0, tri.v2 - tri.v0);
-		const float geometricLength = glm::length(geometric);
-		geometric = geometricLength > 0.0f ? geometric / geometricLength : glm::vec3(0.0f, 1.0f, 0.0f);
-
-		glm::vec3 normals[3];
-		for (int k = 0; k < 3; ++k)
-		{
-			normals[k] = geometric;
-			if (hasNormals)
-			{
-				const glm::vec3& n = mesh.normals[idx[k]];
-				const float length = glm::length(n);
-				if (IsFinite(n) && length > 1e-12f)
-					normals[k] = n / length;
-			}
-		}
-
-		GPUBVHTriangleAttrib attrib;
-		attrib.n0 = glm::vec4(normals[0], 0.0f);
-		attrib.n1 = glm::vec4(normals[1], 0.0f);
-		attrib.n2 = glm::vec4(normals[2], 0.0f);
-		if (hasUVs)
-		{
-			attrib.uv0 = mesh.uvs[idx[0]];
-			attrib.uv1 = mesh.uvs[idx[1]];
-			attrib.uv2 = mesh.uvs[idx[2]];
-		}
-		out.attribs.push_back(attrib);
+		out.sourceTriangles[i] = source[tree.primitiveOrder[i]];
+		WriteTriangle(mesh, out.sourceTriangles[i], hasNormals, hasUVs, out.triangles[i], out.attribs[i]);
 	}
 
 	range.nodeCount = static_cast<uint32_t>(out.nodes.size());
@@ -607,6 +626,102 @@ void BuildMeshBLAS(const BVHMeshInput& mesh, const BVHBuildSettings& settings, B
 		range.bounds.min = out.nodes[0].aabbMin;
 		range.bounds.max = out.nodes[0].aabbMax;
 	}
+	out.buildCost = out.cost = BLASQualityCost(out);
+}
+
+float BLASQualityCost(const BVHMeshBLAS& piece)
+{
+	if (piece.nodes.empty())
+		return piece.range.bounds.HalfArea();
+	const auto area = [](const GPUBVHNode& node)
+	{
+		BVHAABB box;
+		box.min = node.aabbMin;
+		box.max = node.aabbMax;
+		return box.HalfArea();
+	};
+	const float root = area(piece.nodes[0]);
+	if (!(root > 0.0f))
+		return 0.0f;
+	double sum = 0.0;
+	for (const GPUBVHNode& node : piece.nodes)
+		sum += double(area(node)) * (node.IsLeaf() ? node.count : 1u);
+	return static_cast<float>(sum / root);
+}
+
+bool RefitMeshBLAS(const BVHMeshInput& mesh, BVHMeshBLAS& piece)
+{
+	// 1) 拓扑校验（不修改 piece）
+	if (TopologyHash(mesh) != piece.topologyHash)
+		return false;
+	const uint32_t vertexCount = static_cast<uint32_t>(mesh.positions.size());
+	const auto valid = [&](size_t t)
+	{
+		const uint32_t i0 = mesh.indices[t * 3 + 0], i1 = mesh.indices[t * 3 + 1], i2 = mesh.indices[t * 3 + 2];
+		return i0 < vertexCount && i1 < vertexCount && i2 < vertexCount &&
+			IsFinite(mesh.positions[i0]) && IsFinite(mesh.positions[i1]) && IsFinite(mesh.positions[i2]);
+	};
+	// 构建时的三角形都仍有效、且有效总数不变 ⇔ 有效集合不变
+	size_t validCount = 0;
+	for (size_t t = 0; t < mesh.indices.size() / 3; ++t)
+		validCount += valid(t);
+	if (validCount != piece.sourceTriangles.size())
+		return false;
+	for (const uint32_t t : piece.sourceTriangles)
+		if (!valid(t))
+			return false;
+
+	// 2) 按原顺序重写三角形 / 属性
+	const bool hasNormals = mesh.normals.size() == mesh.positions.size();
+	const bool hasUVs = mesh.uvs.size() == mesh.positions.size();
+	for (size_t i = 0; i < piece.sourceTriangles.size(); ++i)
+		WriteTriangle(mesh, piece.sourceTriangles[i], hasNormals, hasUVs, piece.triangles[i], piece.attribs[i]);
+
+	// 3) 自底向上重算包围盒：两种构建器都保证孩子下标 > 父节点下标
+	for (size_t n = piece.nodes.size(); n-- > 0;)
+	{
+		GPUBVHNode& node = piece.nodes[n];
+		BVHAABB box;
+		if (node.IsLeaf())
+		{
+			for (uint32_t i = node.leftFirst; i < node.leftFirst + node.count; ++i)
+			{
+				box.Grow(piece.triangles[i].v0);
+				box.Grow(piece.triangles[i].v1);
+				box.Grow(piece.triangles[i].v2);
+			}
+		}
+		else
+		{
+			for (uint32_t c = node.leftFirst; c < node.leftFirst + 2; ++c)
+			{
+				box.Grow(piece.nodes[c].aabbMin);
+				box.Grow(piece.nodes[c].aabbMax);
+			}
+		}
+		node.aabbMin = box.min;
+		node.aabbMax = box.max;
+	}
+
+	BVHAABB all;
+	if (!piece.nodes.empty())
+	{
+		all.min = piece.nodes[0].aabbMin;
+		all.max = piece.nodes[0].aabbMax;
+	}
+	else
+	{
+		for (const GPUBVHTriangle& tri : piece.triangles)
+		{
+			all.Grow(tri.v0);
+			all.Grow(tri.v1);
+			all.Grow(tri.v2);
+		}
+	}
+	piece.range.bounds = all;
+	++piece.refitCount;
+	piece.cost = BLASQualityCost(piece);
+	return true;
 }
 
 uint32_t AppendMeshBLAS(const BVHMeshBLAS& piece, BVHSceneData& data)
