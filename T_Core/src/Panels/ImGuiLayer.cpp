@@ -20,6 +20,12 @@ bool& EditorWindows::ShadowMap()
     return open;
 }
 
+bool& EditorWindows::RenderGraph()
+{
+    static bool open = false;
+    return open;
+}
+
 bool& EditorWindows::Console()
 {
     static bool open = true;
@@ -168,6 +174,7 @@ namespace Engine
                 ImGui::MenuItem("Console", nullptr, &EditorWindows::Console());
                 ImGui::MenuItem("Shadow Map", nullptr, &EditorWindows::ShadowMap());
                 ImGui::MenuItem("Skybox", nullptr, &EditorWindows::Skybox());
+                ImGui::MenuItem("Render Graph", nullptr, &EditorWindows::RenderGraph());
                 if (drawWindowMenu)
                     drawWindowMenu();
                 ImGui::EndMenu();

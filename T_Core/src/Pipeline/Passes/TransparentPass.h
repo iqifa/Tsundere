@@ -84,6 +84,8 @@ public:
 		m_OpaqueDepthSample = builder.CreateTexture("OpaqueDepth", depth);
 		builder.WriteTexture(m_OpaqueDepthSample, RGAccess::CopyDst);
 		builder.ReadTexture("OpaqueDepth");
+		builder.DescribeTextureCopy(m_BaseColor, m_SceneColor);
+		builder.DescribeTextureCopy(m_OpaqueDepth, m_OpaqueDepthSample);
 		builder.Export(m_SceneColor);
 	}
 

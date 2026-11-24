@@ -33,6 +33,11 @@ RGTextureHandle RenderGraphBuilder::ReadTexture(const std::string& name, RGAcces
     return handle;
 }
 
+void RenderGraphBuilder::DescribeTextureCopy(RGTextureHandle source, RGTextureHandle destination, bool afterRender)
+{
+    m_Pass.textureCopies.push_back({ source, destination, afterRender });
+}
+
 const RDGTextureDesc& RenderGraphBuilder::GetTextureDesc(RGTextureHandle handle) const
 {
     if (handle.generation != m_Graph.GetGeneration())

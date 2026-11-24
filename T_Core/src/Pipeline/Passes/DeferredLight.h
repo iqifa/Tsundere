@@ -329,6 +329,8 @@ public:
 		desc.magFilter = FilterMode::Nearest;
 		m_Outputs[2] = builder.CreateTexture("Depth", desc);
 
+		for (size_t i = 0; i < m_Inputs.size(); ++i)
+			builder.DescribeTextureCopy(m_Inputs[i], m_Outputs[i]);
 		for (auto output : m_Outputs)
 		{
 			builder.WriteTexture(output, RGAccess::CopyDst);

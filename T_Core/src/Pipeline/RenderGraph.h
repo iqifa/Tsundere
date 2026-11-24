@@ -135,6 +135,24 @@ struct T_API ResourceDependencyState
 	// the GL pipeline, an image/SSBO write is not.
 	RGAccess lastWriterAccess = RGAccess::RenderTarget;
 };
+
+// Why an edge exists. Debug-only record: edges_ stays the deduplicated
+// adjacency used for sorting, this keeps one entry per (resource, hazard) so
+// tooling can show every resource that forces an ordering.
+enum class T_API RGHazard
+{
+	RAW,    // read after write
+	WAR,    // write after read
+	WAW     // write after write
+};
+
+struct T_API RGEdgeInfo
+{
+	PassId from = InvalidPassId;
+	PassId to = InvalidPassId;
+	ResourceId resource = InvalidResourceId;
+	RGHazard hazard = RGHazard::RAW;
+};
 #pragma endregion
 
 #pragma region Pass
@@ -182,6 +200,13 @@ struct T_API RGDepthAttachment
 	RGTextureHandle resolveTarget;
 };
 
+struct RGTextureCopyInfo
+{
+	RGTextureHandle source;
+	RGTextureHandle destination;
+	bool afterRender = false;
+};
+
 struct T_API RGPass
 {
 	std::string name;
@@ -189,6 +214,7 @@ struct T_API RGPass
 
 	std::vector<RGResourceAccess> reads;
 	std::vector<RGResourceAccess> writes;
+	std::vector<RGTextureCopyInfo> textureCopies;
 
 	// Render-target description. Empty colorAttachments + no depthAttachment
 	// means this is a compute/copy pass and the graph binds no framebuffer.
@@ -277,6 +303,17 @@ public:
 	// compare against this to know they need to rebuild.
 	uint32_t GetGeneration() const { return generation_; }
 
+	// Read-only views of the compiled graph, for editor tooling. Valid until
+	// the next Reset()/Compile(); do not hold the references across frames.
+	const std::vector<RGPass>& GetPasses() const { return passes_; }
+	const std::vector<RGResource>& GetResources() const { return resources_; }
+	const std::vector<PassId>& GetExecutionOrder() const { return executionOrder_; }
+	const std::vector<RGEdgeInfo>& GetEdgeInfos() const { return edgeInfos_; }
+
+	// Bumped by every Compile(), so viewers can tell a recompile of the same
+	// generation (Compile() without Reset()) from an unchanged graph.
+	uint32_t GetCompileSerial() const { return compileSerial_; }
+
 private:
 	std::vector<RGResource> resources_;
 	std::vector<RGPass> passes_;
@@ -284,14 +321,19 @@ private:
 
 	std::vector<std::vector<PassId>> edges_;
 	std::vector<PassId> executionOrder_;
+	std::vector<RGEdgeInfo> edgeInfos_;
 
 	uint32_t generation_ = 1;
+	uint32_t compileSerial_ = 0;
 
 	// 资源名称 -> Handle 的映射，用于按名字查找资源
 	std::unordered_map<std::string, RGTextureHandle> namedTextures_;
 	std::unordered_map<std::string, RGBufferHandle> namedBuffers_;
 
 	void AllocateTransientResources();
+
+	// Appends to edgeInfos_; called next to each AddEdge() in Compile().
+	void RecordEdge(PassId from, PassId to, ResourceId resource, RGHazard hazard);
 
 	// Fills in firstPass/lastPass using positions in executionOrder_.
 	void ComputeResourceLifetimes();

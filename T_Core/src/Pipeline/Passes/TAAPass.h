@@ -131,6 +131,7 @@ public:
 		builder.ImportTexture(m_HistoryColorTex.get(), historyResource, "HistoryColor");
 		m_HistoryColor = builder.ReadTexture("HistoryColor");
 		builder.WriteTexture(m_HistoryColor, RGAccess::CopyDst);
+		builder.DescribeTextureCopy(m_OutputColor, m_HistoryColor, true);
 
 		if (m_TAApiplineDesc.renderingSignature.colorFormats != std::vector<Format>{ colorDesc.format })
 		{
