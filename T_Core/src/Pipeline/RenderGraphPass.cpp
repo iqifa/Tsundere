@@ -1,6 +1,7 @@
 #include "RenderGraphPass.h"
 #include "RenderGraphPipelineHelper.h"
 #include <Platform/RHI/RHIPipeline.h>
+#include <stdexcept>
 
 // ============================================================================
 // RenderGraphBuilder 实现
@@ -30,6 +31,13 @@ RGTextureHandle RenderGraphBuilder::ReadTexture(const std::string& name, RGAcces
     }
 
     return handle;
+}
+
+const RDGTextureDesc& RenderGraphBuilder::GetTextureDesc(RGTextureHandle handle) const
+{
+    if (handle.generation != m_Graph.GetGeneration())
+        throw std::invalid_argument("RenderGraphBuilder::GetTextureDesc: stale texture handle");
+    return m_Graph.resources_.at(handle.id).textureDesc;
 }
 
 RGBufferHandle RenderGraphBuilder::ReadBuffer(const std::string& name, RGAccess access)

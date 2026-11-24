@@ -118,17 +118,19 @@ void main()
     // A clear center can still touch a silhouette after MSAA depth resolve.
     // Only bypass TAA when the entire neighborhood is clear.
     ivec2 size = textureSize(u_DepthTex, 0);
-    ivec2 pixel = clamp(ivec2(v_TexCoord * vec2(size)), ivec2(0), size - 1);
+    vec2 currentUV = v_TexCoord + u_CurrentJitter;
+    ivec2 pixel = clamp(ivec2(currentUV * vec2(size)), ivec2(0), size - 1);
+    // Point-sample depth; interpolating across silhouettes invents surfaces.
+    gl_FragDepth = texelFetch(u_DepthTex, pixel, 0).r;
     float closestDepth;
     ivec2 closestPixel = GetClosestSurfacePixel(pixel, size, closestDepth);
     if (closestDepth >= 1.0)
     {
-        o_Color = vec4(texelFetch(u_CurrentColor, pixel, 0).rgb, 1.0);
+        o_Color = vec4(texture(u_CurrentColor, currentUV).rgb, 1.0);
         return;
     }
 
     // Reconstruct the jittered input on the stable grid used by the history.
-    vec2 currentUV = v_TexCoord + u_CurrentJitter;
     vec3 currentColor = texture(u_CurrentColor, currentUV).rgb;
     if (u_HistoryValid == 0)
     {
@@ -207,7 +209,7 @@ void main()
 
             if (x == 0 && y == 0) continue;
 
-            vec3 neighborColor = texture(u_CurrentColor, v_TexCoord + vec2(x, y) * texelSize).rgb;
+            vec3 neighborColor = texture(u_CurrentColor, currentUV + vec2(x, y) * texelSize).rgb;
 
             minColor = min(minColor, neighborColor);
 

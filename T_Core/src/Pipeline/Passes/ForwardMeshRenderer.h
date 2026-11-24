@@ -61,11 +61,11 @@ public:
 		m_PipelineDesc = std::move(desc);
 	}
 
-	void UploadFrame(Scene& scene, const RGFrameData& frameData, RHITexture2D* shadowTex)
+	void UploadFrame(Scene& scene, const RGFrameData& frameData, RHITexture2D* shadowTex, bool stableProjection = false)
 	{
 		const auto& frameCamera = frameData.Camera;
 		CameraUBO camera;
-		camera.jitteredViewProj = frameCamera.JitteredViewProj;
+		camera.jitteredViewProj = stableProjection ? frameCamera.ViewProj : frameCamera.JitteredViewProj;
 		camera.viewProj = frameCamera.ViewProj;
 		camera.prevViewProj = frameCamera.PrevViewProj;
 		m_CameraUBO->Upload(&camera, sizeof(camera));
