@@ -3,6 +3,8 @@
 #include "Scene/BVHBuilder.h"
 #include "Scene/SceneChanges.h"
 #include "Pipeline/PathTracing/PTDirtyValidation.h"
+#include "Pipeline/PathTracing/PathTraceScene.h"
+#include <cstring>
 #include <cassert>
 #include <iostream>
 
@@ -11,6 +13,52 @@ using SceneChanges::Category;
 
 namespace
 {
+	class TestColorTexture : public RHITexture2D
+	{
+	public:
+		Format format = Format::RGBA8_UNORM;
+		void Bind(uint32_t) override {}
+		void Unbind() override {}
+		uint32_t GetWidth() const override { return 2; }
+		uint32_t GetHeight() const override { return 2; }
+		Format GetFormat() const override { return format; }
+		uintptr_t GetNativeID() const override { return 0; }
+		const std::string& GetPath() const override { static std::string path; return path; }
+	};
+
+	void TestMaterialColorContract()
+	{
+		Engine::Material material;
+		auto texture = CreateRef<TestColorTexture>();
+		material.SetTexture("u_BaseColorMap", texture);
+		material.SetVec4("u_BaseColor", glm::vec4(0.5f));
+		material.SetVec2("u_Tiling", { 2, 3 });
+		material.SetVec2("u_Offset", { -0.25f, 0.5f });
+		assert(material.GetBaseColorTexture() == texture);
+		auto gpu = PathTracing::ExtractMaterial(&material);
+		assert(gpu.baseColor.x == 0.5f); // tint is linear, not decoded a second time
+		assert(gpu.tilingOffset == glm::vec4(2, 3, -0.25f, 0.5f));
+		ShaderReflection reflection;
+		ShaderBlock block;
+		block.Binding = 3; block.Size = 16;
+		block.Members.push_back({ "_matpadBaseColorFlags", "uint", 0, 4, 0 });
+		reflection.UniformBlocks.push_back(block);
+		std::vector<char> bytes;
+		for (auto format : { Format::RGBA8_UNORM, Format::RGBA8_SRGB, Format::RGBA16F })
+		{
+			texture->format = format;
+			assert(material.PackMaterialBlock(reflection, bytes) == 16);
+			uint32_t flags; std::memcpy(&flags, bytes.data(), sizeof(flags));
+			assert(flags == (format == Format::RGBA8_UNORM ? 1u : 0u));
+		}
+		auto before = SceneChanges::Snapshot();
+		material.SetTexture("u_BaseColorMap", nullptr);
+		assert(SceneChanges::Snapshot().ChangedSince(before) & Bit(Category::MaterialParameters));
+		assert(!material.GetBaseColorTexture());
+		material.SetTexture("texture_diffuse1", texture);
+		assert(material.GetBaseColorTexture() == texture);
+	}
+
 	Mesh Triangle(float z)
 	{
 		Mesh mesh;
@@ -62,6 +110,7 @@ namespace
 int main()
 {
 	Engine::Log::Init();
+	TestMaterialColorContract();
 	Scene scene;
 
 	// ---- 模型：A 有两个子网格（两个实体共用），B 一个子网格 ----

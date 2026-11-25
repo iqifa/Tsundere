@@ -37,6 +37,8 @@
 #define PT_DEBUG_UV         4u
 #define PT_DEBUG_INSTANCE   5u
 #define PT_DEBUG_DEPTH      6u
+#define PT_DEBUG_DIRECT     7u // unoccluded primary direct lighting (raster comparison)
+#define PT_DEBUG_DIRECT_SHADOWED 8u
 
 #define PT_INF 1e30
 
@@ -59,15 +61,17 @@ layout(std140, binding = PT_BINDING_FRAME) uniform PerPass_PathTrace
 #error The entry .shader must declare u_Accum and define PT_ACCUM_DECLARED
 #endif
 
-// 48 字节，std430。
+// 80 字节，std430。
 struct PTMaterial
 {
     vec4  baseColor;    // rgb 线性反照率 / 金属 F0
     vec4  emission;     // rgb = 自发光辐亮度（已乘强度）
     float roughness;    // 感知粗糙度
     float metallic;
-    uint  type;         // PT_MATERIAL_*
+    uint  type;         // reserved (all surfaces use continuous metallic/roughness PBR)
     uint  flags;
+    vec4  tilingOffset;
+    uvec4 baseColorTexture;
 };
 
 layout(std430, binding = PT_BINDING_MATERIALS) readonly buffer PTMaterialBuffer
@@ -213,16 +217,13 @@ PTSurface PT_ReconstructSurface(PTHit hit, vec3 rayDir)
 // ---------------------------------------------------------------------------
 // 环境
 // ---------------------------------------------------------------------------
-vec3 PT_SrgbToLinear(vec3 c)
-{
-    return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c));
-}
+#include "SkyboxSampling.glsl"
 
 vec3 PT_Environment(vec3 dir)
 {
 #ifdef PT_USE_SKYBOX
     // 天空盒是 RGBA8 UNORM 存的 sRGB 字节，先解码成线性辐亮度。
-    return PT_SrgbToLinear(textureLod(u_Sky, dir, 0.0).rgb) * u_Environment.a;
+    return SampleSkyboxLinear(u_Sky, dir) * u_Environment.a;
 #else
     return u_Environment.rgb * u_Environment.a;
 #endif

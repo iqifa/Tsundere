@@ -15,7 +15,7 @@
 | BVH | `Scene/BVH.{h,cpp}` 两级 SAH BVH（上一阶段完成），有 GPU 布局和 CPU 参考遍历，无 GPU 遍历 | 新增 GLSL 软件遍历；新增“平铺几何”模式给 Vulkan BLAS 用 |
 | 旧 PT | `PathTracePass.h` / `PathTrace.shader`：GL bindless、单层 BVH，已被 premake 排除，不可用 | 不复用，原样保留；新 Pass 另起文件 |
 | 场景数据 | EnTT：`Transform`（本地变换）+ `MeshRender`（模型路径 + 每子网格材质）+ `Light`；网格 CPU 数据常驻 `Mesh::vertices/indices`；`Scene::Revision` 只在加载场景时递增 | PT 侧每帧哈希检测几何/变换/材质/灯光变化 |
-| 材质 | `Engine::Material` 参数表（`u_BaseColor`、`u_EmissiveColor`、`u_EmissiveStrength`、`u_Roughness`、`u_Metallic`）+ 贴图 | 第一阶段只取常量参数（见限制） |
+| 材质 | `Engine::Material` 参数表（`u_BaseColor`、`u_EmissiveColor`、`u_EmissiveStrength`、`u_Roughness`、`u_Metallic`）+ 贴图 | 常量参数与底色贴图；底色读取契约见下文 |
 | Shader | `.shader` 分段 + `#include`；shaderc → SPIR-V；GL 再经 SPIRV-Cross 转 GLSL 430；预定义 `TS_OPENGL` / `TS_VULKAN`；Vulkan 目标 env = Vulkan 1.2 | Ray Query 代码只放在 Vulkan 入口文件，GL 永不编译到 |
 | GL sampler/image binding | `FixupForOpenGL` 只保留入口文件里写明的 binding，include 里的会被重新分配 | PT 的 `image2D` / `samplerCube` 在入口 `.shader` 声明 |
 | RDG compute | 无附件的 pass 直接 `Execute`；GL 有 `glMemoryBarrier`；Vulkan 的 `ResourceBarrier` 是空实现、无 compute pipeline、push constant 只给 vertex stage、descriptor 绑定点写死 graphics | 补齐（见 §4.3） |
@@ -67,8 +67,14 @@ GPU  一次 compute dispatch（8×8，一 invocation 一像素）
 
 ### 4.1 积分器与材质（共享）
 
-- 材质类型：`metallic >= 0.5` → 金属（GGX，Smith G2，Schlick F，按 D 采样半程向量；`roughness < 0.04` 视为 delta 镜面，跳过 NEE），否则 Lambert（余弦采样）。在 shader 里按 `type` 分派，无 SBT、无 CPU 分派。
-- 光照分解：场景灯光（方向/点/聚光/面光）不是几何体，只走 NEE + 阴影射线；自发光几何只在 BSDF 命中时累加；环境只在未命中时累加。三者互不重叠，不需要 MIS，不会重复计数。点光/聚光的衰减和锥角与光栅路径 `Lighting.glsl` 一致；面光在面上均匀取点（pdf = 1/A，单面）。
+- 底色：MaterialTest 前向、通用 GBuffer、PT 共用 sRGB 取色约定。UNORM 底色贴图显式解码，硬件 SRGB 纹理不重复解码；浮点纹理与 `u_BaseColor` 乘色为线性值，alpha 不做 gamma。统一使用模型 UV，先应用 `u_Tiling` / `u_Offset`，不再由 MaterialTest 单独翻转 Y。过滤在线性空间进行。
+- PT 的 `PathTraceBaseColor.shader` 在贴图集合变化时，将已有 GPU 纹理的 mip 0 转入线性 RGBA16F 缓存（SSBO binding 5，每 texel 8 字节，带一圈边界），共享贴图只缓存一次；不从磁盘重载、不读回、不要求 bindless。命中后按 UV 采样缓存；替换贴图也会重置累积。当前底色采样统一为 mip 0，保留 nearest/linear 和 repeat/clamp/border；尚未加入 ray footprint / mip 选择。缓存额外占用显存，受后端 storage-buffer 大小限制。
+
+- 直接光照：MaterialTest、ModelPreview、DeferredLight 和 PT 共用 `include/PBR.glsl`：GGX、Smith、Schlick Fresnel，`F0=mix(0.04,baseColor,metallic)`，金属度连续混合，粗糙度统一为 `alpha=max(roughness²,0.0025)`。PT 不再在金属度 0.5 处切换模型，也不再单独走 delta 镜面。PT 的下一跳用漫反射/GGX 混合采样，权重为完整 `f*cos / mixturePdf`。
+- 灯光：三条路径共用 `GatherLocalLights(scene,true)` 收集全部有效灯光（包含多个方向光）；方向/点/聚光共用采样函数，点/聚光统一 `pow(DistanceAttenuation(distance,radius),max(falloff,0.1))`，聚光等内外角是硬边。颜色乘强度一次，漫反射含 `1/PI`，光照在线性 HDR 中累加；前向 SceneColor 改为 RGBA16F，避免亮度在进入后处理前被截到 1。
+- 面光：矩形和圆盘统一为单面辐射源。直接光照采用面积均匀采样与 GGX 方向采样的 balance MIS，光栅每灯固定 64 对 Hammersley 样本，PT 每灯每顶点随机一对样本。二者积分对象相同，但固定积分与随机积分有数值/收敛误差；极近、大尺寸或掠射面光仍需单独检验。光栅面光比原代表点近似开销更高。
+- 光照分解：场景灯光只走 NEE；自发光几何只在 BSDF 命中时累加；环境只在未命中时累加，三者不重复计数。面光 NEE 内部的两种采样使用 MIS。PT 保留阴影射线与间接光；光栅的 Ambient 仍是独立近似，不纳入直接光照一致性比较。
+- 对照方式：PT Debug view 选 **Direct lighting (unoccluded)**，光栅关闭 Ambient/自发光，使用相同相机、材质、灯光、曝光和色调映射，比较相同正面表面。**Direct lighting (shadowed)** 则保留 PT 阴影。当前统一覆盖内置标准材质，不会重写任意自定义材质 shader；法线贴图、透明度与可见性差异仍属于各路径的支持范围。
 - 俄罗斯轮盘：从第 3 次反弹起（可调），存活概率 = 吞吐量最大分量（钳到 [0.05, 0.95]）。
 - 随机数：PCG hash，种子 = 像素 × 样本号 × 帧种子，路径内按维度依次推进。
 - 累积：RGBA32F 线性 HDR，存当前平均值；NaN/Inf 样本丢弃；可选亮度上限（默认关，保持无偏）。显示阶段由后处理做曝光、色调映射和 gamma。
@@ -133,10 +139,10 @@ Path Tracing 面板显示：
 
 ## 7. 已知限制
 
-- **贴图未接入**：反照率 / 自发光 / 粗糙度只用材质常量，`texture_diffuse1` 等贴图不参与（需要 GL bindless 或 Vulkan descriptor indexing，留到下一阶段）。大量依赖贴图的场景会是单色。
-- 材质只有 Lambert 和 GGX 金属两类；无透射 / 玻璃、无法线贴图、无 alpha cutout（接入点已注释）。
+- **贴图支持范围**：底色已接入（`u_BaseColorMap` / `texture_diffuse1` / legacy 底色语义）；自发光、粗糙度仍只用材质常量。PT 不执行任意材质 shader，也不支持材质的程序化 checker 模式。
+- 材质使用连续 metallic/roughness GGX + 漫反射；无透射 / 玻璃、无法线贴图、无 alpha cutout（接入点已注释）。
 - 只用实体的本地 `Transform`（与现有光栅 pass 一致，不处理父子层级）。
 - 加速结构 / BVH 变化一律整体重建，无 refit / update / compaction；Vulkan 构建是阻塞的一次性提交。
-- 灯光逐个做 NEE（每个灯一条阴影射线），灯多时开销线性增长；环境无重要性采样。
+- 灯光逐个做 NEE（点状灯最多一条、面光最多两条阴影射线），灯多时开销线性增长；环境无重要性采样。
 - 光栅 pass 在 PT 开启时仍然运行（便于预览 GBuffer 等），会计入 “Whole render graph GPU”。
 - 天空盒按 sRGB 解码成线性；无天空盒时环境为常量色。

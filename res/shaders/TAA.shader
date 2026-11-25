@@ -79,23 +79,23 @@ ivec2 GetClosestSurfacePixel(ivec2 pixel, ivec2 size, out float closestDepth)
 
 // --- ���Ŀ���Ӱ���� 2��Playdead �� Clip AABB ---
 
-vec3 ClipAABB(vec3 aabbMin, vec3 aabbMax, vec3 current, vec3 history)
+vec4 ClipAABB(vec4 aabbMin, vec4 aabbMax, vec4 current, vec4 history)
 
 {
 
-    vec3 center = 0.5 * (aabbMax + aabbMin);
+    vec4 center = 0.5 * (aabbMax + aabbMin);
 
-    vec3 extents = 0.5 * (aabbMax - aabbMin) + vec3(0.00001);
+    vec4 extents = 0.5 * (aabbMax - aabbMin) + vec4(0.00001);
 
 
 
-    vec3 rayDir = history - center;
+    vec4 rayDir = history - center;
 
-    vec3 rayUnit = rayDir / extents;
+    vec4 rayUnit = rayDir / extents;
 
-    vec3 absUnit = abs(rayUnit);
+    vec4 absUnit = abs(rayUnit);
 
-    float maxUnit = max(absUnit.x, max(absUnit.y, absUnit.z));
+    float maxUnit = max(max(absUnit.x, absUnit.y), max(absUnit.z, absUnit.w));
 
 
 
@@ -126,15 +126,17 @@ void main()
     ivec2 closestPixel = GetClosestSurfacePixel(pixel, size, closestDepth);
     if (closestDepth >= 1.0)
     {
-        o_Color = vec4(texture(u_CurrentColor, currentUV).rgb, 1.0);
+        o_Color = texture(u_CurrentColor, currentUV);
         return;
     }
 
     // Reconstruct the jittered input on the stable grid used by the history.
-    vec3 currentColor = texture(u_CurrentColor, currentUV).rgb;
+    // Alpha is opaque coverage, not display opacity. Filter and clip it with RGB
+    // so the later stable sky pass can fill subpixel silhouette coverage.
+    vec4 currentColor = texture(u_CurrentColor, currentUV);
     if (u_HistoryValid == 0)
     {
-        o_Color = vec4(currentColor, 1.0);
+        o_Color = currentColor;
         return;
     }
 
@@ -177,7 +179,7 @@ void main()
 
     {
 
-        o_Color = vec4(currentColor, 1.0);
+        o_Color = currentColor;
 
         return;
 
@@ -191,15 +193,15 @@ void main()
 
     // ==========================================
 
-    vec3 historyColor = texture(u_HistoryColor, historyUV).rgb;
+    vec4 historyColor = texture(u_HistoryColor, historyUV);
 
 
 
     vec2 texelSize = 1.0 / vec2(textureSize(u_CurrentColor, 0));
 
-    vec3 minColor = currentColor;
+    vec4 minColor = currentColor;
 
-    vec3 maxColor = currentColor;
+    vec4 maxColor = currentColor;
 
    
 
@@ -209,7 +211,7 @@ void main()
 
             if (x == 0 && y == 0) continue;
 
-            vec3 neighborColor = texture(u_CurrentColor, currentUV + vec2(x, y) * texelSize).rgb;
+            vec4 neighborColor = texture(u_CurrentColor, currentUV + vec2(x, y) * texelSize);
 
             minColor = min(minColor, neighborColor);
 
@@ -235,8 +237,8 @@ void main()
 
    
 
-    vec3 finalColor = mix(historyColor, currentColor, blendFactor);
+    vec4 finalColor = mix(historyColor, currentColor, blendFactor);
 
-    o_Color = vec4(finalColor, 1.0);
+    o_Color = finalColor;
 
 }

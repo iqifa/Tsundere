@@ -49,6 +49,9 @@ public:
     virtual uint32_t GetHeight() const = 0;
     virtual Format GetFormat() const { return Format::Unknown; }
     virtual uint32_t GetSampleCount() const { return 1; }
+    virtual WrapMode GetWrapS() const { return WrapMode::ClampToEdge; }
+    virtual WrapMode GetWrapT() const { return WrapMode::ClampToEdge; }
+    virtual FilterMode GetMagFilter() const { return FilterMode::Linear; }
 
     // Returns a backend-specific native handle (GLuint / VkImageView)
     // Used by ImGui::Image() and interop with legacy code

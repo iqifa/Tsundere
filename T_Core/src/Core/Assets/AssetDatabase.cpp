@@ -13,6 +13,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <sstream>
+#include <stdexcept>
 #include <set>
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -24,6 +25,10 @@ namespace Engine {
 namespace {
 
 std::unordered_map<uint64_t, AssetRecord> s_Records;
+// Normalized paths of textures/models whose import settings are unconfirmed.
+std::unordered_set<std::string> s_Unreviewed;
+// Content revisions by uid; survives Sync because uids are stable.
+std::unordered_map<uint64_t, uint64_t> s_ContentRevisions;
 std::shared_mutex s_Mutex;
 
 std::string Trim(std::string text)
@@ -172,6 +177,191 @@ uint64_t GenerateUid(const std::unordered_set<uint64_t>& used)
 	}
 }
 
+// ---- Import settings ("import.<key>: <value>" lines in ParsedMeta::extra) ----
+
+constexpr const char* kImportPrefix = "import.";
+constexpr size_t kImportPrefixLen = 7;
+constexpr int kImportVersion = 1;
+
+using ImportFields = std::unordered_map<std::string, std::string>;
+using ImportFieldList = std::vector<std::pair<std::string, std::string>>;
+
+ImportFields ImportFieldsOf(const ParsedMeta& meta)
+{
+	ImportFields fields;
+	for (const auto& line : meta.extra)
+	{
+		if (line.rfind(kImportPrefix, 0) != 0)
+			continue;
+		const auto colon = line.find(':', kImportPrefixLen);
+		if (colon == std::string::npos)
+			continue;
+		fields[Trim(line.substr(kImportPrefixLen, colon - kImportPrefixLen))] = Trim(line.substr(colon + 1));
+	}
+	return fields;
+}
+
+void SetImportFields(ParsedMeta& meta, const ImportFieldList& fields)
+{
+	meta.extra.erase(std::remove_if(meta.extra.begin(), meta.extra.end(), [](const auto& line) {
+		return line.rfind(kImportPrefix, 0) == 0;
+	}), meta.extra.end());
+	for (const auto& [key, value] : fields)
+		meta.extra.push_back(std::string(kImportPrefix) + key + ": " + value);
+}
+
+const std::string* FieldOf(const ImportFields& fields, const char* key)
+{
+	const auto found = fields.find(key);
+	return found != fields.end() ? &found->second : nullptr;
+}
+
+bool ParseBool(const ImportFields& fields, const char* key, bool fallback)
+{
+	const std::string* value = FieldOf(fields, key);
+	if (!value) return fallback;
+	if (*value == "1" || *value == "true") return true;
+	if (*value == "0" || *value == "false") return false;
+	return fallback;
+}
+
+const char* BoolText(bool value) { return value ? "1" : "0"; }
+
+const char* FilterText(FilterMode mode) { return mode == FilterMode::Nearest ? "nearest" : "linear"; }
+
+FilterMode ParseFilter(const ImportFields& fields, const char* key, FilterMode fallback)
+{
+	const std::string* value = FieldOf(fields, key);
+	if (!value) return fallback;
+	if (*value == "nearest") return FilterMode::Nearest;
+	if (*value == "linear") return FilterMode::Linear;
+	return fallback;
+}
+
+const char* WrapText(WrapMode mode)
+{
+	switch (mode)
+	{
+	case WrapMode::Repeat: return "repeat";
+	case WrapMode::ClampToEdge: return "clamp";
+	case WrapMode::ClampToBorder: return "border";
+	}
+	return "repeat";
+}
+
+WrapMode ParseWrap(const ImportFields& fields, const char* key, WrapMode fallback)
+{
+	const std::string* value = FieldOf(fields, key);
+	if (!value) return fallback;
+	if (*value == "repeat") return WrapMode::Repeat;
+	if (*value == "clamp") return WrapMode::ClampToEdge;
+	if (*value == "border") return WrapMode::ClampToBorder;
+	return fallback;
+}
+
+const char* NormalModeText(ModelNormalMode mode)
+{
+	switch (mode)
+	{
+	case ModelNormalMode::SmoothIfMissing: return "smooth_if_missing";
+	case ModelNormalMode::FlatIfMissing: return "flat_if_missing";
+	case ModelNormalMode::RecomputeSmooth: return "recompute_smooth";
+	case ModelNormalMode::RecomputeFlat: return "recompute_flat";
+	}
+	return "smooth_if_missing";
+}
+
+ModelNormalMode ParseNormalMode(const ImportFields& fields, const char* key, ModelNormalMode fallback)
+{
+	const std::string* value = FieldOf(fields, key);
+	if (!value) return fallback;
+	for (ModelNormalMode mode : { ModelNormalMode::SmoothIfMissing, ModelNormalMode::FlatIfMissing,
+		ModelNormalMode::RecomputeSmooth, ModelNormalMode::RecomputeFlat })
+		if (*value == NormalModeText(mode)) return mode;
+	return fallback;
+}
+
+float ParseAngle(const ImportFields& fields, const char* key, float fallback)
+{
+	const std::string* value = FieldOf(fields, key);
+	if (!value) return fallback;
+	char* end = nullptr;
+	const float parsed = std::strtof(value->c_str(), &end);
+	if (end == value->c_str() || !(parsed >= 0.0f && parsed <= 180.0f)) return fallback;
+	return parsed;
+}
+
+std::string AngleText(float value)
+{
+	std::ostringstream out;
+	out << value;
+	return out.str();
+}
+
+ImportFieldList TextureFields(const TextureImportSettings& s)
+{
+	return {
+		{ "version", std::to_string(kImportVersion) },
+		{ "confirmed", BoolText(s.confirmed) },
+		{ "srgb", BoolText(s.srgb) },
+		{ "flip_y", BoolText(s.flipY) },
+		{ "filter", FilterText(s.filter) },
+		{ "wrap_s", WrapText(s.wrapS) },
+		{ "wrap_t", WrapText(s.wrapT) },
+	};
+}
+
+TextureImportSettings TextureFromFields(const ImportFields& fields)
+{
+	const TextureImportSettings d;
+	TextureImportSettings s;
+	s.confirmed = ParseBool(fields, "confirmed", d.confirmed);
+	s.srgb = ParseBool(fields, "srgb", d.srgb);
+	s.flipY = ParseBool(fields, "flip_y", d.flipY);
+	s.filter = ParseFilter(fields, "filter", d.filter);
+	s.wrapS = ParseWrap(fields, "wrap_s", d.wrapS);
+	s.wrapT = ParseWrap(fields, "wrap_t", d.wrapT);
+	return s;
+}
+
+ImportFieldList ModelFields(const ModelImportSettings& s)
+{
+	return {
+		{ "version", std::to_string(kImportVersion) },
+		{ "confirmed", BoolText(s.confirmed) },
+		{ "flip_uvs", BoolText(s.flipUVs) },
+		{ "left_handed", BoolText(s.convertToLeftHanded) },
+		{ "normals", NormalModeText(s.normals) },
+		{ "smoothing_angle", AngleText(s.smoothingAngle) },
+		{ "tangents", BoolText(s.calcTangents) },
+		{ "join_vertices", BoolText(s.joinVertices) },
+	};
+}
+
+ModelImportSettings ModelFromFields(const ImportFields& fields)
+{
+	const ModelImportSettings d;
+	ModelImportSettings s;
+	s.confirmed = ParseBool(fields, "confirmed", d.confirmed);
+	s.flipUVs = ParseBool(fields, "flip_uvs", d.flipUVs);
+	s.convertToLeftHanded = ParseBool(fields, "left_handed", d.convertToLeftHanded);
+	s.normals = ParseNormalMode(fields, "normals", d.normals);
+	s.smoothingAngle = ParseAngle(fields, "smoothing_angle", d.smoothingAngle);
+	s.calcTangents = ParseBool(fields, "tangents", d.calcTangents);
+	s.joinVertices = ParseBool(fields, "join_vertices", d.joinVertices);
+	return s;
+}
+
+bool HasImportSettings(AssetKind kind)
+{
+	return kind == AssetKind::Texture || kind == AssetKind::Model;
+}
+
+ImportFieldList DefaultImportFields(AssetKind kind)
+{
+	return kind == AssetKind::Texture ? TextureFields(TextureImportSettings{}) : ModelFields(ModelImportSettings{});
+}
+
 void RemoveOrphanMeta(const std::filesystem::path& metaPath)
 {
 	const std::string text = metaPath.string();
@@ -199,7 +389,8 @@ void RemoveOrphanMeta(const std::filesystem::path& metaPath)
 void ConsiderFile(
 	const std::filesystem::path& file,
 	std::unordered_map<uint64_t, AssetRecord>& records,
-	std::unordered_set<uint64_t>& used)
+	std::unordered_set<uint64_t>& used,
+	std::unordered_set<std::string>& unreviewed)
 {
 	const std::string ext = LowerExtension(file);
 	if (ext == ".meta")
@@ -213,7 +404,7 @@ void ConsiderFile(
 		return;
 
 	const std::filesystem::path metaPath = MetaPathFor(file);
-	const ParsedMeta meta = ReadMeta(metaPath);
+	ParsedMeta meta = ReadMeta(metaPath);
 	uint64_t uid = meta.uid;
 	bool rewrite = false;
 	if (uid == 0 || used.find(uid) != used.end())
@@ -228,21 +419,39 @@ void ConsiderFile(
 		rewrite = true;
 	}
 
+	// Fixed defaults for assets that have never had import settings. Written
+	// unconfirmed so the editor can flag them for review.
+	bool confirmed = true;
+	if (HasImportSettings(*kind))
+	{
+		ImportFields fields = ImportFieldsOf(meta);
+		if (fields.find("version") == fields.end())
+		{
+			SetImportFields(meta, DefaultImportFields(*kind));
+			fields = ImportFieldsOf(meta);
+			rewrite = true;
+		}
+		confirmed = ParseBool(fields, "confirmed", false);
+	}
+
 	used.insert(uid);
-	if (rewrite && !WriteMeta(metaPath, uid, *kind))
+	if (rewrite && !WriteMeta(metaPath, uid, *kind, &meta.extra))
 		Warn_Core("Failed to write asset meta for {0}", file.string());
 
 	AssetRecord record;
 	record.uid = uid;
 	record.kind = *kind;
 	record.path = AssetDatabase::NormalizePath(file);
+	if (!confirmed)
+		unreviewed.insert(record.path);
 	records[uid] = std::move(record);
 }
 
 void Walk(
 	const std::filesystem::path& directory,
 	std::unordered_map<uint64_t, AssetRecord>& records,
-	std::unordered_set<uint64_t>& used)
+	std::unordered_set<uint64_t>& used,
+	std::unordered_set<std::string>& unreviewed)
 {
 	std::error_code ec;
 	std::filesystem::directory_iterator it(
@@ -261,12 +470,12 @@ void Walk(
 		if (entry.is_directory(entryEc))
 		{
 			if (!entryEc)
-				Walk(entry.path(), records, used);
+				Walk(entry.path(), records, used, unreviewed);
 			continue;
 		}
 		if (entryEc || !entry.is_regular_file(entryEc))
 			continue;
-		ConsiderFile(entry.path(), records, used);
+		ConsiderFile(entry.path(), records, used, unreviewed);
 	}
 }
 
@@ -285,13 +494,14 @@ void AssetDatabase::Sync(const std::filesystem::path& root)
 {
 	std::unique_lock lock(s_Mutex);
 	std::unordered_map<uint64_t, AssetRecord> next;
+	std::unordered_set<std::string> nextUnreviewed;
 	std::error_code ec;
 	if (std::filesystem::exists(root, ec) && std::filesystem::is_directory(root, ec))
 	{
 		try
 		{
 			std::unordered_set<uint64_t> used;
-			Walk(root, next, used);
+			Walk(root, next, used, nextUnreviewed);
 		}
 		catch (const std::exception& e)
 		{
@@ -300,6 +510,7 @@ void AssetDatabase::Sync(const std::filesystem::path& root)
 	}
 
 	s_Records.swap(next);
+	s_Unreviewed.swap(nextUnreviewed);
 }
 
 std::vector<uint32_t> AssetDatabase::DisabledSubmeshes(const std::filesystem::path& model)
@@ -340,6 +551,93 @@ bool AssetDatabase::SetSubmeshActive(const std::filesystem::path& model, uint32_
 		return true;
 	}
 	catch (const std::exception& e) { error = e.what(); return false; }
+}
+
+namespace {
+
+// Caller holds s_Mutex exclusively.
+void WriteImportSettings(const std::filesystem::path& asset, AssetKind kind, const ImportFieldList& fields)
+{
+	if (!std::filesystem::is_regular_file(asset))
+		throw std::runtime_error("Asset file no longer exists: " + asset.string());
+	const auto path = MetaPathFor(asset);
+	auto meta = ReadMeta(path);
+	SetImportFields(meta, fields);
+	if (!meta.uid)
+	{
+		std::unordered_set<uint64_t> used;
+		for (const auto& entry : s_Records) used.insert(entry.first);
+		meta.uid = GenerateUid(used);
+	}
+	if (!WriteMeta(path, meta.uid, kind, &meta.extra))
+		throw std::runtime_error("Cannot save import settings: " + path.string());
+	s_Unreviewed.erase(AssetDatabase::NormalizePath(asset));
+}
+
+} // namespace
+
+TextureImportSettings AssetDatabase::GetTextureImportSettings(const std::filesystem::path& texture)
+{
+	std::shared_lock lock(s_Mutex);
+	return TextureFromFields(ImportFieldsOf(ReadMeta(MetaPathFor(texture))));
+}
+
+bool AssetDatabase::SetTextureImportSettings(const std::filesystem::path& texture,
+	const TextureImportSettings& settings, std::string& error)
+{
+	try
+	{
+		std::unique_lock lock(s_Mutex);
+		TextureImportSettings confirmed = settings;
+		confirmed.confirmed = true;
+		WriteImportSettings(texture, AssetKind::Texture, TextureFields(confirmed));
+		error.clear();
+		return true;
+	}
+	catch (const std::exception& e) { error = e.what(); return false; }
+}
+
+ModelImportSettings AssetDatabase::GetModelImportSettings(const std::filesystem::path& model)
+{
+	std::shared_lock lock(s_Mutex);
+	return ModelFromFields(ImportFieldsOf(ReadMeta(MetaPathFor(model))));
+}
+
+bool AssetDatabase::SetModelImportSettings(const std::filesystem::path& model,
+	const ModelImportSettings& settings, std::string& error)
+{
+	try
+	{
+		std::unique_lock lock(s_Mutex);
+		ModelImportSettings confirmed = settings;
+		confirmed.confirmed = true;
+		WriteImportSettings(model, AssetKind::Model, ModelFields(confirmed));
+		error.clear();
+		return true;
+	}
+	catch (const std::exception& e) { error = e.what(); return false; }
+}
+
+bool AssetDatabase::NeedsImportReview(const std::filesystem::path& path)
+{
+	const auto normalized = NormalizePath(path);
+	std::shared_lock lock(s_Mutex);
+	return s_Unreviewed.find(normalized) != s_Unreviewed.end();
+}
+
+void AssetDatabase::MarkContentChanged(uint64_t uid)
+{
+	if (uid == 0)
+		return;
+	std::unique_lock lock(s_Mutex);
+	++s_ContentRevisions[uid];
+}
+
+uint64_t AssetDatabase::ContentRevision(uint64_t uid)
+{
+	std::shared_lock lock(s_Mutex);
+	const auto found = s_ContentRevisions.find(uid);
+	return found != s_ContentRevisions.end() ? found->second : 0;
 }
 
 uint64_t AssetDatabase::UidForPath(const std::filesystem::path& path, AssetKind kind)

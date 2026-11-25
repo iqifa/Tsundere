@@ -26,7 +26,7 @@ public:
 		RDGTextureDesc colorDesc;
 		colorDesc.width = m_Width;
 		colorDesc.height = m_Height;
-		colorDesc.format = Format::RGBA8_UNORM;
+		colorDesc.format = Format::RGBA16F; // linear HDR, same range as deferred lighting
 		colorDesc.usage = TextureUsage::ColorAttachment | TextureUsage::Sampled | TextureUsage::TransferSrc;
 
 		RDGTextureDesc velocityDesc = colorDesc;
@@ -63,7 +63,7 @@ public:
 			RGTextureHandle velocityMS = builder.CreateTexture("VelocityMS", velocityMSDesc);
 			RGTextureHandle depthMS = builder.CreateTexture("DepthMS", depthMSDesc);
 
-			builder.SetColorOutput(0, sceneColorMS, RGLoadOp::Clear, { 0.0f, 0.0f, 0.0f, 1.0f });
+			builder.SetColorOutput(0, sceneColorMS, RGLoadOp::Clear, { 0.0f, 0.0f, 0.0f, 0.0f });
 			builder.SetColorOutput(1, velocityMS, RGLoadOp::Clear, { 0.0f, 0.0f, 0.0f, 0.0f });
 			builder.SetDepthOutput(depthMS, RGLoadOp::Clear, 1.0f);
 
@@ -73,7 +73,7 @@ public:
 		}
 		else
 		{
-			builder.SetColorOutput(0, m_SceneColor, RGLoadOp::Clear, { 0.0f, 0.0f, 0.0f, 1.0f });
+			builder.SetColorOutput(0, m_SceneColor, RGLoadOp::Clear, { 0.0f, 0.0f, 0.0f, 0.0f });
 			builder.SetColorOutput(1, m_Velocity, RGLoadOp::Clear, { 0.0f, 0.0f, 0.0f, 0.0f });
 			builder.SetDepthOutput(m_Depth, RGLoadOp::Clear, 1.0f);
 		}
@@ -83,8 +83,6 @@ public:
 		builder.Export(m_Velocity);
 
 		// Derive the pipeline rendering signature after declaring all outputs.
-		if (currentcamera && currentcamera->skybox)
-			currentcamera->skybox->InitializePipeline(builder);
 		if (!m_CubePipeline)
 		{
 			BindGeometryDescriptors(nullptr);
@@ -99,7 +97,7 @@ public:
 		}
 
 		PipelineDesc desc = m_CubePipelineDesc;
-		desc.renderingSignature.colorFormats = { Format::RGBA8_UNORM, Format::RG16F };
+		desc.renderingSignature.colorFormats = { Format::RGBA16F, Format::RG16F };
 		desc.renderingSignature.depthFormat = Format::D24_UNORM_S8_UINT;
 		desc.renderingSignature.sampleCount = m_SampleCount;
 		m_MeshRenderer.ConfigurePipeline(std::move(desc));
@@ -112,7 +110,6 @@ public:
 			? context.GetTexture(m_ShadowMap) : nullptr;
 		cmd.SetDepthTest(true);
 		cmd.SetDepthFunc(CompareOp::Less);
-		currentcamera->RenderSkyBox(cmd);
 		m_MeshRenderer.UploadFrame(*m_Scene, *m_FrameData, shadow);
 		const ForwardMeshRenderer::Textures textures{ shadow };
 		const bool hadReadyMesh = ForwardMeshRenderer::VisitReadyMeshes(*m_Scene, *m_FrameData,

@@ -91,9 +91,68 @@ private:
 			m_BoneFilter[0] = 0;
 			m_MeshColors.clear();
 			m_SaveError.clear();
+			m_ImportSaved = Engine::AssetDatabase::GetModelImportSettings(path);
+			m_ImportEdit = m_ImportSaved;
+			m_ImportError.clear();
 		}
 		m_SelectedPath = path;
 		m_Open = true;
+	}
+
+	void DrawImportSettings()
+	{
+		if (!ImGui::CollapsingHeader("Import Settings", ImGuiTreeNodeFlags_DefaultOpen))
+			return;
+
+		auto& edit = m_ImportEdit;
+		if (!m_ImportSaved.confirmed)
+			ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.25f, 1.0f),
+				"Not confirmed: default settings are in use. Review them and press Apply.");
+
+		ImGui::Checkbox("Flip UVs", &edit.flipUVs);
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("Flip the V coordinate (v = 1 - v).");
+		ImGui::Checkbox("Convert to left-handed", &edit.convertToLeftHanded);
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("Mirror Z and reverse winding (assimp ConvertToLeftHanded).");
+
+		// Combo order matches ModelNormalMode.
+		int normals = static_cast<int>(edit.normals);
+		if (ImGui::Combo("Normals", &normals,
+			"Generate smooth if missing\0Generate flat if missing\0Recompute smooth\0Recompute flat\0"))
+			edit.normals = static_cast<Engine::ModelNormalMode>(normals);
+		const bool smooth = edit.normals == Engine::ModelNormalMode::SmoothIfMissing ||
+			edit.normals == Engine::ModelNormalMode::RecomputeSmooth;
+		ImGui::BeginDisabled(!smooth);
+		ImGui::SliderFloat("Smoothing angle", &edit.smoothingAngle, 0.0f, 180.0f, "%.0f deg",
+			ImGuiSliderFlags_AlwaysClamp);
+		ImGui::EndDisabled();
+		ImGui::Checkbox("Calculate tangents", &edit.calcTangents);
+		ImGui::Checkbox("Join identical vertices", &edit.joinVertices);
+
+		const bool changed = !edit.SameImport(m_ImportSaved);
+		ImGui::BeginDisabled(!changed && m_ImportSaved.confirmed);
+		if (ImGui::Button("Apply"))
+		{
+			if (Engine::AssetDatabase::SetModelImportSettings(m_SelectedPath, edit, m_ImportError))
+			{
+				m_ImportSaved = edit;
+				m_ImportSaved.confirmed = true;
+				edit.confirmed = true;
+				// Reimports in the background; the cached model is replaced
+				// when the new one is ready. Unsaved mesh deletions are lost.
+				if (changed)
+					Engine::ResourceLoader::RequestModelLoad(m_SelectedPath);
+			}
+		}
+		ImGui::EndDisabled();
+		ImGui::SameLine();
+		ImGui::BeginDisabled(!changed);
+		if (ImGui::Button("Revert"))
+			edit = m_ImportSaved;
+		ImGui::EndDisabled();
+		if (!m_ImportError.empty())
+			ImGui::TextWrapped("%s", m_ImportError.c_str());
 	}
 
 	void DrawEditorWindow()
@@ -109,6 +168,8 @@ private:
 		}
 
 		ImGui::TextUnformatted(FileName(m_SelectedPath).c_str());
+
+		DrawImportSettings();
 
 		Ref<Model> model = My_map::GetModel(m_SelectedPath);
 		if (!model)
@@ -603,6 +664,10 @@ private:
 	Ref<Scene> m_Scene;
 	std::string m_SelectedPath;
 	std::string m_SaveError;
+	// m_ImportSaved mirrors the .meta; m_ImportEdit is the unapplied UI copy.
+	Engine::ModelImportSettings m_ImportSaved;
+	Engine::ModelImportSettings m_ImportEdit;
+	std::string m_ImportError;
 	bool m_Open = false;
 	int m_SelectedMesh = 0;
 	char m_BoneFilter[64] = {};

@@ -1,7 +1,11 @@
 #include "Platform/RHI/RHITextureLibrary.h"
+#include "Core/Assets/AssetDatabase.h"
+#include "Platform/RHI/RHIImGuiRenderer.h"
+#include "Platform/RHI/RHIRenderer.h"
 #include "Debug/Debug.h"
 #include "stb_image/stb_image.h"
 
+#include <algorithm>
 #include <mutex>
 #include <shared_mutex>
 #include <stdexcept>
@@ -44,11 +48,12 @@ Ref<RHITexture2D> TextureLibiary::Load(const std::string& filepath)
 	if (Ref<RHITexture2D> existing = Find(filepath))
 		return existing;
 
+	const Engine::TextureImportSettings settings = Engine::AssetDatabase::GetTextureImportSettings(filepath);
 	int width = 0;
 	int height = 0;
 	int channels = 0;
 	unsigned char* pixels = Engine::LoadImageSTB(
-		filepath.c_str(), &width, &height, &channels, 4, true);
+		filepath.c_str(), &width, &height, &channels, 4, settings.flipY);
 	if (!pixels || width <= 0 || height <= 0)
 	{
 		if (pixels)
@@ -62,10 +67,7 @@ Ref<RHITexture2D> TextureLibiary::Load(const std::string& filepath)
 	desc.height = static_cast<uint32_t>(height);
 	desc.pixelData = pixels;
 	desc.dataChannels = 4;
-	// Model/material UVs can tile beyond [0,1]. Clamping file textures stretches
-	// their edge texels across walls (notably Sponza's repeating brickwork).
-	desc.wrapS = WrapMode::Repeat;
-	desc.wrapT = WrapMode::Repeat;
+	settings.ApplyTo(desc);
 	desc.filePath = filepath;
 
 	Ref<RHITexture2D> tex;
@@ -91,6 +93,38 @@ Ref<RHITexture2D> TextureLibiary::Get(const std::string& filepath)
 	if (Ref<RHITexture2D> existing = Find(filepath))
 		return existing;
 	return Load(filepath);
+}
+
+std::vector<Ref<RHITexture2D>> TextureLibiary::Replace(const std::string& path, Ref<RHITexture2D> tex)
+{
+	std::vector<Ref<RHITexture2D>> replaced;
+	if (!tex || path.empty())
+		return replaced;
+
+	const std::string file = Engine::AssetDatabase::NormalizePath(path);
+	{
+		std::unique_lock lock(g_Mutex);
+		for (auto& [key, existing] : g_Textures)
+		{
+			if (key != path && Engine::AssetDatabase::NormalizePath(key) != file)
+				continue;
+			if (existing && existing != tex &&
+				std::find(replaced.begin(), replaced.end(), existing) == replaced.end())
+				replaced.push_back(existing);
+			existing = tex;
+		}
+		g_Textures[path] = tex;
+	}
+
+	if (!replaced.empty())
+	{
+		// Earlier frames may still sample the old images.
+		if (auto context = RHIRenderer::GetContext())
+			context->WaitIdle();
+		for (const auto& old : replaced)
+			RHIImGUIRenderer::ReleaseTexture(old.get());
+	}
+	return replaced;
 }
 
 void TextureLibiary::Remove(const std::string& path)

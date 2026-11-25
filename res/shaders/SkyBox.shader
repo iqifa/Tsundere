@@ -23,6 +23,7 @@ void main()
 
 #shader fragment
 #version 420 core
+#include "include/SkyboxSampling.glsl"
 layout(location = 0) out vec4 FragColor;
 layout(location = 1) out vec2 MotionVector;
 
@@ -34,7 +35,7 @@ layout(location = 2) in vec4 v_PreviousClipPos;
 
 void main()
 {
-    FragColor = texture(skybox, TexCoords);
+    FragColor = vec4(SampleSkyboxLinear(skybox, TexCoords), 1.0);
 
     vec3 currentNDC = v_CurrentClipPos.xyz / v_CurrentClipPos.w;
     vec3 previousNDC = v_PreviousClipPos.xyz / v_PreviousClipPos.w;

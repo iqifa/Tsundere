@@ -51,6 +51,9 @@ public:
 			m_BaseColor = builder.ReadTexture(opaque.colorName, RGAccess::CopySrc);
 			m_OpaqueDepth = builder.ReadTexture(opaque.depthName, RGAccess::CopySrc);
 		}
+        const auto skyColor = builder.ReadTexture("Skybox.SceneColor");
+        builder.ReadTexture("Skybox.SceneColor", RGAccess::CopySrc);
+		if (skyColor.id != InvalidResourceId) m_BaseColor = skyColor;
 		m_ShadowMap = builder.ReadTexture("ShadowMap.Depth");
 
 		RDGTextureDesc color;

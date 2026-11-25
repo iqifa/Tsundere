@@ -71,7 +71,7 @@ public:
 		m_CameraUBO->Upload(&camera, sizeof(camera));
 		if (m_GBuffer)
 			return;
-		auto localLights = GatherLocalLights(scene);
+		auto localLights = GatherLocalLights(scene, true);
 		// A zero-intensity sentinel keeps the descriptor valid for empty scenes.
 		if (localLights.empty()) localLights.push_back({});
 		const uint32_t lightBytes = static_cast<uint32_t>(localLights.size() * sizeof(LocalLightData));
@@ -351,6 +351,8 @@ private:
 			else if (image.Name == "u_OpaqueDepth")
 				texture = textures.opaqueDepth;
 			Ref<RHITexture2D> materialTexture = mat->GetTexture(image.Name);
+			if (image.Name == "u_BaseColorMap" || image.Name == "texture_diffuse1")
+				materialTexture = mat->GetBaseColorTexture();
 			if (!texture && materialTexture && !IsSceneTexture(image.Name))
 				texture = materialTexture.get();
 			state.descriptors->BindTexture(image.Binding,

@@ -19,6 +19,9 @@ public:
     uint32_t GetHeight() const override { return m_Height; }
     Format GetFormat() const override { return m_Format; }
     uint32_t GetSampleCount() const override { return m_SampleCount; }
+    WrapMode GetWrapS() const override { return m_WrapS; }
+    WrapMode GetWrapT() const override { return m_WrapT; }
+    FilterMode GetMagFilter() const override { return m_MagFilter; }
     uintptr_t GetNativeID() const override
     {
         return reinterpret_cast<uintptr_t>(m_ImageView);
@@ -60,6 +63,8 @@ private:
     uint32_t m_Height = 0;
     uint32_t m_SampleCount = 1;
     Format m_Format = Format::Unknown;
+    WrapMode m_WrapS = WrapMode::ClampToEdge, m_WrapT = WrapMode::ClampToEdge;
+    FilterMode m_MagFilter = FilterMode::Linear;
     TextureUsage m_Usage = TextureUsage::Sampled;
     std::string m_FilePath;
 };

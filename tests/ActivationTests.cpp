@@ -73,6 +73,14 @@ int main()
     child.GetComponent<Component::Tag>().Active = false;
     assert(GatherLocalLights(scene).empty());
     child.GetComponent<Component::Tag>().Active = true;
+    local.type = Component::Light::LightType::Directional;
+    local.Ambient = 0.25f;
+    assert(GatherLocalLights(scene).empty());
+    lights = GatherLocalLights(scene, true);
+    assert(lights.size() == 1 && lights[0].positionType.w == 0 && lights[0].directionAmbient.w == 0.25f);
+    parent.GetComponent<Component::Tag>().Active = false;
+    assert(GatherLocalLights(scene, true).empty());
+    parent.GetComponent<Component::Tag>().Active = true;
     child.RemoveComponent<Component::Light>();
     child.GetComponent<Component::Transform>().Position = {};
     assert(GatherLocalLights(scene).empty());
@@ -136,6 +144,60 @@ int main()
     assert(Engine::AssetDatabase::DisabledSubmeshes(movedPath) == std::vector<uint32_t>({7}));
     assert(!Engine::AssetDatabase::SetSubmeshActive(modelPath, 0, false, metadataError));
     assert(!metadataError.empty());
+
+    // Import settings: Sync writes fixed defaults, unconfirmed; Apply confirms
+    // and keeps every other .meta line.
+    {
+        const Engine::ModelImportSettings defaults;
+        auto model = Engine::AssetDatabase::GetModelImportSettings(movedPath);
+        assert(model.SameImport(defaults) && !model.confirmed);
+        assert(Engine::AssetDatabase::NeedsImportReview(movedPath));
+        model.flipUVs = false;
+        model.normals = Engine::ModelNormalMode::RecomputeFlat;
+        model.smoothingAngle = 60.5f;
+        model.joinVertices = true;
+        assert(Engine::AssetDatabase::SetModelImportSettings(movedPath, model, metadataError));
+        assert(!Engine::AssetDatabase::NeedsImportReview(movedPath));
+        Engine::AssetDatabase::Sync(modelPath.parent_path());
+        const auto savedModel = Engine::AssetDatabase::GetModelImportSettings(movedPath);
+        assert(savedModel.SameImport(model) && savedModel.confirmed);
+        assert(!Engine::AssetDatabase::NeedsImportReview(movedPath));
+        assert(Engine::AssetDatabase::DisabledSubmeshes(movedPath) == std::vector<uint32_t>({7}));
+        std::ifstream movedMeta(movedPath.string() + ".meta");
+        const std::string movedText((std::istreambuf_iterator<char>(movedMeta)), {});
+        assert(movedText.find("custom: keep") != std::string::npos);
+        assert(movedText.find("import.normals: recompute_flat") != std::string::npos);
+
+        const auto texturePath = modelPath.parent_path() / "albedo.png";
+        std::filesystem::remove(texturePath.string() + ".meta");
+        { std::ofstream file(texturePath); file << "not decoded by Sync"; }
+        Engine::AssetDatabase::Sync(modelPath.parent_path());
+        auto texture = Engine::AssetDatabase::GetTextureImportSettings(texturePath);
+        assert(texture.SameImport(Engine::TextureImportSettings{}) && !texture.confirmed);
+        assert(texture.wrapS == WrapMode::Repeat && !texture.srgb && texture.flipY);
+        assert(Engine::AssetDatabase::NeedsImportReview(texturePath));
+        texture.srgb = true;
+        texture.flipY = false;
+        texture.filter = FilterMode::Nearest;
+        texture.wrapS = WrapMode::ClampToEdge;
+        texture.wrapT = WrapMode::ClampToBorder;
+        assert(Engine::AssetDatabase::SetTextureImportSettings(texturePath, texture, metadataError));
+        const auto savedTexture = Engine::AssetDatabase::GetTextureImportSettings(texturePath);
+        assert(savedTexture.SameImport(texture) && savedTexture.confirmed);
+        assert(!Engine::AssetDatabase::NeedsImportReview(texturePath));
+
+        // Unknown values fall back to that field's default only.
+        { std::ofstream file(texturePath.string() + ".meta", std::ios::app); file << "import.filter: bogus\n"; }
+        const auto fallback = Engine::AssetDatabase::GetTextureImportSettings(texturePath);
+        assert(fallback.filter == FilterMode::Linear && fallback.srgb && !fallback.flipY);
+
+        // No .meta (e.g. outside Assets/): defaults, nothing written.
+        const auto loose = modelPath.parent_path() / "loose.png";
+        std::filesystem::remove(loose.string() + ".meta");
+        assert(Engine::AssetDatabase::GetTextureImportSettings(loose).SameImport(Engine::TextureImportSettings{}));
+        assert(!std::filesystem::exists(loose.string() + ".meta"));
+        assert(!Engine::AssetDatabase::SetTextureImportSettings(loose, texture, metadataError));
+    }
     const std::string path = "build/activation-tests/state.tscene";
     std::string error;
     child.GetComponent<Component::Tag>().Static = true;

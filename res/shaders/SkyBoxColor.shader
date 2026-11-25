@@ -19,6 +19,7 @@ void main()
 
 #shader fragment
 #version 420 core
+#include "include/SkyboxSampling.glsl"
 layout(location = 0) out vec4 FragColor;
 
 layout(binding = 10) uniform samplerCube skybox;
@@ -27,5 +28,5 @@ layout(location = 0) in vec3 TexCoords;
 
 void main()
 {
-    FragColor = texture(skybox, TexCoords);
+    FragColor = vec4(SampleSkyboxLinear(skybox, TexCoords), 1.0);
 }

@@ -151,6 +151,11 @@ public:
 			stats.status = "scene not ready: " + m_PTScene->GetStatus();
 			return;
 		}
+		if (!PrepareBaseColors(context.GetCmd()))
+		{
+			stats.status = "base-color texture cache failed to build";
+			return;
+		}
 
 		// ---- 相机 / 参数变化 ----
 		const glm::mat4 view = currentcamera->GetViewFront();
@@ -202,6 +207,7 @@ public:
 		m_Descriptors->BindStorageTexture(1, accum, ImageAccess::ReadWrite, 1);
 		m_Descriptors->BindStorageBuffer(2, m_PTScene->GetMaterialBuffer());
 		m_Descriptors->BindStorageBuffer(3, m_PTScene->GetLightBuffer());
+		m_Descriptors->BindStorageBuffer(5, m_PTScene->GetBaseColorBuffer());
 		if (m_UseSkybox)
 			m_Descriptors->BindCubeMap(4, currentcamera->skybox->m_Cmp, 4);
 		m_Descriptors->BindStorageBuffer(9, geometry.GetInstanceBuffer());
@@ -236,6 +242,44 @@ public:
 	}
 
 private:
+	bool PrepareBaseColors(RHICommandBuffer& cmd)
+	{
+		if (m_BakedColorBuffer == m_PTScene->GetBaseColorBuffer()) return true;
+		const auto& sources = m_PTScene->GetBaseColorSources();
+		if (!sources.empty() && !m_ColorBakePipeline)
+		{
+			auto shader = RHIShader::CreateCompute("res/shaders/PathTraceBaseColor.shader");
+			if (!shader) return false;
+			m_ColorBakeDescriptors = RHIDescriptorSet::Create();
+			m_ColorBakeDescriptors->BindTexture(0, sources[0].texture, 0);
+			m_ColorBakeDescriptors->BindStorageBuffer(1, m_PTScene->GetBaseColorBuffer());
+			PipelineDesc desc;
+			desc.shader = shader;
+			desc.isCompute = true;
+			desc.pushConstantSize = sizeof(glm::uvec4);
+			desc.descriptorSets = { m_ColorBakeDescriptors };
+			m_ColorBakePipeline = RHIPipeline::Create(desc);
+			if (!m_ColorBakePipeline) return false;
+		}
+		for (const auto& source : sources)
+		{
+			m_ColorBakeDescriptors->Reset();
+			m_ColorBakeDescriptors->BindTexture(0, source.texture, 0);
+			m_ColorBakeDescriptors->BindStorageBuffer(1, m_PTScene->GetBaseColorBuffer());
+			m_ColorBakeDescriptors->Apply(0);
+			cmd.BindPipeline(m_ColorBakePipeline);
+			cmd.BindDescriptorSet(m_ColorBakeDescriptors, 0);
+			cmd.PushConstants(&source.layout, sizeof(source.layout));
+			cmd.Dispatch((source.layout.y + 7) / 8, (source.layout.z + 7) / 8, 1);
+		}
+		if (!sources.empty()) cmd.ResourceBarrier(BarrierFlags::StorageBuffer);
+		m_BakedColorBuffer = m_PTScene->GetBaseColorBuffer();
+		return true;
+	}
+	Ref<RHIBuffer> m_BakedColorBuffer;
+	Ref<RHIPipeline> m_ColorBakePipeline;
+	Ref<RHIDescriptorSet> m_ColorBakeDescriptors;
+
 	static TextureUsage AccumUsage()
 	{
 		return TextureUsage::Storage | TextureUsage::Sampled | TextureUsage::TransferSrc;
@@ -302,6 +346,7 @@ private:
 		m_Descriptors->BindStorageTexture(1, nullptr, ImageAccess::ReadWrite, 1);
 		m_Descriptors->BindStorageBuffer(2, nullptr);
 		m_Descriptors->BindStorageBuffer(3, nullptr);
+		m_Descriptors->BindStorageBuffer(5, nullptr);
 		if (skybox)
 			m_Descriptors->BindCubeMap(4, nullptr, 4);
 		m_Descriptors->BindStorageBuffer(9, nullptr);
@@ -349,6 +394,7 @@ private:
 		};
 		checkStride(2, sizeof(PathTracing::GPUMaterial), "GPUMaterial");
 		checkStride(3, sizeof(PathTracing::GPULight), "GPULight");
+		checkStride(5, sizeof(glm::uvec2), "base-color cache texel");
 		checkStride(8, sizeof(GPUBVHNode), "GPUBVHNode");
 		checkStride(9, sizeof(GPUBVHInstance), "GPUBVHInstance");
 		checkStride(11, sizeof(GPUBVHTriangle), "GPUBVHTriangle");

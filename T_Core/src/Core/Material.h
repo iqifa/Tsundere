@@ -52,11 +52,15 @@ struct MaterialParameter
 class T_API Material
 {
 public:
-	Material() = default;
+	Material();
 	Material(const std::string& name, Ref<RHIShader> shader);
 	Material(const Material& other);
 	Material& operator=(const Material& other);
-	~Material() = default;
+	~Material();
+
+	// Main thread. Points every live material's texture parameters that use
+	// oldTexture at newTexture (e.g. after a texture is reimported).
+	static void ReplaceTexture(const RHITexture2D* oldTexture, const Ref<RHITexture2D>& newTexture);
 
 	// Shader management
 	void SetShader(Ref<RHIShader> shader);
@@ -85,6 +89,9 @@ public:
 	glm::vec4 GetVec4(const std::string& name, const glm::vec4& defaultValue = glm::vec4(0.0f)) const;
 	int GetInt(const std::string& name, int defaultValue = 0) const;
 	Ref<RHITexture2D> GetTexture(const std::string& name) const;
+	// Shared base-color semantic for forward, GBuffer and PT.
+	Ref<RHITexture2D> GetBaseColorTexture() const;
+	static uint32_t BaseColorTextureFlags(const RHITexture2D* texture);
 
 	// 修改通知：本材质版本 +1，并通知 SceneChanges::MaterialParameters。
 	void MarkChanged();

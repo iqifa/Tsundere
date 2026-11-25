@@ -6,6 +6,7 @@
 #include "Panels/ModelEditorPanel.h"
 #include "Panels/MaterialEditorPanel.h"
 #include "Panels/TextureViewerPanel.h"
+#include "Panels/CubemapViewerPanel.h"
 #include "Panels/AssetPicker.h"
 #include "Core/Assets/CubemapAsset.h"
 #include <set>
@@ -262,10 +263,17 @@ void AssetsPanel::DrawAssetGrid()
 
 		DrawAssetContextMenu(asset);
 
+		const bool needsReview =
+			(asset.type == AssetEntry::Type::Texture || asset.type == AssetEntry::Type::Model) &&
+			Engine::AssetDatabase::NeedsImportReview(asset.path);
+
 		if (hovered)
 		{
 			ImGui::BeginTooltip();
 			ImGui::TextUnformatted(asset.name.c_str());
+			if (needsReview)
+				ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.25f, 1.0f),
+					"Import settings not confirmed (open to review)");
 			ImGui::EndTooltip();
 		}
 
@@ -321,6 +329,13 @@ void AssetsPanel::DrawAssetGrid()
 				dl->AddText(ImVec2(thumbTopLeft.x + (m_ThumbnailSize - iconSize.x) * 0.5f,
 					thumbTopLeft.y + (m_ThumbnailSize - iconSize.y) * 0.5f),
 					fg, icon.c_str());
+			}
+
+			if (needsReview)
+			{
+				const ImVec2 dot(thumbTopLeft.x + m_ThumbnailSize - 7.0f, thumbTopLeft.y + 7.0f);
+				dl->AddCircleFilled(dot, 5.0f, IM_COL32(255, 175, 60, 255));
+				dl->AddCircle(dot, 5.0f, IM_COL32(30, 30, 30, 200));
 			}
 
 			const float nameMaxWidth = cellSize - 8.0f;
@@ -716,11 +731,8 @@ void AssetsPanel::OpenAsset(const AssetEntry& entry)
 		TextureViewerPanel::Open(entry.path);
 		break;
 	case AssetEntry::Type::Cubemap:
-		if (currentcamera)
-		{
-			currentcamera->SkyboxAssetUid = Engine::AssetDatabase::UidForPath(entry.path, Engine::AssetKind::Cubemap);
-			++currentcamera->SkyboxAssetRevision;
-		}
+		// Inspect only; the panel's "Use as Skybox" applies it.
+		CubemapViewerPanel::Open(entry.path);
 		break;
 
 	case AssetEntry::Type::Material:

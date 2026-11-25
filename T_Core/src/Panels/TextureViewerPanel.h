@@ -2,6 +2,7 @@
 #include "Core/Layer/Layer.h"
 #include "Core/Application.h"
 #include "Platform/RHI/RHITextureLibrary.h"
+#include "Core/Assets/ImportSettings.h"
 
 // Preview for one image file. Open() creates the layer the first time a
 // texture is shown and removes it when the window closes.
@@ -36,12 +37,8 @@ public:
 	void OnImGuiRender() override;
 
 private:
-	void Show(const std::string& path, Ref<RHITexture2D> tex)
-	{
-		m_Path = path;
-		m_Texture = std::move(tex);
-		m_Open = true;
-	}
+	T_API void Show(const std::string& path, Ref<RHITexture2D> tex);
+	void DrawImportSettings();
 
 	void DestroySelf()
 	{
@@ -55,4 +52,8 @@ private:
 	std::string m_Path;
 	Ref<RHITexture2D> m_Texture;
 	bool m_Open = false;
+	// m_ImportSaved mirrors the .meta; m_ImportEdit is the unapplied UI copy.
+	Engine::TextureImportSettings m_ImportSaved;
+	Engine::TextureImportSettings m_ImportEdit;
+	std::string m_ImportError;
 };

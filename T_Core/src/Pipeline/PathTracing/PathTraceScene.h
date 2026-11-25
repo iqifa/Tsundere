@@ -45,7 +45,7 @@ namespace PathTracing
 	constexpr uint32_t MaterialDiffuse = 0;
 	constexpr uint32_t MaterialMetal = 1;
 
-	// std430，48 字节。PathTraceCommon.glsl: PTMaterial
+	// std430，80 字节。PathTraceCommon.glsl: PTMaterial
 	struct GPUMaterial
 	{
 		glm::vec4 baseColor{ 0.8f, 0.8f, 0.8f, 1.0f };
@@ -54,8 +54,11 @@ namespace PathTracing
 		float metallic = 0.0f;
 		uint32_t type = MaterialDiffuse;
 		uint32_t flags = 0;
+		glm::vec4 tilingOffset{ 1, 1, 0, 0 };
+		glm::uvec4 baseColorTexture{ 0u }; // padded texel offset, width, height, sampling flags
 	};
-	static_assert(sizeof(GPUMaterial) == 48 && offsetof(GPUMaterial, roughness) == 32,
+	static_assert(sizeof(GPUMaterial) == 80 && offsetof(GPUMaterial, roughness) == 32 &&
+		offsetof(GPUMaterial, baseColorTexture) == 64,
 		"GPUMaterial must match PTMaterial in PathTraceCommon.glsl");
 
 	// std430，64 字节。与 DeferredLightPass::GPULight / Lighting.glsl Light 同布局。
@@ -87,7 +90,7 @@ namespace PathTracing
 	constexpr uint32_t ShaderBLASStack = 32;
 
 	// 材质参数 → GPUMaterial。认 GBuffer / MaterialTest 的 u_BaseColor 等参数名，
-	// 再退回旧着色器常用名。metallic >= 0.5 视为金属（GGX），否则漫反射。
+	// 再退回旧着色器常用名。金属度连续混合漫反射与 GGX，与前向/延迟相同。
 	T_API GPUMaterial ExtractMaterial(const Engine::Material* material);
 }
 
@@ -126,6 +129,13 @@ public:
 	Ref<RHIRayTracingScene> GetRayTracingScene() const { return m_RayTracing; }
 	Ref<RHIBuffer> GetMaterialBuffer() const { return m_MaterialBuffer; }
 	Ref<RHIBuffer> GetLightBuffer() const { return m_LightBuffer; }
+	Ref<RHIBuffer> GetBaseColorBuffer() const { return m_BaseColorBuffer; }
+	struct BaseColorSource
+	{
+		Ref<RHITexture2D> texture;
+		glm::uvec4 layout{ 0u }; // offset, padded width/height, decode flags
+	};
+	const std::vector<BaseColorSource>& GetBaseColorSources() const { return m_BaseColorSources; }
 	uint32_t GetLightCount() const { return static_cast<uint32_t>(m_Lights.size()); }
 	uint32_t GetMaterialCount() const { return static_cast<uint32_t>(m_Materials.size()); }
 
@@ -179,6 +189,8 @@ private:
 	std::vector<PathTracing::GPULight> m_Lights;
 	Ref<RHIBuffer> m_MaterialBuffer;
 	Ref<RHIBuffer> m_LightBuffer;
+	Ref<RHIBuffer> m_BaseColorBuffer;
+	std::vector<BaseColorSource> m_BaseColorSources;
 	uint32_t m_MaterialCapacity = 0;
 	uint32_t m_LightCapacity = 0;
 

@@ -472,7 +472,7 @@ private:
 			if (!tex)
 				continue;
 			if (sampler.Name.find("diffuse") != std::string::npos)
-				diffuse = tex;
+				diffuse = mat->GetBaseColorTexture().get();
 			else if (sampler.Name.find("specular") != std::string::npos)
 				specular = tex;
 			else if (sampler.Name.find("normal") != std::string::npos)
@@ -498,7 +498,8 @@ private:
                 for (const auto& block : m_GbufferShader->GetReflection().UniformBlocks)
                     if (block.Binding == 3)
                         for (const auto& member : block.Members)
-                            if (!mat->GetParameter(member.Name) && member.Offset + member.Size <= m_DefaultMaterialBytes.size())
+                            if (member.Name != "_matpadBaseColorFlags" && !mat->GetParameter(member.Name) &&
+                                member.Offset + member.Size <= m_DefaultMaterialBytes.size())
                                 std::memcpy(packed.data() + member.Offset,
                                     m_DefaultMaterialBytes.data() + member.Offset, member.Size);
 				auto& entry = m_MaterialUBOs[mat.get()];

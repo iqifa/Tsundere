@@ -10,6 +10,7 @@
 #include "Core/Assets/TextureAsset.h"
 #include "Core/Assets/MeshAsset.h"
 #include "Core/Assets/AssetDatabase.h"
+#include "Core/Material.h"
 #include "stb_image/stb_image.h"
 #include "ExternalFiles.h"
 
@@ -40,6 +41,7 @@ struct AsyncLoadRequest
 
 	// Texture: CPU-decoded image data (TextureAsset owns the pixel vector)
 	TextureAsset cpuTexture;
+	TextureImportSettings textureSettings; // read from .meta on the worker
 
 	// Shader: parsed source sections
 	std::string vertexSource, fragmentSource, computeSource;
@@ -310,8 +312,9 @@ inline void ResourceLoader::WorkerLoop()
 inline void ResourceLoader::ExecuteTextureLoad(AsyncLoadRequest& req)
 {
 	// Phase-1: 在 worker 线程解码图片，全部存入 std::vector（无 GL 调用）
+	req.textureSettings = AssetDatabase::GetTextureImportSettings(req.path);
 	int w = 0, h = 0, ch = 0;
-	uint8_t* raw = Engine::LoadImageSTB(req.path.c_str(), &w, &h, &ch, 4, true);
+	uint8_t* raw = Engine::LoadImageSTB(req.path.c_str(), &w, &h, &ch, 4, req.textureSettings.flipY);
 	if (raw) {
 		req.cpuTexture.path     = req.path;
 		req.cpuTexture.width    = w;
@@ -362,13 +365,23 @@ inline void ResourceLoader::ExecuteShaderParse(AsyncLoadRequest& req)
 
 inline void ResourceLoader::ExecuteModelLoad(AsyncLoadRequest& req)
 {
+	const ModelImportSettings settings = AssetDatabase::GetModelImportSettings(req.path);
+	unsigned int flags = aiProcess_Triangulate;
+	switch (settings.normals)
+	{
+	case ModelNormalMode::SmoothIfMissing: flags |= aiProcess_GenSmoothNormals; break;
+	case ModelNormalMode::FlatIfMissing:   flags |= aiProcess_GenNormals; break;
+	case ModelNormalMode::RecomputeSmooth: flags |= aiProcess_GenSmoothNormals | aiProcess_ForceGenNormals; break;
+	case ModelNormalMode::RecomputeFlat:   flags |= aiProcess_GenNormals | aiProcess_ForceGenNormals; break;
+	}
+	if (settings.flipUVs) flags |= aiProcess_FlipUVs;
+	if (settings.calcTangents) flags |= aiProcess_CalcTangentSpace;
+	if (settings.convertToLeftHanded) flags |= aiProcess_ConvertToLeftHanded;
+	if (settings.joinVertices) flags |= aiProcess_JoinIdenticalVertices;
+
 	Assimp::Importer importer;
-	const aiScene* scene = importer.ReadFile(req.path,
-		aiProcess_Triangulate |
-		aiProcess_GenSmoothNormals |
-		aiProcess_FlipUVs |
-		aiProcess_CalcTangentSpace |
-		aiProcess_ConvertToLeftHanded);
+	importer.SetPropertyFloat(AI_CONFIG_PP_GSN_MAX_SMOOTHING_ANGLE, settings.smoothingAngle);
+	const aiScene* scene = importer.ReadFile(req.path, flags);
 	// Preserve authored normals and winding. FixInfacingNormals guesses from
 	// bounding boxes and reverses valid interior/planar meshes (e.g. Sponza).
 
@@ -535,6 +548,7 @@ inline void ResourceLoader::CompleteTextureLoad(AsyncLoadRequest& req)
 	desc.height = (uint32_t)req.cpuTexture.height;
 	desc.pixelData = req.cpuTexture.pixels.data();
 	desc.dataChannels = (uint32_t)req.cpuTexture.channels;
+	req.textureSettings.ApplyTo(desc);
 	desc.filePath = req.cpuTexture.path;
 	auto tex = RHITexture2D::Create(desc);
 
@@ -544,8 +558,13 @@ inline void ResourceLoader::CompleteTextureLoad(AsyncLoadRequest& req)
 		req.cpuTexture.pixels.shrink_to_fit();
 	}
 
-	if (tex)
-		TextureLibiary::Add(req.path, tex);
+	if (!tex) return;
+
+	// A reload (e.g. after import settings change) swaps the new texture into
+	// every material that used the old one. Runs before BeginFrame, so no
+	// command buffer is being recorded.
+	for (const auto& old : TextureLibiary::Replace(req.path, tex))
+		Material::ReplaceTexture(old.get(), tex);
 
 	Info_Core("[Loader Thread] Texture loaded: " + req.path);
 }

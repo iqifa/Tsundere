@@ -23,7 +23,7 @@ layout(location = 0) out vec4 o_Color;
 
 #define TS_GBUFFER_READ
 #include "include/GBuffer.glsl"
-#include "include/DeferredPBR.glsl"
+#include "include/PBR.glsl"
 layout(binding = 13) uniform sampler2D u_Depth;
 
 layout(std140, binding = 0) uniform PerPass_DeferredLighting
@@ -56,19 +56,11 @@ void main(){
         o_Color = vec4(g.baseColor + g.emissive, 1.0);
         return;
     }
-    Surface surf;
-    surf.P = worldPos;
-    surf.N = g.normal;
-    surf.V = normalize(u_ViewPos.xyz - worldPos);
-    surf.diffuseColor = g.baseColor * (1.0 - g.metallic);
-    surf.specularColor = mix(vec3(0.04), g.baseColor, g.metallic);
-    surf.shininess = 1.0;
+    Surface surf = MakePBRSurface(worldPos,g.normal,u_ViewPos.xyz-worldPos,g.baseColor,g.metallic);
     vec3 result = g.emissive + EvaluateAmbient(surf, u_Ambient.rgb) * g.ao;
     int count = min(int(u_LightCounts + 0.5), lights.length());
     for (int i = 0; i < count; ++i) {
-        LightSample ls;
-        if (SampleLight(lights[i], surf, ls))
-            result += ShadeMetallicRoughness(surf, ls, g.roughness);
+        result += PBREvaluateLight(lights[i],surf,g.roughness);
     }
     o_Color = vec4(result, 1.0);
 }

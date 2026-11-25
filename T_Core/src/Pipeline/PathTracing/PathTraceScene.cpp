@@ -1,6 +1,7 @@
 #include "PathTraceScene.h"
 
 #include "Scene/Scene.h"
+#include "Scene/LocalLights.h"
 #include "Panels/MeshFilePath.h"
 
 #include <algorithm>
@@ -8,6 +9,8 @@
 #include <cstring>
 #include <type_traits>
 #include <variant>
+#include <limits>
+#include <stdexcept>
 
 using namespace PathTracing;
 
@@ -84,7 +87,12 @@ namespace PathTracing
 
 		out.roughness = glm::clamp(ReadFloat(FindParameter(material, { "u_Roughness", "roughness" }), 0.5f), 0.0f, 1.0f);
 		out.metallic = glm::clamp(ReadFloat(FindParameter(material, { "u_Metallic", "metallic" }), 0.0f), 0.0f, 1.0f);
-		out.type = out.metallic >= 0.5f ? MaterialMetal : MaterialDiffuse;
+		// All materials use the shared continuous metallic/roughness BSDF.
+		out.type = MaterialDiffuse; // reserved ABI field; no metallic threshold
+		if (const auto* p = material->GetParameter("u_Tiling"))
+			if (const auto* v = p->Get<glm::vec2>()) { out.tilingOffset.x = v->x; out.tilingOffset.y = v->y; }
+		if (const auto* p = material->GetParameter("u_Offset"))
+			if (const auto* v = p->Get<glm::vec2>()) { out.tilingOffset.z = v->x; out.tilingOffset.w = v->y; }
 		return out;
 	}
 }
@@ -114,7 +122,7 @@ PathTraceScene::~PathTraceScene() = default;
 
 bool PathTraceScene::IsReady() const
 {
-	if (!m_Geometry.IsGPUReady() || !m_MaterialBuffer || !m_LightBuffer)
+	if (!m_Geometry.IsGPUReady() || !m_MaterialBuffer || !m_LightBuffer || !m_BaseColorBuffer)
 		return false;
 	return m_Backend == Backend::SoftwareBVH || (m_RayTracing && m_RayTracing->IsValid());
 }
@@ -216,17 +224,51 @@ bool PathTraceScene::UpdateGeometry(const Scene& scene, UpdateInfo& info)
 bool PathTraceScene::UpdateMaterials()
 {
 	std::vector<GPUMaterial> materials;
+	std::vector<BaseColorSource> sources;
+	std::unordered_map<const RHITexture2D*, glm::uvec4> textureLayouts;
+	uint64_t texelCount = 0;
 	materials.reserve(std::max<size_t>(m_MaterialRefs.size(), 1));
 	for (const auto& material : m_MaterialRefs)
-		materials.push_back(ExtractMaterial(material.get()));
+	{
+		auto gpu = ExtractMaterial(material.get());
+		if (auto texture = material ? material->GetBaseColorTexture() : nullptr)
+		{
+			auto [it, added] = textureLayouts.try_emplace(texture.get());
+			if (added)
+			{
+				const uint32_t w = texture->GetWidth(), h = texture->GetHeight();
+				const uint64_t count = (uint64_t(w) + 2) * (uint64_t(h) + 2);
+				if (w == 0 || h == 0 || texelCount + count > std::numeric_limits<uint32_t>::max() / sizeof(glm::uvec2))
+					throw std::runtime_error("PT base-color texture buffer exceeds the RHI buffer size limit");
+				uint32_t flags = Engine::Material::BaseColorTextureFlags(texture.get());
+				if (texture->GetWrapS() == WrapMode::Repeat) flags |= 4u;
+				if (texture->GetWrapT() == WrapMode::Repeat) flags |= 8u;
+				it->second = glm::uvec4(static_cast<uint32_t>(texelCount), w, h, flags);
+				sources.push_back({ texture, glm::uvec4(static_cast<uint32_t>(texelCount), w + 2, h + 2, flags) });
+				texelCount += count;
+			}
+			gpu.baseColorTexture = it->second;
+		}
+		materials.push_back(gpu);
+	}
 	if (materials.empty())
 		materials.emplace_back();
 
-	// 改的参数 PT 不用（贴图、透明度……）时提取结果不变：不上传、不重置累积
+	bool texturesSame = m_BaseColorBuffer && sources.size() == m_BaseColorSources.size();
+	for (size_t i = 0; texturesSame && i < sources.size(); ++i)
+		texturesSame = sources[i].texture == m_BaseColorSources[i].texture && sources[i].layout == m_BaseColorSources[i].layout;
+	if (!texturesSame)
+	{
+		// GPU-only cache: no disk reload/readback, no descriptor-array texture limit.
+		m_BaseColorBuffer = RHIBuffer::Create({ static_cast<uint32_t>(std::max<uint64_t>(texelCount, 1) * sizeof(glm::uvec2)),
+			BufferUsage::Storage, false, nullptr });
+		m_BaseColorSources = std::move(sources);
+	}
+	// Texture replacement also resets accumulation, even if dimensions are unchanged.
 	const bool same = m_MaterialBuffer && materials.size() == m_Materials.size() &&
 		std::memcmp(materials.data(), m_Materials.data(), materials.size() * sizeof(GPUMaterial)) == 0;
 	if (same)
-		return false;
+		return !texturesSame;
 	m_Materials = std::move(materials);
 	UploadArray(m_MaterialBuffer, m_MaterialCapacity, m_Materials);
 	return true;
@@ -235,20 +277,8 @@ bool PathTraceScene::UpdateMaterials()
 bool PathTraceScene::UpdateLights(const Scene& scene)
 {
 	std::vector<GPULight> lights;
-	for (auto [entity, transform, light] :
-		scene.m_Registry.view<const Component::Transform, const Component::Light>().each())
-	{
-		if (!scene.IsActive(entity))
-			continue;   // 与延迟光照 / 局部光一致：停用的实体不发光
-		GPULight g;
-		g.directionAmbient = glm::vec4(Component::LightDirection(transform), light.Ambient);
-		g.colorIntensity = glm::vec4(light.Color, light.Intensity);
-		g.positionType = glm::vec4(transform.Position, static_cast<float>(light.type));
-		g.params = glm::vec4(light.Params.Data[0], light.Params.Data[1], light.Params.Data[2], light.Params.Data[3]);
-		if (light.type == Component::Light::LightType::Area)
-			g.params.z = static_cast<float>(light.Params.Area.Shape);
-		lights.push_back(g);
-	}
+    for (const auto& light : GatherLocalLights(scene, true))
+        lights.push_back({light.directionAmbient, light.colorIntensity, light.positionType, light.params});
 
 	const bool same = m_LightBuffer && lights.size() == m_Lights.size() &&
 		(lights.empty() || std::memcmp(lights.data(), m_Lights.data(), lights.size() * sizeof(GPULight)) == 0);

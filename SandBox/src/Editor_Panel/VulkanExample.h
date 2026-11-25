@@ -65,6 +65,7 @@ private:
 	std::string m_SkyboxSaveStatus;
 	bool m_SkyboxChecked = false;
 	uint64_t m_SkyboxAssetRevision = 0;
+	uint64_t m_SkyboxContentRevision = 0; // AssetDatabase::ContentRevision of the loaded cubemap
 	PostProcess::Settings m_PostProcess;
 	bool m_ShowPostProcessPanel = false;
 	int m_PostProcessSelection = 0;

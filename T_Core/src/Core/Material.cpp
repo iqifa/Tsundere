@@ -4,17 +4,49 @@
 #include "Debug/Debug.h"
 #include "Scene/SceneChanges.h"
 #include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <fstream>
+#include <mutex>
 #include <sstream>
 #include <unordered_set>
 #include <vector>
 
 namespace Engine {
 
+namespace {
+
+// Every live Material, so a reimported texture can be swapped into materials
+// that are not in MaterialLibrary (scene-inline and model-default ones).
+std::mutex& InstanceMutex()
+{
+	static std::mutex mutex;
+	return mutex;
+}
+
+std::unordered_set<Material*>& Instances()
+{
+	static std::unordered_set<Material*> instances;
+	return instances;
+}
+
+void RegisterInstance(Material* material)
+{
+	std::lock_guard lock(InstanceMutex());
+	Instances().insert(material);
+}
+
+} // namespace
+
+Material::Material()
+{
+	RegisterInstance(this);
+}
+
 Material::Material(const std::string& name, Ref<RHIShader> shader)
 	: m_Name(name), m_Shader(shader)
 {
+	RegisterInstance(this);
 	if (m_Shader)
 		InitializeParametersFromShader();
 }
@@ -25,6 +57,31 @@ Material::Material(const Material& other)
 	, m_Shader(other.m_Shader)
 	, m_Parameters(other.m_Parameters)
 {
+	RegisterInstance(this);
+}
+
+Material::~Material()
+{
+	std::lock_guard lock(InstanceMutex());
+	Instances().erase(this);
+}
+
+void Material::ReplaceTexture(const RHITexture2D* oldTexture, const Ref<RHITexture2D>& newTexture)
+{
+	if (!oldTexture || oldTexture == newTexture.get())
+		return;
+	std::vector<std::pair<Material*, std::string>> uses;
+	{
+		std::lock_guard lock(InstanceMutex());
+		for (Material* material : Instances())
+			for (const auto& [name, param] : material->m_Parameters)
+				if (const auto* tex = param.Get<Ref<RHITexture2D>>(); tex && tex->get() == oldTexture)
+					uses.emplace_back(material, name);
+	}
+	// SetTexture notifies SceneChanges; keep that outside the registry lock.
+	// Materials are only destroyed on the main thread, so the pointers stay valid.
+	for (const auto& [material, name] : uses)
+		material->SetTexture(name, newTexture);
 }
 
 Material& Material::operator=(const Material& other)
@@ -180,6 +237,32 @@ Ref<RHITexture2D> Material::GetTexture(const std::string& name) const
 	return nullptr;
 }
 
+Ref<RHITexture2D> Material::GetBaseColorTexture() const
+{
+	for (const char* name : { "u_BaseColorMap", "texture_diffuse1", "albedo", "baseColorMap" })
+		if (auto tex = GetTexture(name)) return tex;
+	// Deterministic fallback for legacy sampler names.
+	std::string selected;
+	Ref<RHITexture2D> result;
+	for (const auto& [name, param] : m_Parameters)
+	{
+		std::string lower = name;
+		std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return std::tolower(c); });
+		if (lower.find("diffuse") == std::string::npos && lower.find("basecolor") == std::string::npos &&
+			lower.find("albedo") == std::string::npos) continue;
+		if (auto tex = GetTexture(name); tex && (!result || name < selected)) { result = tex; selected = name; }
+	}
+	return result;
+}
+
+uint32_t Material::BaseColorTextureFlags(const RHITexture2D* texture)
+{
+	if (!texture) return 0;
+	const auto format = texture->GetFormat();
+	return ((format == Format::RGBA8_UNORM || format == Format::R8_UNORM) ? 1u : 0u) |
+		(texture->GetMagFilter() == FilterMode::Nearest ? 2u : 0u);
+}
+
 size_t Material::PackMaterialBlock(
 	const ShaderReflection& refl,
 	std::vector<char>& out, uint32_t binding) const
@@ -206,6 +289,12 @@ size_t Material::PackMaterialBlock(
 		if (member.Size == 0 || member.Offset + member.Size > out.size())
 			continue;
 
+		if (member.Name == "_matpadBaseColorFlags" && member.Size == sizeof(uint32_t))
+		{
+			const uint32_t flags = BaseColorTextureFlags(GetBaseColorTexture().get());
+			std::memcpy(out.data() + member.Offset, &flags, sizeof(flags));
+			continue;
+		}
 		const auto* param = GetParameter(member.Name);
 		if (!param)
 			continue;

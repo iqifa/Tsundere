@@ -34,13 +34,17 @@ void main()
     gl_Position = jitteredViewProj * worldPos;
     v_Normal = transpose(inverse(mat3(pc.model))) * aNormal;
     v_TexCoords = aTexCoords;
-    v_TexCoords.y = 1.0 - v_TexCoords.y;
     v_CurrentClipPos = viewProj * worldPos;
     v_PreviousClipPos = prevViewProj * pc.prevModel * vec4(aPos, 1.0);
 }
 
 #shader fragment
 #version 430 core
+
+#include "include/MaterialSampling.glsl"
+#include "include/PBR.glsl"
+// Binding name retained for the forward descriptor ABI; contains ALL scene lights.
+layout(std430, binding=4) readonly buffer ForwardLocalLights { Light sceneLights[]; };
 
 layout(location = 0) out vec4 FragColor;
 layout(location = 1) out vec2 MotionVector;
@@ -77,7 +81,7 @@ layout(std140, binding = 3) uniform MaterialParams
 {
     vec4  u_BaseColor;          // color picker (vec4)
     vec3  u_EmissiveColor;      // color picker (vec3)
-    float _matpad0;
+    uint _matpadBaseColorFlags;
     vec2  u_Tiling;             // drag2
     vec2  u_Offset;             // drag2
     float u_Roughness;          // drag
@@ -91,9 +95,9 @@ layout(binding = 10) uniform sampler2D u_BaseColorMap;   // Texture2D slot
 
 void main()
 {
-    vec2 uv = v_TexCoords * u_Tiling + u_Offset;
+    vec2 uv = MaterialUV(v_TexCoords, vec4(u_Tiling, u_Offset));
 
-    vec3 baseColor = u_BaseColor.rgb * texture(u_BaseColorMap, uv).rgb;
+    vec3 baseColor = u_BaseColor.rgb * MaterialSampleBaseColor(u_BaseColorMap, uv, _matpadBaseColorFlags).rgb;
 
     // Optional debug patterns
     if (u_CheckerMode == 1)
@@ -109,20 +113,12 @@ void main()
         baseColor = mix(vec3(1.0, 0.6, 0.1), vec3(0.2, 0.3, 1.0), grid);
     }
 
-    vec3 L = normalize(-lightDir.xyz);
-    vec3 N = normalize(v_Normal);
-    float NdotL = max(dot(N, L), 0.0);
-
-    float roughness = clamp(u_Roughness, 0.0, 1.0);
-    float metallic = clamp(u_Metallic, 0.0, 1.0);
-    vec3 V = normalize(viewPos.xyz - v_WorldPos);
-    vec3 ambient = baseColor * lightColor.rgb * ambientStrength;
-    vec3 diffuse = baseColor * lightColor.rgb * NdotL * (1.0 - metallic);
-    float highlight = pow(max(dot(reflect(-L, N), V), 0.0), mix(4.0, 256.0, 1.0 - roughness));
-    vec3 spec = lightColor.rgb * highlight * NdotL * (1.0 - roughness);
-    vec3 emissive = u_EmissiveColor * u_EmissiveStrength;
-
-    FragColor = vec4(ambient + diffuse + spec + emissive, u_BaseColor.a);
+    Surface surf = MakePBRSurface(v_WorldPos,v_Normal,viewPos.xyz-v_WorldPos,baseColor,u_Metallic);
+    vec3 result = EvaluateAmbient(surf,lightColor.rgb*ambientStrength) + max(u_EmissiveColor*u_EmissiveStrength,vec3(0));
+    for (int i=0;i<sceneLights.length();++i)
+        result += PBREvaluateLight(sceneLights[i],surf,u_Roughness);
+    // Opaque output alpha is geometric coverage for post-TAA sky composition.
+    FragColor = vec4(result,1.0);
     vec2 currentNDC = v_CurrentClipPos.xy / v_CurrentClipPos.w;
     vec2 previousNDC = v_PreviousClipPos.xy / v_PreviousClipPos.w;
     MotionVector = (currentNDC - previousNDC) * 0.5;

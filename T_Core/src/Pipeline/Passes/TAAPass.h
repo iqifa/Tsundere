@@ -99,10 +99,10 @@ public:
 		RDGTextureDesc colorDesc;
 		colorDesc.width = m_Width;
 		colorDesc.height = m_Height;
-		colorDesc.format = opaque.ColorFormat();
+		colorDesc.format = builder.GetTextureDesc(m_SceneColor).format;
 		colorDesc.usage = TextureUsage::ColorAttachment | TextureUsage::Sampled | TextureUsage::TransferSrc;
 		m_OutputColor = builder.CreateTexture("SceneColor", colorDesc);
-		builder.SetColorOutput(0, m_OutputColor, RGLoadOp::Clear, { 0,0,0,1 });
+		builder.SetColorOutput(0, m_OutputColor, RGLoadOp::Clear, { 0,0,0,0 });
 		builder.ReadTexture("SceneColor", RGAccess::CopySrc);
 		builder.Export(m_OutputColor);
 

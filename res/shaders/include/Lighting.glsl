@@ -55,8 +55,14 @@ vec3 LightRadiance(Light l)
 
 float DistanceAttenuation(float dist, float radius)
 {
+    if (radius <= 0.0) return 0.0;
     float f = clamp(1.0 - pow(dist / max(radius, 1e-4), 4.0), 0.0, 1.0);
     return f * f / (dist * dist + 1.0);
+}
+
+float DistanceAttenuation(float dist, float radius, float falloff)
+{
+    return pow(DistanceAttenuation(dist,radius), max(falloff,0.1));
 }
 
 // ---------------------------------------------------------------------------
@@ -65,6 +71,7 @@ float DistanceAttenuation(float dist, float radius)
 
 bool SampleDirectional(Light l, Surface s, out LightSample o)
 {
+    if (dot(l.directionAmbient.xyz,l.directionAmbient.xyz) <= 1e-16) return false;
     o.L            = normalize(-l.directionAmbient.xyz);
     o.specL        = o.L;
     o.radiance     = LightRadiance(l);
@@ -77,7 +84,8 @@ bool SamplePoint(Light l, Surface s, out LightSample o)
 {
     vec3  toLight = l.positionType.xyz - s.P;
     float dist    = length(toLight);
-    float atten   = DistanceAttenuation(dist, l.params.x);
+    if (dist <= 1e-5) return false;
+    float atten   = DistanceAttenuation(dist, l.params.x, l.params.y);
 
     o.L            = toLight / max(dist, 1e-4);
     o.specL        = o.L;
@@ -92,10 +100,13 @@ bool SampleSpot(Light l, Surface s, out LightSample o)
     if (!SamplePoint(l, s, o))
         return false;
 
-    float cosInner = cos(radians(l.params.z));
-    float cosOuter = cos(radians(l.params.w));
+    if (dot(l.directionAmbient.xyz,l.directionAmbient.xyz) <= 1e-16) return false;
+    float inner = clamp(l.params.z,0.0,89.0);
+    float outer = clamp(l.params.w,inner,89.0);
+    float cosInner = cos(radians(inner));
+    float cosOuter = cos(radians(outer));
     float theta    = dot(-o.L, normalize(l.directionAmbient.xyz));
-    float cone     = smoothstep(cosOuter, cosInner, theta);
+    float cone     = cosInner-cosOuter > 1e-6 ? smoothstep(cosOuter,cosInner,theta) : step(cosOuter,theta);
 
     o.radiance *= cone;
     return cone > 0.0;

@@ -82,6 +82,9 @@ void VulkanTexture2D::Create(const Texture2DDesc& desc)
         ? VulkanPipelineUtil::ResolveDepthFormat(desc.format)
         : desc.format;
     m_Format = resolvedFormat;
+    m_WrapS = desc.wrapS;
+    m_WrapT = desc.wrapT;
+    m_MagFilter = desc.magFilter;
     const VkFormat format = VulkanPipelineUtil::ToVkFormat(resolvedFormat);
     const VkSampleCountFlagBits samples = VulkanPipelineUtil::ToVkSampleCount(desc.sampleCount);
     const VkImageUsageFlags usage = ToVkImageUsage(desc.usage) |
@@ -343,7 +346,8 @@ void VulkanTexture2D::UploadPixels(const Texture2DDesc& desc, VkFormat format)
         toShaderRead.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         vkCmdPipelineBarrier(commandBuffer,
             VK_PIPELINE_STAGE_TRANSFER_BIT,
-            VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+            VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
             0, 0, nullptr, 0, nullptr, 1, &toShaderRead);
 
         if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS)

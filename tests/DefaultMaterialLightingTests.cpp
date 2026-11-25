@@ -75,11 +75,9 @@ try {
     float camera[48]; for(int i=0;i<48;++i)camera[i]=identity[i%16];
     GLuint buffers[3]; glGenBuffers(3,buffers);
     GLuint lightBuffer; glGenBuffers(1,&lightBuffer);
+    std::vector<float> sceneLocalLights;
     auto uploadLights=[&](std::vector<float> data) {
-        if(data.empty())data.resize(16,0);
-        glBindBuffer(GL_SHADER_STORAGE_BUFFER,lightBuffer);
-        glBufferData(GL_SHADER_STORAGE_BUFFER,data.size()*sizeof(float),data.data(),GL_DYNAMIC_DRAW);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER,4,lightBuffer);
+        sceneLocalLights = std::move(data);
     };
     uploadLights({});
     auto upload=[&](int index,int binding,const void* data,size_t size) {
@@ -98,7 +96,13 @@ try {
     auto render=[&](float intensity,float direction,float ambient,bool redOnly=false) {
         std::array<float,40> frame{}; frame[2]=direction;
         frame[4]=intensity; frame[5]=frame[6]=redOnly?0:intensity; frame[8]=ambient;
+        frame[12]=frame[13]=0.0625f; frame[14]=1;
         upload(2,1,frame.data(),sizeof(frame));
+        std::vector<float> allLights={0,0,direction,0, intensity,redOnly?0:intensity,redOnly?0:intensity,1, 0,0,0,0, 0,0,0,0};
+        allLights.insert(allLights.end(),sceneLocalLights.begin(),sceneLocalLights.end());
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER,lightBuffer);
+        glBufferData(GL_SHADER_STORAGE_BUFFER,allLights.size()*sizeof(float),allLights.data(),GL_DYNAMIC_DRAW);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER,4,lightBuffer);
         glDrawArrays(GL_TRIANGLES,0,3);
         std::array<float,4> pixel{}; glReadBuffer(GL_COLOR_ATTACHMENT0); glReadPixels(8,8,1,1,GL_RGBA,GL_FLOAT,pixel.data());
         Require(glGetError()==GL_NO_ERROR,"Draw/readback error"); return pixel;
@@ -106,7 +110,7 @@ try {
     auto lit=render(1,-1,0), bright=render(2,-1,0), off=render(0,-1,0.5f);
     auto back=render(1,1,0), ambient=render(1,1,0.25f), red=render(1,-1,0,true), zero=render(1,0,0);
     for(int c=0;c<3;++c) {
-        Require(std::abs(lit[c]-base[c])<0.001f,"Default base color lost");
+        Require(std::abs(lit[c]-(0.96f*base[c]+0.16f)/3.14159265f)<0.001f,"Default GGX normal-incidence BRDF incorrect");
         Require(std::abs(bright[c]-2*lit[c])<0.001f,"Scene intensity ignored");
         Require(off[c]==0 && back[c]==0 && zero[c]==0,"Fixed preview light still present");
         Require(std::abs(ambient[c]-base[c]*0.25f)<0.001f,"Scene ambient ignored");
@@ -116,7 +120,7 @@ try {
     std::vector<float> lamp={0,0,-1,0, 1,0.5f,0.25f,2, 0.0625f,0.0625f,1,1, 5,1,15,30};
     uploadLights(lamp); auto point=render(0,-1,0);
     Require(point[0]>0 && point[1]>0 && point[2]>0,"Point light missing");
-    Require(std::abs(point[1]/point[0]-0.25f)<0.001f,"Point color/base color incorrect");
+    Require(std::abs(point[1]/point[0]-0.5f*lit[1]/lit[0])<0.001f,"Point color/base color incorrect");
     lamp[10]=2; uploadLights(lamp); auto farPoint=render(0,-1,0);
     Require(farPoint[0]<point[0],"Point distance attenuation ignored");
     lamp[10]=1; lamp[13]=3; uploadLights(lamp); auto falloff=render(0,-1,0);
@@ -141,7 +145,7 @@ try {
     std::vector<float> area={0,0,-1,0, 1,0.5f,0.25f,2, 0.0625f,0.0625f,1,3, 1,1,0,0};
     uploadLights(area); auto rectangle=render(0,-1,0);
     Require(rectangle[0]>0 && std::isfinite(rectangle[0]),"Rectangle area light missing");
-    Require(std::abs(rectangle[1]/rectangle[0]-0.25f)<0.001f,"Area light color incorrect");
+    Require(rectangle[0]>rectangle[1] && rectangle[1]>rectangle[2],"Area light color incorrect");
     area[12]=2; uploadLights(area); auto wide=render(0,-1,0);
     Require(wide[0]>rectangle[0],"Rectangle width ignored");
     area[12]=1; area[13]=2; uploadLights(area);

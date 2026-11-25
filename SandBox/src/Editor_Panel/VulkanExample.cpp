@@ -5,6 +5,7 @@
 #include<Pipeline/Passes/DeferredLight.h>
 #include <string_view>
 #include <Pipeline/Passes/TAAPass.h>
+#include <Pipeline/Passes/SkyboxPass.h>
 #include <Pipeline/Passes/PathTracingPass.h>
 #include <Platform/RHI/RHIGpuTimer.h>
 #include <Pipeline/RenderPassRegistry.h>
@@ -178,7 +179,7 @@ void VulkanExampleLayer::DrawPathTracingPanel()
         ImGui::ColorEdit3("Environment", &s.environmentColor.x, ImGuiColorEditFlags_Float);
         ImGui::SetItemTooltip("Used when no skybox is set. With a skybox only the intensity applies.");
         ImGui::DragFloat("Environment intensity", &s.environmentIntensity, 0.01f, 0.0f, 100.0f);
-        const char* views[] = { "Shading", "Shading normal", "Facing (green = front)", "Albedo", "UV", "Instance ID", "Hit distance" };
+        const char* views[] = { "Shading", "Shading normal", "Facing (green = front)", "Albedo", "UV", "Instance ID", "Hit distance", "Direct lighting (unoccluded)", "Direct lighting (shadowed)" };
         ImGui::Combo("Debug view", &s.debugView, views, IM_ARRAYSIZE(views));
         if (s.debugView == 6)
             ImGui::DragFloat("Distance range", &s.debugDepthRange, 0.5f, 0.1f, 10000.0f);
@@ -504,13 +505,19 @@ void VulkanExampleLayer::ExecuteRenderGraph()
 		return;
 	}
 
+	// Reload on a new selection, an explicit Reload, or when the selected
+	// cubemap asset was rewritten (e.g. faces saved in the Cubemap panel).
+	const uint64_t skyboxContentRevision = currentcamera
+		? Engine::AssetDatabase::ContentRevision(currentcamera->SkyboxAssetUid) : 0;
 	if (currentcamera && (!m_SkyboxChecked || currentcamera->SkyboxAssetUid != m_AttemptedSkyboxAsset ||
-		currentcamera->SkyboxAssetRevision != m_SkyboxAssetRevision))
+		currentcamera->SkyboxAssetRevision != m_SkyboxAssetRevision ||
+		skyboxContentRevision != m_SkyboxContentRevision))
 	{
 		const bool selectionChanged = currentcamera->SkyboxAssetUid != m_AttemptedSkyboxAsset;
 		m_SkyboxChecked = true;
 		m_AttemptedSkyboxAsset = currentcamera->SkyboxAssetUid;
 		m_SkyboxAssetRevision = currentcamera->SkyboxAssetRevision;
+		m_SkyboxContentRevision = skyboxContentRevision;
 		if (selectionChanged)
 			SaveSkyboxSettings();
 		m_SkyboxStatus.clear();
@@ -711,6 +718,7 @@ void VulkanExampleLayer::BuildRenderGraph(uint32_t width, uint32_t height)
 	auto passes = m_PassManager.GetEnabledPasses();
 	const bool deferred = m_PassManager.IsPassEnabled("Gbuffer") &&
 		m_PassManager.IsPassEnabled("DeferredLight");
+	bool skyInserted = false;
 	for (auto& pass : passes)
 	{
 		const std::string_view name = pass->GetName();
@@ -719,6 +727,10 @@ void VulkanExampleLayer::BuildRenderGraph(uint32_t width, uint32_t height)
 			continue;
 		if (auto geometry = std::dynamic_pointer_cast<GeometryPass>(pass))
 			geometry->SetSampleCount(m_GeometryMSAAEnabled ? 4 : 1);
+		if (name == "Transparent") {
+			m_RenderGraph.AddPass(CreateRef<SkyboxPass>(m_GraphFrameData));
+			skyInserted = true;
+		}
 		m_RenderGraph.AddPass(pass);
 		if (name == "DeferredLight")
 		{
@@ -728,13 +740,11 @@ void VulkanExampleLayer::BuildRenderGraph(uint32_t width, uint32_t height)
 		}
 	}
 
+	if (!skyInserted) m_RenderGraph.AddPass(CreateRef<SkyboxPass>(m_GraphFrameData));
+
 	if (!m_PostProcessShader)
 		m_PostProcessShader = RHIShader::Create("res/shaders/PostProcess.shader");
-	const char* postSource = "Geometry.SceneColor";
-	if (deferred)
-		postSource = "ForwardOpaque.SceneColor";
-	if (m_PassManager.IsPassEnabled("TAA"))
-		postSource = "TAA.SceneColor";
+	const char* postSource = "Skybox.SceneColor";
 	if (m_PassManager.IsPassEnabled("Transparent"))
 		postSource = "Transparent.SceneColor";
 	// GPU 路径追踪替换光栅结果作为后处理输入（线性 HDR，需要 Tone Mapping 显示）
@@ -748,7 +758,7 @@ void VulkanExampleLayer::BuildRenderGraph(uint32_t width, uint32_t height)
 			currentcamera->GetProj(), postSource);
 
     if (!m_ViewportPreviewShader) m_ViewportPreviewShader = RHIShader::Create("res/shaders/ViewportPreview.shader");
-    const char* previewSources[] = {"", pathTracing ? "PathTrace.SceneColor" : deferred ? "ForwardOpaque.SceneColor" : "Geometry.SceneColor",
+    const char* previewSources[] = {"", pathTracing ? "PathTrace.SceneColor" : "Skybox.SceneColor",
         "Gbuffer.Normal", "Gbuffer.SceneColor", "Gbuffer.MetallicRoughness",
         deferred ? "ForwardOpaque.Velocity" : "Geometry.Velocity", "Gbuffer.Emissive",
         deferred ? "ForwardOpaque.Depth" : "Geometry.Depth"};
@@ -756,7 +766,7 @@ void VulkanExampleLayer::BuildRenderGraph(uint32_t width, uint32_t height)
     m_ViewportConvertPass = CreateRef<ViewportPreviewPass>("ViewportStorage", m_ViewportPreviewShader,
         std::vector<std::string>{m_ViewportRequestedSource, postProcessColor,
             pathTracing ? "PathTrace.SceneColor" : "", "Transparent.SceneColor",
-            "TAA.SceneColor", "ForwardOpaque.SceneColor", "Geometry.SceneColor"},
+            "Skybox.SceneColor", "TAA.SceneColor", "ForwardOpaque.SceneColor", "Geometry.SceneColor"},
         PreviewFormatValues[m_ViewportFormat], glm::vec4(-1, 0, 1, 0), width, height);
     m_RenderGraph.AddPass(m_ViewportConvertPass);
     m_RenderGraph.AddPass(CreateRef<ViewportPreviewPass>("ViewportDisplay", m_ViewportPreviewShader,
@@ -773,6 +783,8 @@ void VulkanExampleLayer::BuildRenderGraph(uint32_t width, uint32_t height)
 		m_GraphFinalColor = m_RenderGraph.GetTextureByName("PathTrace.SceneColor");
 	if (m_GraphFinalColor.id == InvalidResourceId)
 		m_GraphFinalColor = m_RenderGraph.GetTextureByName("Transparent.SceneColor");
+	if (m_GraphFinalColor.id == InvalidResourceId)
+		m_GraphFinalColor = m_RenderGraph.GetTextureByName("Skybox.SceneColor");
 	if (m_GraphFinalColor.id == InvalidResourceId)
 		m_GraphFinalColor = taaColor;
 	if (m_GraphFinalColor.id == InvalidResourceId)

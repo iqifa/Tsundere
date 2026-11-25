@@ -94,14 +94,12 @@ public:
 		m_DeferredLight = builder.CreateTexture("Light", colorDesc);
 
 
-		builder.SetColorOutput(0, m_DeferredLight, RGLoadOp::Clear, { 0,0,0,1 });
+		builder.SetColorOutput(0, m_DeferredLight, RGLoadOp::Clear, { 0,0,0,0 });
 		// builder.SetDepthOutput(m_Dep_Stencil, RGLoadOp::Clear, 1.0f);
 
 		builder.Export(m_DeferredLight);
 		// builder.Export(m_Dep_Stencil);
 
-		if (currentcamera && currentcamera->skybox)
-			currentcamera->skybox->InitializePipeline(builder, false);
 
 		if (!m_DeferredPipeline)
 		{
@@ -133,25 +131,15 @@ public:
 		std::vector<GPULight> lights;
 		glm::vec3 ambient(0.0f);
 		bool hasAmbient = false;
-		for (auto [entityID, trans, light] : m_Scene->m_Registry.view<Component::Transform, Component::Light>().each())
-		{
-			if (!m_Scene->IsActive(entityID)) continue;
-			if (!hasAmbient && light.type == Component::Light::LightType::Directional)
-			{
-				ambient = light.Color * light.Intensity * light.Ambient;
-				hasAmbient = true;
-			}
-
-			GPULight Glight;
-
-			Glight.direc_ambient = { Component::LightDirection(trans),(float)light.Ambient };
-			Glight.color_intens = { light.Color ,light.Intensity };
-			Glight.pos_type = { trans.Position ,static_cast<float>(light.type) };
-			Glight.Param = { light.Params.Data[0], light.Params.Data[1], light.Params.Data[2], light.Params.Data[3] };
-			if (light.type == Component::Light::LightType::Area)
-				Glight.Param.z = static_cast<float>(light.Params.Area.Shape);
-			lights.push_back(Glight);
-		}
+        for (const auto& light : GatherLocalLights(*m_Scene, true))
+        {
+            if (!hasAmbient && static_cast<int>(light.positionType.w) == 0)
+            {
+                ambient = glm::vec3(light.colorIntensity) * light.colorIntensity.w * light.directionAmbient.w;
+                hasAmbient = true;
+            }
+            lights.push_back({light.directionAmbient, light.colorIntensity, light.positionType, light.params});
+        }
 		if (lights.size() > m_LightCapacity)
         {
             m_LightCapacity = static_cast<uint32_t>(lights.size());
@@ -193,8 +181,7 @@ public:
 		m_DeferredDescriptorSet->BindTexture(15, context.GetTexture(m_Velocity), 15);
 		m_DeferredDescriptorSet->Apply(0);
 
-		// The lighting shader discards background pixels (depth == 1), so the skybox must be drawn first.
-		currentcamera->RenderSkyBox(cmd);
+		// Background stays transparent black until the post-TAA Skybox pass.
 
 		cmd.BindPipeline(m_DeferredPipeline);
 		cmd.BindVertexBuffer(ScreenVB, 0);

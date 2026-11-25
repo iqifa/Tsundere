@@ -47,6 +47,7 @@ void main()
 
 #define TS_GBUFFER_WRITE
 #include "include/GBuffer.glsl"
+#include "include/MaterialSampling.glsl"
 
 layout(location = 0) in vec2 v_TexCoords;
 layout(location = 1) in vec3 v_Normal;
@@ -70,7 +71,7 @@ layout(std140, binding = 3) uniform MaterialParams
 {
     vec4  u_BaseColor;          // multiplies the diffuse texture
     vec3  u_EmissiveColor;
-    float _matpad0;
+    uint _matpadBaseColorFlags;
     vec2  u_Tiling;             // uv = v_TexCoords * u_Tiling + u_Offset
     vec2  u_Offset;
     float u_Roughness;          // perceptual roughness [0,1]
@@ -87,7 +88,7 @@ layout(binding = 13) uniform sampler2D u_ShadowMap;
 
 void main()
 {
-    vec2 uv = v_TexCoords * u_Tiling + u_Offset;
+    vec2 uv = MaterialUV(v_TexCoords, vec4(u_Tiling, u_Offset));
 
     // hasNormalMap == 0: interpolated vertex normal, already in world space.
     vec3 normal = normalize(v_Normal);
@@ -105,11 +106,7 @@ void main()
     GBufferSurface surface = DefaultGBufferSurface();
     surface.normal = normal;
     surface.shadingModel = TS_SHADING_MODEL;
-    // Legacy imported diffuse textures contain sRGB bytes in UNORM storage.
-    vec3 encoded = texture(texture_diffuse1, uv).rgb;
-    vec3 linearColor = mix(encoded / 12.92, pow((encoded + 0.055) / 1.055, vec3(2.4)),
-                           step(vec3(0.04045), encoded));
-    surface.baseColor = linearColor * u_BaseColor.rgb;
+    surface.baseColor = MaterialSampleBaseColor(texture_diffuse1, uv, _matpadBaseColorFlags).rgb * u_BaseColor.rgb;
     surface.metallic = u_Metallic;
     surface.roughness = u_Roughness;
     surface.emissive = u_EmissiveColor * u_EmissiveStrength;
