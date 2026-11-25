@@ -21,7 +21,11 @@ namespace
 	const ImU32 kNodeBody      = IM_COL32(40, 43, 50, 245);
 	const ImU32 kNodeRaster    = IM_COL32(55, 90, 140, 255);
 	const ImU32 kNodeCompute   = IM_COL32(105, 70, 140, 255);
+	const ImU32 kNodeGroup     = IM_COL32(48, 122, 112, 255);
 	const ImU32 kNodeCulled    = IM_COL32(70, 70, 70, 255);
+	const ImU32 kGroupBoxBg    = IM_COL32(55, 115, 110, 28);
+	const ImU32 kGroupBoxHdr   = IM_COL32(48, 108, 102, 170);
+	const ImU32 kGroupBoxLine  = IM_COL32(95, 175, 165, 120);
 	const ImU32 kNodeBorder    = IM_COL32(20, 20, 20, 255);
 	const ImU32 kNodeSelected  = IM_COL32(255, 220, 90, 255);
 	const ImU32 kNodeMatch     = IM_COL32(120, 230, 140, 255);
@@ -257,6 +261,51 @@ namespace
 		const ImU32 alpha = (ImU32)((float)((c >> IM_COL32_A_SHIFT) & 0xFF) * a);
 		return (c & ~IM_COL32_A_MASK) | (alpha << IM_COL32_A_SHIFT);
 	}
+
+	std::vector<std::string> GroupPrefixes(const std::string& group)
+	{
+		std::vector<std::string> out;
+		if (group.empty())
+			return out;
+		size_t pos = 0;
+		while (true)
+		{
+			size_t slash = group.find('/', pos);
+			if (slash == std::string::npos)
+			{
+				out.push_back(group);
+				break;
+			}
+			if (slash > 0)
+				out.push_back(group.substr(0, slash));
+			pos = slash + 1;
+		}
+		return out;
+	}
+
+	std::string GroupLeafName(const std::string& path)
+	{
+		const size_t slash = path.rfind('/');
+		return slash == std::string::npos ? path : path.substr(slash + 1);
+	}
+
+	int GroupDepth(const std::string& path)
+	{
+		int depth = 0;
+		for (char c : path)
+			if (c == '/')
+				++depth;
+		return depth;
+	}
+
+	bool GroupMatchesPrefix(const std::string& group, const std::string& prefix)
+	{
+		if (group.size() < prefix.size())
+			return false;
+		if (group.compare(0, prefix.size(), prefix) != 0)
+			return false;
+		return group.size() == prefix.size() || group[prefix.size()] == '/';
+	}
 }
 
 bool RenderGraphViewer::HazardVisible(int hazard) const
@@ -275,6 +324,26 @@ bool RenderGraphViewer::MatchesSearch(const std::string& name, const char* query
 	if (!query || query[0] == '\0')
 		return false;
 	return ToLower(name).find(ToLower(query)) != std::string::npos;
+}
+
+bool RenderGraphViewer::NodeMatchesSearch(const RenderGraph& graph, const Node& node) const
+{
+	if (m_Search[0] == '\0')
+		return false;
+	if (MatchesSearch(node.label, m_Search))
+		return true;
+	if (!node.groupPath.empty() && MatchesSearch(node.groupPath, m_Search))
+		return true;
+	if (node.isGroup)
+	{
+		const auto& passes = graph.GetPasses();
+		for (uint32_t pid : node.memberPasses)
+		{
+			if (pid < passes.size() && MatchesSearch(passes[pid].name, m_Search))
+				return true;
+		}
+	}
+	return false;
 }
 
 void RenderGraphViewer::Draw(const RenderGraph& graph, bool* open)
@@ -298,7 +367,9 @@ void RenderGraphViewer::Draw(const RenderGraph& graph, bool* open)
 		|| graph.GetCompileSerial() != m_LayoutCompileSerial
 		|| passes.size() != m_LayoutPassCount
 		|| graph.GetEdgeInfos().size() != m_LayoutEdgeCount
-		|| m_ShowCulled != m_LayoutShowCulled)
+		|| m_ShowCulled != m_LayoutShowCulled
+		|| m_GroupPasses != m_LayoutGroupPasses
+		|| m_GroupStateSerial != m_LayoutGroupStateSerial)
 	{
 		RebuildLayout(graph);
 	}
@@ -338,109 +409,256 @@ void RenderGraphViewer::RebuildLayout(const RenderGraph& graph)
 	m_LayoutPassCount = passes.size();
 	m_LayoutEdgeCount = infos.size();
 	m_LayoutShowCulled = m_ShowCulled;
-
-	// Re-resolve the selection by name; pass ids change across rebuilds.
-	m_SelectedPass = UINT32_MAX;
-	if (!m_SelectedName.empty())
-	{
-		for (PassId i = 0; i < passes.size(); ++i)
-		{
-			if (passes[i].name == m_SelectedName)
-			{
-				m_SelectedPass = i;
-				break;
-			}
-		}
-	}
-
-	// Group per-resource edge records into one curve per pass pair.
-	m_Edges.clear();
-	std::unordered_map<uint64_t, size_t> groupOf;
-	for (uint32_t i = 0; i < infos.size(); ++i)
-	{
-		const RGEdgeInfo& e = infos[i];
-		const uint64_t key = ((uint64_t)e.from << 32) | e.to;
-		auto it = groupOf.find(key);
-		if (it == groupOf.end())
-		{
-			it = groupOf.emplace(key, m_Edges.size()).first;
-			m_Edges.push_back({ e.from, e.to, {} });
-		}
-		m_Edges[it->second].infos.push_back(i);
-	}
+	m_LayoutGroupPasses = m_GroupPasses;
+	m_LayoutGroupStateSerial = m_GroupStateSerial;
 
 	std::vector<int> execIndexOf(passes.size(), -1);
 	for (size_t i = 0; i < order.size(); ++i)
 		if (order[i] < passes.size())
 			execIndexOf[order[i]] = (int)i;
 
-	// Longest-path layering. executionOrder_ is topological, so one sweep in
-	// that order settles every layer (a cycle falls back to declaration order
-	// in the graph; the sweep still terminates, it just lays out less neatly).
-	std::vector<std::vector<uint32_t>> successors(passes.size());
-	std::vector<std::vector<uint32_t>> predecessors(passes.size());
-	for (const EdgeGroup& g : m_Edges)
-	{
-		successors[g.from].push_back(g.to);
-		predecessors[g.to].push_back(g.from);
-	}
-
-	std::vector<int> layer(passes.size(), 0);
-	int maxLayer = 0;
+	// Discover all hierarchical group paths and seed default collapse state.
+	std::set<std::string> allGroups;
 	for (PassId p : order)
 	{
-		if (p >= passes.size() || passes[p].culled)
+		if (p >= passes.size() || passes[p].culled || passes[p].group.empty())
 			continue;
-		for (uint32_t next : successors[p])
-			layer[next] = std::max(layer[next], layer[p] + 1);
-		maxLayer = std::max(maxLayer, layer[p]);
+		for (const std::string& prefix : GroupPrefixes(passes[p].group))
+		{
+			allGroups.insert(prefix);
+			if (m_GroupCollapsed.find(prefix) == m_GroupCollapsed.end())
+				m_GroupCollapsed[prefix] = graph.IsScopeCollapsedByDefault(prefix);
+		}
 	}
 
-	// Culled passes have no declarations; give them their own last column.
-	const int culledLayer = maxLayer + 1;
-	std::vector<std::vector<uint32_t>> layers(culledLayer + 1);
+	// Build visual nodes (individual passes + collapsed groups).
+	m_Nodes.clear();
+	m_NodeOfPass.assign(passes.size(), -1);
+	std::unordered_map<std::string, int> collapsedGroupNode;
+
 	for (PassId p : order)
 	{
 		if (p >= passes.size())
 			continue;
-		if (passes[p].culled)
+		const RGPass& pass = passes[p];
+		if (pass.culled)
 		{
-			if (m_ShowCulled)
-				layers[culledLayer].push_back(p);
+			if (!m_ShowCulled)
+				continue;
+			Node n;
+			n.isGroup = false;
+			n.pass = p;
+			n.key = pass.name;
+			n.groupPath = pass.group;
+			n.label = pass.name;
+			n.execIndex = execIndexOf[p];
+			n.execIndexMax = execIndexOf[p];
+			m_NodeOfPass[p] = (int)m_Nodes.size();
+			m_Nodes.push_back(std::move(n));
 			continue;
 		}
-		layers[layer[p]].push_back(p);
+
+		std::string collapsedPrefix;
+		if (m_GroupPasses && !pass.group.empty())
+		{
+			for (const std::string& prefix : GroupPrefixes(pass.group))
+			{
+				auto it = m_GroupCollapsed.find(prefix);
+				if (it != m_GroupCollapsed.end() && it->second)
+				{
+					collapsedPrefix = prefix;
+					break;
+				}
+			}
+		}
+
+		if (!collapsedPrefix.empty())
+		{
+			auto it = collapsedGroupNode.find(collapsedPrefix);
+			if (it == collapsedGroupNode.end())
+			{
+				Node n;
+				n.isGroup = true;
+				n.key = "group:" + collapsedPrefix;
+				n.groupPath = collapsedPrefix;
+				n.label = GroupLeafName(collapsedPrefix);
+				n.execIndex = execIndexOf[p];
+				n.execIndexMax = execIndexOf[p];
+				n.memberPasses.push_back(p);
+				const int idx = (int)m_Nodes.size();
+				collapsedGroupNode.emplace(collapsedPrefix, idx);
+				m_NodeOfPass[p] = idx;
+				m_Nodes.push_back(std::move(n));
+			}
+			else
+			{
+				Node& n = m_Nodes[it->second];
+				n.memberPasses.push_back(p);
+				n.execIndex = std::min(n.execIndex, execIndexOf[p]);
+				n.execIndexMax = std::max(n.execIndexMax, execIndexOf[p]);
+				m_NodeOfPass[p] = it->second;
+			}
+		}
+		else
+		{
+			Node n;
+			n.isGroup = false;
+			n.pass = p;
+			n.key = pass.name;
+			n.groupPath = pass.group;
+			n.label = pass.name;
+			n.execIndex = execIndexOf[p];
+			n.execIndexMax = execIndexOf[p];
+			m_NodeOfPass[p] = (int)m_Nodes.size();
+			m_Nodes.push_back(std::move(n));
+		}
 	}
+
+	// Re-resolve the selection by key; pass/node ids change across rebuilds.
+	m_SelectedNode = -1;
+	if (!m_SelectedKey.empty())
+	{
+		for (int i = 0; i < (int)m_Nodes.size(); ++i)
+		{
+			if (m_Nodes[i].key == m_SelectedKey)
+			{
+				m_SelectedNode = i;
+				break;
+			}
+		}
+	}
+
+	// Group per-resource edge records into one curve per visual node pair.
+	// Internal edges inside a collapsed group (fromNode == toNode) are hidden.
+	m_Edges.clear();
+	std::unordered_map<uint64_t, size_t> groupOf;
+	for (uint32_t i = 0; i < infos.size(); ++i)
+	{
+		const RGEdgeInfo& e = infos[i];
+		if (e.from >= m_NodeOfPass.size() || e.to >= m_NodeOfPass.size())
+			continue;
+		const int fromNode = m_NodeOfPass[e.from];
+		const int toNode = m_NodeOfPass[e.to];
+		if (fromNode < 0 || toNode < 0 || fromNode == toNode)
+			continue;
+
+		const uint64_t key = ((uint64_t)(uint32_t)fromNode << 32) | (uint32_t)toNode;
+		auto it = groupOf.find(key);
+		if (it == groupOf.end())
+		{
+			it = groupOf.emplace(key, m_Edges.size()).first;
+			m_Edges.push_back({ fromNode, toNode, {} });
+		}
+		m_Edges[it->second].infos.push_back(i);
+	}
+
+	const int nodeCount = (int)m_Nodes.size();
+	auto isCulledNode = [&](int idx) -> bool
+	{
+		const Node& n = m_Nodes[idx];
+		return !n.isGroup && n.pass < passes.size() && passes[n.pass].culled;
+	};
+
+	// Longest-path layering on visual nodes via Kahn's topological sweep.
+	// Collapsing non-contiguous passes could theoretically induce a visual
+	// cycle; any remaining nodes fall back to execIndex order.
+	std::vector<std::vector<int>> successors(nodeCount);
+	std::vector<std::vector<int>> predecessors(nodeCount);
+	std::vector<int> indegree(nodeCount, 0);
+	for (const EdgeGroup& g : m_Edges)
+	{
+		if (isCulledNode(g.fromNode) || isCulledNode(g.toNode))
+			continue;
+		successors[g.fromNode].push_back(g.toNode);
+		predecessors[g.toNode].push_back(g.fromNode);
+		++indegree[g.toNode];
+	}
+
+	std::vector<int> activeNodes;
+	activeNodes.reserve(nodeCount);
+	for (int i = 0; i < nodeCount; ++i)
+		if (!isCulledNode(i))
+			activeNodes.push_back(i);
+	std::stable_sort(activeNodes.begin(), activeNodes.end(), [&](int a, int b)
+	{
+		return m_Nodes[a].execIndex < m_Nodes[b].execIndex;
+	});
+
+	std::vector<int> ready;
+	ready.reserve(activeNodes.size());
+	for (int idx : activeNodes)
+		if (indegree[idx] == 0)
+			ready.push_back(idx);
+
+	std::vector<char> visited(nodeCount, 0);
+	std::vector<int> topoOrder;
+	topoOrder.reserve(activeNodes.size());
+	size_t cursor = 0;
+	while (cursor < ready.size())
+	{
+		const int u = ready[cursor++];
+		visited[u] = 1;
+		topoOrder.push_back(u);
+		for (int v : successors[u])
+		{
+			if (--indegree[v] == 0)
+				ready.push_back(v);
+		}
+	}
+	for (int idx : activeNodes)
+		if (!visited[idx])
+			topoOrder.push_back(idx);
+
+	std::vector<int> layer(nodeCount, 0);
+	int maxLayer = 0;
+	std::vector<char> layered(nodeCount, 0);
+	for (int u : topoOrder)
+	{
+		for (int pred : predecessors[u])
+			if (layered[pred])
+				layer[u] = std::max(layer[u], layer[pred] + 1);
+		layered[u] = 1;
+		maxLayer = std::max(maxLayer, layer[u]);
+	}
+
+	// Culled passes have no declarations; give them their own last column.
+	const int culledLayer = activeNodes.empty() ? 0 : (maxLayer + 1);
+	std::vector<std::vector<int>> layers(culledLayer + 1);
+	for (int u : topoOrder)
+		layers[layer[u]].push_back(u);
+	for (int i = 0; i < nodeCount; ++i)
+		if (isCulledNode(i))
+			layers[culledLayer].push_back(i);
 	while (!layers.empty() && layers.back().empty())
 		layers.pop_back();
 
 	// One barycenter sweep left-to-right to cut down edge crossings.
-	std::vector<float> rowOf(passes.size(), 0.0f);
+	std::vector<float> rowOf(nodeCount, 0.0f);
 	for (size_t L = 0; L < layers.size(); ++L)
 	{
-		auto& nodes = layers[L];
+		auto& col = layers[L];
 		if (L > 0)
 		{
-			std::vector<float> key(passes.size(), 0.0f);
-			for (uint32_t p : nodes)
+			std::vector<float> key(nodeCount, 0.0f);
+			for (int u : col)
 			{
 				float sum = 0.0f;
 				int count = 0;
-				for (uint32_t pred : predecessors[p])
+				for (int pred : predecessors[u])
 				{
 					sum += rowOf[pred];
 					++count;
 				}
-				key[p] = count ? sum / (float)count : (float)execIndexOf[p];
+				key[u] = count ? sum / (float)count : (float)m_Nodes[u].execIndex;
 			}
-			std::stable_sort(nodes.begin(), nodes.end(), [&](uint32_t a, uint32_t b)
+			std::stable_sort(col.begin(), col.end(), [&](int a, int b)
 			{
 				if (key[a] != key[b]) return key[a] < key[b];
-				return execIndexOf[a] < execIndexOf[b];
+				return m_Nodes[a].execIndex < m_Nodes[b].execIndex;
 			});
 		}
-		for (size_t r = 0; r < nodes.size(); ++r)
-			rowOf[nodes[r]] = (float)r;
+		for (size_t r = 0; r < col.size(); ++r)
+			rowOf[col[r]] = (float)r;
 	}
 
 	// Sizes measured at the base font size; drawing scales them with zoom.
@@ -448,40 +666,38 @@ void RenderGraphViewer::RebuildLayout(const RenderGraph& graph)
 	const float nodeH = lineH * 2.0f + kNodePad * 2.5f;
 
 	size_t maxRows = 0;
-	for (const auto& nodes : layers)
-		maxRows = std::max(maxRows, nodes.size());
+	for (const auto& col : layers)
+		maxRows = std::max(maxRows, col.size());
 	const float fullH = maxRows > 0 ? (float)maxRows * nodeH + (float)(maxRows - 1) * kRowGap : 0.0f;
 
-	m_Nodes.clear();
-	m_NodeOfPass.assign(passes.size(), -1);
 	float x = 0.0f;
 	for (size_t L = 0; L < layers.size(); ++L)
 	{
-		const auto& nodes = layers[L];
+		const auto& col = layers[L];
 		float colW = kNodeMinWidth;
-		for (uint32_t p : nodes)
+		for (int idx : col)
 		{
-			char title[160];
-			snprintf(title, sizeof(title), "#%d %s", execIndexOf[p], passes[p].name.c_str());
+			const Node& n = m_Nodes[idx];
+			char title[180];
+			if (n.isGroup)
+				snprintf(title, sizeof(title), "[+] %s (%zu)", n.label.c_str(), n.memberPasses.size());
+			else
+				snprintf(title, sizeof(title), "#%d %s", n.execIndex, n.label.c_str());
 			colW = std::max(colW, ImGui::CalcTextSize(title).x + kNodePad * 2.0f + 14.0f);
 		}
 
-		const float colH = nodes.empty() ? 0.0f
-			: (float)nodes.size() * nodeH + (float)(nodes.size() - 1) * kRowGap;
+		const float colH = col.empty() ? 0.0f
+			: (float)col.size() * nodeH + (float)(col.size() - 1) * kRowGap;
 		float y = (fullH - colH) * 0.5f;
-		for (size_t r = 0; r < nodes.size(); ++r)
+		for (size_t r = 0; r < col.size(); ++r)
 		{
-			Node n;
-			n.pass = nodes[r];
-			n.execIndex = execIndexOf[n.pass];
+			Node& n = m_Nodes[col[r]];
 			n.layer = (int)L;
 			n.row = (int)r;
 			n.x = x;
 			n.y = y;
 			n.w = colW;
 			n.h = nodeH;
-			m_NodeOfPass[n.pass] = (int)m_Nodes.size();
-			m_Nodes.push_back(n);
 			y += nodeH + kRowGap;
 		}
 		x += colW + kLayerGap;
@@ -490,12 +706,40 @@ void RenderGraphViewer::RebuildLayout(const RenderGraph& graph)
 	// Hand-placed positions win over the automatic layout.
 	for (Node& n : m_Nodes)
 	{
-		auto it = m_ManualPos.find(passes[n.pass].name);
+		auto it = m_ManualPos.find(n.key);
 		if (it != m_ManualPos.end())
 		{
 			n.x = it->second.first;
 			n.y = it->second.second;
 		}
+	}
+
+	// Build expanded group backdrop frames (outermost first).
+	m_GroupBoxes.clear();
+	if (m_GroupPasses)
+	{
+		for (const std::string& g : allGroups)
+		{
+			auto it = m_GroupCollapsed.find(g);
+			if (it != m_GroupCollapsed.end() && it->second)
+				continue;
+
+			GroupBox box;
+			box.groupPath = g;
+			box.label = GroupLeafName(g);
+			box.depth = GroupDepth(g);
+			for (int i = 0; i < nodeCount; ++i)
+			{
+				if (isCulledNode(i))
+					continue;
+				if (GroupMatchesPrefix(m_Nodes[i].groupPath, g))
+					box.nodeIndices.push_back(i);
+			}
+			if (!box.nodeIndices.empty())
+				m_GroupBoxes.push_back(std::move(box));
+		}
+		std::stable_sort(m_GroupBoxes.begin(), m_GroupBoxes.end(),
+			[](const GroupBox& a, const GroupBox& b) { return a.depth < b.depth; });
 	}
 
 	m_DraggingNode = -1;
@@ -559,7 +803,26 @@ void RenderGraphViewer::DrawGraphTab(const RenderGraph& graph)
 	}
 	ImGui::Checkbox("Show culled", &m_ShowCulled);
 	ImGui::SameLine();
-	ImGui::SetNextItemWidth(180.0f);
+	ImGui::Checkbox("Groups", &m_GroupPasses);
+	if (m_GroupPasses && !m_GroupCollapsed.empty())
+	{
+		ImGui::SameLine();
+		if (ImGui::Button("Expand all"))
+		{
+			for (auto& [k, v] : m_GroupCollapsed)
+				v = false;
+			++m_GroupStateSerial;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Collapse all"))
+		{
+			for (auto& [k, v] : m_GroupCollapsed)
+				v = true;
+			++m_GroupStateSerial;
+		}
+	}
+	ImGui::SameLine();
+	ImGui::SetNextItemWidth(160.0f);
 	ImGui::InputTextWithHint("##search", "Search pass...", m_Search, sizeof(m_Search));
 	ImGui::SameLine();
 	if (ImGui::Button("Fit"))
@@ -575,13 +838,15 @@ void RenderGraphViewer::DrawGraphTab(const RenderGraph& graph)
 	ImGui::SameLine();
 	ImGui::TextDisabled("(?)");
 	if (ImGui::IsItemHovered())
-		ImGui::SetTooltip("Left drag a pass: move it (kept across rebuilds)\n"
+		ImGui::SetTooltip("Left drag a pass/group: move it (kept across rebuilds)\n"
+			"Double-click a collapsed group: expand it\n"
+			"Click an expanded group's [-] header: collapse it\n"
 			"Left drag empty space / right / middle drag: pan\nWheel: zoom\n"
-			"Click a pass to select it, click empty space to deselect\n"
+			"Click a node to select it, click empty space to deselect\n"
 			"Edges point from producer to consumer; colour = hazard type");
 
 	// ---- Canvas -------------------------------------------------------------
-	const bool hasSelection = m_SelectedPass < passes.size();
+	const bool hasSelection = m_SelectedNode >= 0 && m_SelectedNode < (int)m_Nodes.size();
 	const float detailsH = hasSelection ? 190.0f : 0.0f;
 	ImVec2 avail = ImGui::GetContentRegionAvail();
 	avail.y = std::max(120.0f, avail.y - detailsH);
@@ -652,15 +917,81 @@ void RenderGraphViewer::DrawGraphTab(const RenderGraph& graph)
 		}
 	}
 
-	// Left button: press on a pass selects it and starts dragging it; press on
-	// empty canvas pans, and a click there without dragging clears selection.
+	// Compute screen-space rects for expanded group boxes (used for both drawing and header hit-test).
+	struct GroupBoxDraw
+	{
+		ImVec2 a, b;
+		ImVec2 hdrA, hdrB;
+		std::string title;
+	};
+	int maxBoxDepth = 0;
+	for (const GroupBox& box : m_GroupBoxes)
+		maxBoxDepth = std::max(maxBoxDepth, box.depth);
+
+	const float groupHdrH = (ImGui::GetFontSize() + 8.0f) * m_Zoom;
+	std::vector<GroupBoxDraw> boxDraws(m_GroupBoxes.size());
+	for (size_t i = 0; i < m_GroupBoxes.size(); ++i)
+	{
+		const GroupBox& box = m_GroupBoxes[i];
+		float minX = FLT_MAX, minY = FLT_MAX, maxX = -FLT_MAX, maxY = -FLT_MAX;
+		for (int ni : box.nodeIndices)
+		{
+			const Node& n = m_Nodes[ni];
+			minX = std::min(minX, n.x);
+			minY = std::min(minY, n.y);
+			maxX = std::max(maxX, n.x + n.w);
+			maxY = std::max(maxY, n.y + n.h);
+		}
+		const float pad = 12.0f + (float)(maxBoxDepth - box.depth) * 10.0f;
+		const float topPad = 24.0f + (float)(maxBoxDepth - box.depth) * 20.0f;
+		GroupBoxDraw bd;
+		bd.a = toScreen(minX - pad, minY - topPad);
+		bd.b = toScreen(maxX + pad, maxY + pad);
+		bd.title = "[-] " + box.label;
+		const float tw = ImGui::CalcTextSize(bd.title.c_str()).x * m_Zoom + 12.0f * m_Zoom;
+		bd.hdrA = bd.a;
+		bd.hdrB = ImVec2(std::min(bd.b.x, bd.a.x + tw), bd.a.y + groupHdrH);
+		boxDraws[i] = std::move(bd);
+	}
+
+	// Hit-test expanded group headers (innermost first) when not hovering a node.
+	int hoveredGroupHeader = -1;
+	if (hoveredNode < 0 && canvasHovered)
+	{
+		for (int i = (int)boxDraws.size() - 1; i >= 0; --i)
+		{
+			const GroupBoxDraw& bd = boxDraws[i];
+			if (io.MousePos.x >= bd.hdrA.x && io.MousePos.x <= bd.hdrB.x
+				&& io.MousePos.y >= bd.hdrA.y && io.MousePos.y <= bd.hdrB.y)
+			{
+				hoveredGroupHeader = i;
+				break;
+			}
+		}
+	}
+
+	// Left button: double-click on collapsed group expands it; click on expanded
+	// group header collapses it; press on a node selects/drags it; empty canvas pans.
 	if (canvasActivated && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
 	{
 		if (hoveredNode >= 0)
 		{
-			m_DraggingNode = hoveredNode;
-			m_SelectedPass = m_Nodes[hoveredNode].pass;
-			m_SelectedName = passes[m_SelectedPass].name;
+			if (m_Nodes[hoveredNode].isGroup && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+			{
+				m_GroupCollapsed[m_Nodes[hoveredNode].groupPath] = false;
+				++m_GroupStateSerial;
+			}
+			else
+			{
+				m_DraggingNode = hoveredNode;
+				m_SelectedNode = hoveredNode;
+				m_SelectedKey = m_Nodes[hoveredNode].key;
+			}
+		}
+		else if (hoveredGroupHeader >= 0)
+		{
+			m_GroupCollapsed[m_GroupBoxes[hoveredGroupHeader].groupPath] = true;
+			++m_GroupStateSerial;
 		}
 		else
 		{
@@ -675,7 +1006,7 @@ void RenderGraphViewer::DrawGraphTab(const RenderGraph& graph)
 			Node& n = m_Nodes[m_DraggingNode];
 			n.x += io.MouseDelta.x / m_Zoom;
 			n.y += io.MouseDelta.y / m_Zoom;
-			m_ManualPos[passes[n.pass].name] = { n.x, n.y };
+			m_ManualPos[n.key] = { n.x, n.y };
 		}
 		else if (m_Panning)
 		{
@@ -688,8 +1019,8 @@ void RenderGraphViewer::DrawGraphTab(const RenderGraph& graph)
 	{
 		if (m_Panning && !ImGui::IsMouseDragPastThreshold(ImGuiMouseButton_Left))
 		{
-			m_SelectedPass = UINT32_MAX;
-			m_SelectedName.clear();
+			m_SelectedNode = -1;
+			m_SelectedKey.clear();
 		}
 		m_DraggingNode = -1;
 		m_Panning = false;
@@ -697,20 +1028,20 @@ void RenderGraphViewer::DrawGraphTab(const RenderGraph& graph)
 
 	if (m_DraggingNode >= 0)
 		ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
-	else if (hoveredNode >= 0)
+	else if (hoveredNode >= 0 || hoveredGroupHeader >= 0)
 		ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
 
-	// Focus = hovered pass, else selected pass. Its direct neighbours stay lit.
-	const uint32_t focusPass = hoveredNode >= 0 ? m_Nodes[hoveredNode].pass
-		: (m_SelectedPass < passes.size() ? m_SelectedPass : UINT32_MAX);
-	std::vector<char> lit(passes.size(), focusPass == UINT32_MAX ? 1 : 0);
-	if (focusPass != UINT32_MAX)
+	// Focus = hovered node, else selected node. Its direct neighbours stay lit.
+	const int focusNode = hoveredNode >= 0 ? hoveredNode
+		: (m_SelectedNode >= 0 && m_SelectedNode < (int)m_Nodes.size() ? m_SelectedNode : -1);
+	std::vector<char> lit(m_Nodes.size(), focusNode < 0 ? 1 : 0);
+	if (focusNode >= 0)
 	{
-		lit[focusPass] = 1;
+		lit[focusNode] = 1;
 		for (const EdgeGroup& g : m_Edges)
 		{
-			if (g.from == focusPass) lit[g.to] = 1;
-			if (g.to == focusPass) lit[g.from] = 1;
+			if (g.fromNode == focusNode) lit[g.toNode] = 1;
+			if (g.toNode == focusNode) lit[g.fromNode] = 1;
 		}
 	}
 	const bool searching = m_Search[0] != '\0';
@@ -730,6 +1061,30 @@ void RenderGraphViewer::DrawGraphTab(const RenderGraph& graph)
 			dl->AddLine(ImVec2(origin.x, origin.y + gy), ImVec2(canvasMax.x, origin.y + gy), kGridLine);
 	}
 
+	// ---- Expanded Group Frames ----------------------------------------------
+	ImFont* font = ImGui::GetFont();
+	const float fontSize = ImGui::GetFontSize() * m_Zoom;
+	const bool drawText = m_Zoom > 0.35f;
+	const float rounding = 5.0f * m_Zoom;
+
+	for (size_t i = 0; i < boxDraws.size(); ++i)
+	{
+		const GroupBoxDraw& bd = boxDraws[i];
+		if (bd.b.x < origin.x || bd.a.x > canvasMax.x || bd.b.y < origin.y || bd.a.y > canvasMax.y)
+			continue;
+		const bool hdrHovered = (int)i == hoveredGroupHeader;
+		dl->AddRectFilled(bd.a, bd.b, kGroupBoxBg, rounding * 1.4f);
+		dl->AddRect(bd.a, bd.b, hdrHovered ? kNodeSelected : kGroupBoxLine, rounding * 1.4f, 0, hdrHovered ? 1.8f : 1.0f);
+		dl->AddRectFilled(bd.hdrA, bd.hdrB, hdrHovered ? WithAlpha(kNodeGroup, 1.0f) : kGroupBoxHdr,
+			rounding, ImDrawFlags_RoundCornersTopLeft | ImDrawFlags_RoundCornersBottomRight);
+		if (drawText)
+		{
+			dl->AddText(font, fontSize * 0.92f,
+				ImVec2(bd.hdrA.x + 5.0f * m_Zoom, bd.hdrA.y + 3.0f * m_Zoom),
+				kText, bd.title.c_str());
+		}
+	}
+
 	// ---- Edges --------------------------------------------------------------
 	int hoveredEdge = -1;
 	float hoveredEdgeDist = 6.0f;
@@ -740,9 +1095,7 @@ void RenderGraphViewer::DrawGraphTab(const RenderGraph& graph)
 	for (size_t e = 0; e < m_Edges.size(); ++e)
 	{
 		const EdgeGroup& g = m_Edges[e];
-		const int fromNode = g.from < m_NodeOfPass.size() ? m_NodeOfPass[g.from] : -1;
-		const int toNode = g.to < m_NodeOfPass.size() ? m_NodeOfPass[g.to] : -1;
-		if (fromNode < 0 || toNode < 0)
+		if (g.fromNode < 0 || g.toNode < 0 || g.fromNode >= (int)m_Nodes.size() || g.toNode >= (int)m_Nodes.size())
 			continue;
 
 		// Colour by the most significant visible hazard: RAW (true data flow)
@@ -761,8 +1114,8 @@ void RenderGraphViewer::DrawGraphTab(const RenderGraph& graph)
 		if (best < 0)
 			continue;
 
-		const Node& a = m_Nodes[fromNode];
-		const Node& b = m_Nodes[toNode];
+		const Node& a = m_Nodes[g.fromNode];
+		const Node& b = m_Nodes[g.toNode];
 		EdgeDraw d;
 		d.p0 = toScreen(a.x + a.w, a.y + a.h * 0.5f);
 		d.p3 = toScreen(b.x, b.y + b.h * 0.5f);
@@ -770,13 +1123,13 @@ void RenderGraphViewer::DrawGraphTab(const RenderGraph& graph)
 		d.p1 = ImVec2(d.p0.x + dx, d.p0.y);
 		d.p2 = ImVec2(d.p3.x - dx, d.p3.y);
 
-		const bool edgeLit = focusPass == UINT32_MAX || g.from == focusPass || g.to == focusPass;
+		const bool edgeLit = focusNode < 0 || g.fromNode == focusNode || g.toNode == focusNode;
 		d.color = edgeLit ? kHazardColor[best] : WithAlpha(kHazardColor[best], 0.15f);
-		d.thickness = (edgeLit && focusPass != UINT32_MAX ? 2.5f : 1.6f) * std::max(0.6f, m_Zoom);
+		d.thickness = (edgeLit && focusNode >= 0 ? 2.5f : 1.6f) * std::max(0.6f, m_Zoom);
 		edgeDraws[e] = d;
 		edgeVisible[e] = 1;
 
-		if (canvasHovered && hoveredNode < 0)
+		if (canvasHovered && hoveredNode < 0 && hoveredGroupHeader < 0)
 		{
 			const ImVec2 c = ImBezierCubicClosestPointCasteljau(d.p0, d.p1, d.p2, d.p3, io.MousePos, 1.0f);
 			const float dist = std::sqrt((c.x - io.MousePos.x) * (c.x - io.MousePos.x) + (c.y - io.MousePos.y) * (c.y - io.MousePos.y));
@@ -818,36 +1171,52 @@ void RenderGraphViewer::DrawGraphTab(const RenderGraph& graph)
 	}
 
 	// ---- Nodes --------------------------------------------------------------
-	ImFont* font = ImGui::GetFont();
-	const float fontSize = ImGui::GetFontSize() * m_Zoom;
-	const bool drawText = m_Zoom > 0.35f;
-	const float rounding = 5.0f * m_Zoom;
-
 	for (int i = 0; i < (int)m_Nodes.size(); ++i)
 	{
 		const Node& n = m_Nodes[i];
-		const RGPass& pass = passes[n.pass];
 		const ImVec2 a = toScreen(n.x, n.y);
 		const ImVec2 b = toScreen(n.x + n.w, n.y + n.h);
 		if (b.x < origin.x || a.x > canvasMax.x || b.y < origin.y || a.y > canvasMax.y)
 			continue;
 
-		const bool dim = !lit[n.pass] || (searching && !MatchesSearch(pass.name, m_Search));
+		const bool matchesSearch = NodeMatchesSearch(graph, n);
+		const bool dim = !lit[i] || (searching && !matchesSearch);
 		const float alpha = dim ? 0.3f : 1.0f;
-		const ImU32 header = pass.culled ? kNodeCulled : (IsComputePass(pass) ? kNodeCompute : kNodeRaster);
 		const float headerH = (ImGui::GetFontSize() + kNodePad) * m_Zoom;
+
+		ImU32 header = kNodeGroup;
+		bool hasBarrier = false;
+		if (n.isGroup)
+		{
+			for (uint32_t pid : n.memberPasses)
+				if (pid < passes.size() && passes[pid].barriers != BarrierFlags::None)
+					hasBarrier = true;
+
+			// Stacked card hint behind a collapsed group node.
+			const float stackOff = 3.5f * m_Zoom;
+			dl->AddRectFilled(ImVec2(a.x + stackOff, a.y + stackOff), ImVec2(b.x + stackOff, b.y + stackOff),
+				WithAlpha(IM_COL32(28, 32, 38, 220), alpha), rounding);
+			dl->AddRect(ImVec2(a.x + stackOff, a.y + stackOff), ImVec2(b.x + stackOff, b.y + stackOff),
+				WithAlpha(kGroupBoxLine, alpha * 0.7f), rounding, 0, 1.0f);
+		}
+		else
+		{
+			const RGPass& pass = passes[n.pass];
+			header = pass.culled ? kNodeCulled : (IsComputePass(pass) ? kNodeCompute : kNodeRaster);
+			hasBarrier = pass.barriers != BarrierFlags::None;
+		}
 
 		dl->AddRectFilled(a, b, WithAlpha(kNodeBody, alpha), rounding);
 		dl->AddRectFilled(a, ImVec2(b.x, a.y + headerH), WithAlpha(header, alpha), rounding, ImDrawFlags_RoundCornersTop);
 
 		ImU32 border = kNodeBorder;
 		float borderW = 1.0f;
-		if (n.pass == m_SelectedPass) { border = kNodeSelected; borderW = 2.5f; }
-		else if (searching && MatchesSearch(pass.name, m_Search)) { border = kNodeMatch; borderW = 2.0f; }
+		if (i == m_SelectedNode) { border = kNodeSelected; borderW = 2.5f; }
+		else if (searching && matchesSearch) { border = kNodeMatch; borderW = 2.0f; }
 		else if (i == hoveredNode) { border = IM_COL32(200, 200, 200, 255); borderW = 1.5f; }
 		dl->AddRect(a, b, WithAlpha(border, std::max(alpha, 0.6f)), rounding, 0, borderW);
 
-		if (pass.barriers != BarrierFlags::None)
+		if (hasBarrier)
 		{
 			const float r = 4.5f * std::max(0.6f, m_Zoom);
 			dl->AddCircleFilled(ImVec2(b.x - r - 4.0f * m_Zoom, a.y + headerH * 0.5f), r, WithAlpha(kBarrierBadge, alpha));
@@ -855,17 +1224,28 @@ void RenderGraphViewer::DrawGraphTab(const RenderGraph& graph)
 
 		if (drawText)
 		{
-			char title[160];
-			snprintf(title, sizeof(title), "#%d %s", n.execIndex, pass.name.c_str());
+			char title[180];
+			char sub[96];
+			if (n.isGroup)
+			{
+				snprintf(title, sizeof(title), "[+] %s (%zu)", n.label.c_str(), n.memberPasses.size());
+				if (n.execIndex == n.execIndexMax)
+					snprintf(sub, sizeof(sub), "Group  #%d  (dbl-click)", n.execIndex);
+				else
+					snprintf(sub, sizeof(sub), "Group  #%d..#%d", n.execIndex, n.execIndexMax);
+			}
+			else
+			{
+				const RGPass& pass = passes[n.pass];
+				snprintf(title, sizeof(title), "#%d %s", n.execIndex, pass.name.c_str());
+				if (pass.culled)
+					snprintf(sub, sizeof(sub), "culled");
+				else
+					snprintf(sub, sizeof(sub), "%s  R:%zu W:%zu", IsComputePass(pass) ? "Compute" : "Raster",
+						pass.reads.size(), pass.writes.size());
+			}
 			dl->AddText(font, fontSize, ImVec2(a.x + kNodePad * m_Zoom, a.y + kNodePad * 0.5f * m_Zoom),
 				WithAlpha(kText, alpha), title);
-
-			char sub[96];
-			if (pass.culled)
-				snprintf(sub, sizeof(sub), "culled");
-			else
-				snprintf(sub, sizeof(sub), "%s  R:%zu W:%zu", IsComputePass(pass) ? "Compute" : "Raster",
-					pass.reads.size(), pass.writes.size());
 			dl->AddText(font, fontSize, ImVec2(a.x + kNodePad * m_Zoom, a.y + headerH + kNodePad * 0.5f * m_Zoom),
 				WithAlpha(kTextDim, alpha), sub);
 		}
@@ -876,36 +1256,68 @@ void RenderGraphViewer::DrawGraphTab(const RenderGraph& graph)
 	// ---- Tooltips -----------------------------------------------------------
 	if (hoveredNode >= 0)
 	{
-		const RGPass& pass = passes[m_Nodes[hoveredNode].pass];
+		const Node& n = m_Nodes[hoveredNode];
 		ImGui::BeginTooltip();
-		ImGui::Text("%s  (#%d)", pass.name.c_str(), m_Nodes[hoveredNode].execIndex);
-		if (pass.culled)
-			ImGui::TextDisabled("Culled / disabled");
-		if (pass.barriers != BarrierFlags::None)
-			ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(kBarrierBadge), "Barrier: %s", BarrierString(pass.barriers).c_str());
-		ImGui::SeparatorText("Shader reads / writes");
-        DrawShaderAccesses(graph, pass);
-        ImGui::SeparatorText("Draw attachments");
-        DrawAttachments(graph, pass);
-        ImGui::SeparatorText("Texture copies (source -> destination)");
-        DrawCopies(graph, pass);
-        ImGui::EndTooltip();
+		if (n.isGroup)
+		{
+			ImGui::Text("%s  (%zu passes)", n.groupPath.c_str(), n.memberPasses.size());
+			ImGui::TextDisabled("Exec range: #%d .. #%d  |  Double-click to expand", n.execIndex, n.execIndexMax);
+			ImGui::SeparatorText("Member passes");
+			for (uint32_t pid : n.memberPasses)
+			{
+				if (pid >= passes.size()) continue;
+				const RGPass& p = passes[pid];
+				ImGui::BulletText("%s  (%s  R:%zu W:%zu)", p.name.c_str(),
+					IsComputePass(p) ? "Compute" : "Raster", p.reads.size(), p.writes.size());
+			}
+		}
+		else
+		{
+			const RGPass& pass = passes[n.pass];
+			ImGui::Text("%s  (#%d)", pass.name.c_str(), n.execIndex);
+			if (!pass.group.empty())
+				ImGui::TextDisabled("Group: %s", pass.group.c_str());
+			if (pass.culled)
+				ImGui::TextDisabled("Culled / disabled");
+			if (pass.barriers != BarrierFlags::None)
+				ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(kBarrierBadge), "Barrier: %s", BarrierString(pass.barriers).c_str());
+			ImGui::SeparatorText("Shader reads / writes");
+			DrawShaderAccesses(graph, pass);
+			ImGui::SeparatorText("Draw attachments");
+			DrawAttachments(graph, pass);
+			ImGui::SeparatorText("Texture copies (source -> destination)");
+			DrawCopies(graph, pass);
+		}
+		ImGui::EndTooltip();
+	}
+	else if (hoveredGroupHeader >= 0)
+	{
+		ImGui::BeginTooltip();
+		ImGui::Text("%s", m_GroupBoxes[hoveredGroupHeader].groupPath.c_str());
+		ImGui::TextDisabled("Click to collapse group");
+		ImGui::EndTooltip();
 	}
 	else if (hoveredEdge >= 0)
 	{
 		const EdgeGroup& g = m_Edges[hoveredEdge];
+		const Node& fromN = m_Nodes[g.fromNode];
+		const Node& toN = m_Nodes[g.toNode];
 		ImGui::BeginTooltip();
-		ImGui::Text("%s  ->  %s", PassName(graph, g.from).c_str(), PassName(graph, g.to).c_str());
+		ImGui::Text("%s  ->  %s", fromN.label.c_str(), toN.label.c_str());
 		ImGui::Separator();
-		std::set<std::pair<ResourceId, RGHazard>> shown;
+		std::set<std::tuple<PassId, PassId, ResourceId, RGHazard>> shown;
 		for (uint32_t idx : g.infos)
 		{
 			const RGEdgeInfo& info = infos[idx];
-			if (!HazardVisible((int)info.hazard) || !shown.emplace(info.resource, info.hazard).second)
+			if (!HazardVisible((int)info.hazard) || !shown.emplace(info.from, info.to, info.resource, info.hazard).second)
 				continue;
 			ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(kHazardColor[(int)info.hazard]), "%s", HazardName(info.hazard));
 			ImGui::SameLine();
-			ImGui::TextUnformatted(ResourceName(graph, info.resource).c_str());
+			if (fromN.isGroup || toN.isGroup)
+				ImGui::Text("%s  (%s -> %s)", ResourceName(graph, info.resource).c_str(),
+					PassName(graph, info.from).c_str(), PassName(graph, info.to).c_str());
+			else
+				ImGui::TextUnformatted(ResourceName(graph, info.resource).c_str());
 			DrawDependencyUses(graph, info);
 		}
 		ImGui::EndTooltip();
@@ -913,22 +1325,32 @@ void RenderGraphViewer::DrawGraphTab(const RenderGraph& graph)
 
 	ImGui::EndChild();
 
-	if (m_SelectedPass < passes.size())
-		DrawPassDetails(graph);
+	if (m_SelectedNode >= 0 && m_SelectedNode < (int)m_Nodes.size())
+	{
+		const Node& sel = m_Nodes[m_SelectedNode];
+		if (sel.isGroup)
+			DrawGroupDetails(graph, sel);
+		else if (sel.pass < passes.size())
+			DrawPassDetails(graph, sel.pass, m_SelectedNode);
+	}
 }
 
-void RenderGraphViewer::DrawPassDetails(const RenderGraph& graph)
+void RenderGraphViewer::DrawPassDetails(const RenderGraph& graph, uint32_t passId, int nodeIndex)
 {
 	const auto& passes = graph.GetPasses();
-	const RGPass& pass = passes[m_SelectedPass];
-	const int node = m_SelectedPass < m_NodeOfPass.size() ? m_NodeOfPass[m_SelectedPass] : -1;
+	const RGPass& pass = passes[passId];
 
 	ImGui::BeginChild("##RGDetails", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders);
 
 	ImGui::Text("%s", pass.name.c_str());
 	ImGui::SameLine();
-	if (node >= 0)
-		ImGui::TextDisabled("exec #%d  layer %d", m_Nodes[node].execIndex, m_Nodes[node].layer);
+	if (nodeIndex >= 0 && nodeIndex < (int)m_Nodes.size())
+		ImGui::TextDisabled("exec #%d  layer %d", m_Nodes[nodeIndex].execIndex, m_Nodes[nodeIndex].layer);
+	if (!pass.group.empty())
+	{
+		ImGui::SameLine();
+		ImGui::TextDisabled("| %s", pass.group.c_str());
+	}
 	ImGui::SameLine();
 	ImGui::TextDisabled("| %s", pass.culled ? "culled" : (IsComputePass(pass) ? "Compute/Copy" : "Raster"));
 	if (pass.barriers != BarrierFlags::None)
@@ -939,8 +1361,8 @@ void RenderGraphViewer::DrawPassDetails(const RenderGraph& graph)
 	ImGui::SameLine();
 	if (ImGui::SmallButton("Deselect"))
 	{
-		m_SelectedPass = UINT32_MAX;
-		m_SelectedName.clear();
+		m_SelectedNode = -1;
+		m_SelectedKey.clear();
 		ImGui::EndChild();
 		return;
 	}
@@ -958,18 +1380,18 @@ void RenderGraphViewer::DrawPassDetails(const RenderGraph& graph)
 		ImGui::TableNextRow();
 
 		ImGui::TableSetColumnIndex(0);
-        DrawShaderAccesses(graph, pass);
-        ImGui::TableSetColumnIndex(1);
-        DrawAttachments(graph, pass);
-        ImGui::TableSetColumnIndex(2);
-        DrawCopies(graph, pass);
-        ImGui::TableSetColumnIndex(3);
-        bool any = false;
+		DrawShaderAccesses(graph, pass);
+		ImGui::TableSetColumnIndex(1);
+		DrawAttachments(graph, pass);
+		ImGui::TableSetColumnIndex(2);
+		DrawCopies(graph, pass);
+		ImGui::TableSetColumnIndex(3);
+		bool any = false;
 		std::set<std::tuple<PassId, PassId, ResourceId, RGHazard>> shown;
 		for (const RGEdgeInfo& e : graph.GetEdgeInfos())
 		{
-			const bool in = e.to == m_SelectedPass;
-			const bool out = e.from == m_SelectedPass;
+			const bool in = e.to == passId;
+			const bool out = e.from == passId;
 			if (!in && !out)
 				continue;
 			if (!shown.emplace(e.from, e.to, e.resource, e.hazard).second)
@@ -979,6 +1401,92 @@ void RenderGraphViewer::DrawPassDetails(const RenderGraph& graph)
 			ImGui::SameLine();
 			ImGui::Text("%s %s  via %s", in ? "<-" : "->", PassName(graph, in ? e.from : e.to).c_str(),
 				ResourceName(graph, e.resource).c_str());
+			DrawDependencyUses(graph, e);
+		}
+		if (!any) ImGui::TextDisabled("none");
+
+		ImGui::EndTable();
+	}
+
+	ImGui::EndChild();
+}
+
+void RenderGraphViewer::DrawGroupDetails(const RenderGraph& graph, const Node& node)
+{
+	const auto& passes = graph.GetPasses();
+
+	ImGui::BeginChild("##RGDetails", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders);
+
+	ImGui::Text("Group: %s", node.groupPath.c_str());
+	ImGui::SameLine();
+	ImGui::TextDisabled("(%zu passes, exec #%d..#%d, layer %d)",
+		node.memberPasses.size(), node.execIndex, node.execIndexMax, node.layer);
+	ImGui::SameLine();
+	if (ImGui::SmallButton("Expand"))
+	{
+		m_GroupCollapsed[node.groupPath] = false;
+		++m_GroupStateSerial;
+		ImGui::EndChild();
+		return;
+	}
+	ImGui::SameLine();
+	if (ImGui::SmallButton("Deselect"))
+	{
+		m_SelectedNode = -1;
+		m_SelectedKey.clear();
+		ImGui::EndChild();
+		return;
+	}
+
+	std::set<uint32_t> memberSet(node.memberPasses.begin(), node.memberPasses.end());
+	const ImGuiTableFlags flags = ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingFixedFit |
+		ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollX | ImGuiTableFlags_ScrollY;
+	if (ImGui::BeginTable("##RGGroupDetailCols", 2, flags))
+	{
+		ImGui::TableSetupColumn("Member passes (click to expand & inspect)", ImGuiTableColumnFlags_WidthFixed, 380.0f);
+		ImGui::TableSetupColumn("External dependencies", ImGuiTableColumnFlags_WidthStretch);
+		ImGui::TableSetupScrollFreeze(0, 1);
+		ImGui::TableHeadersRow();
+		ImGui::TableNextRow();
+
+		ImGui::TableSetColumnIndex(0);
+		for (uint32_t pid : node.memberPasses)
+		{
+			if (pid >= passes.size()) continue;
+			const RGPass& p = passes[pid];
+			char rowLabel[200];
+			snprintf(rowLabel, sizeof(rowLabel), "%s  [%s  R:%zu W:%zu]##member_%u",
+				p.name.c_str(), IsComputePass(p) ? "Compute" : "Raster",
+				p.reads.size(), p.writes.size(), pid);
+			if (ImGui::Selectable(rowLabel))
+			{
+				for (const std::string& prefix : GroupPrefixes(p.group))
+					m_GroupCollapsed[prefix] = false;
+				m_SelectedKey = p.name;
+				++m_GroupStateSerial;
+			}
+		}
+
+		ImGui::TableSetColumnIndex(1);
+		bool any = false;
+		std::set<std::tuple<PassId, PassId, ResourceId, RGHazard>> shown;
+		for (const RGEdgeInfo& e : graph.GetEdgeInfos())
+		{
+			const bool fromIn = memberSet.count(e.from) > 0;
+			const bool toIn = memberSet.count(e.to) > 0;
+			if (fromIn == toIn)
+				continue;
+			if (!shown.emplace(e.from, e.to, e.resource, e.hazard).second)
+				continue;
+			any = true;
+			ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(kHazardColor[(int)e.hazard]), "%s", HazardName(e.hazard));
+			ImGui::SameLine();
+			if (toIn)
+				ImGui::Text("<- %s  (%s)  via %s", PassName(graph, e.from).c_str(),
+					PassName(graph, e.to).c_str(), ResourceName(graph, e.resource).c_str());
+			else
+				ImGui::Text("-> %s  (%s)  via %s", PassName(graph, e.to).c_str(),
+					PassName(graph, e.from).c_str(), ResourceName(graph, e.resource).c_str());
 			DrawDependencyUses(graph, e);
 		}
 		if (!any) ImGui::TextDisabled("none");
@@ -1053,10 +1561,23 @@ void RenderGraphViewer::DrawLifetimeTab(const RenderGraph& graph)
 		});
 	}
 
-	int selectedExec = -1;
-	for (int i = 0; i < passCount; ++i)
-		if (order[i] == m_SelectedPass)
-			selectedExec = i;
+	std::vector<char> selectedExec(passCount, 0);
+	if (m_SelectedNode >= 0 && m_SelectedNode < (int)m_Nodes.size())
+	{
+		const Node& sel = m_Nodes[m_SelectedNode];
+		for (int i = 0; i < passCount; ++i)
+		{
+			if (!sel.isGroup)
+			{
+				if (order[i] == sel.pass)
+					selectedExec[i] = 1;
+			}
+			else if (std::find(sel.memberPasses.begin(), sel.memberPasses.end(), order[i]) != sel.memberPasses.end())
+			{
+				selectedExec[i] = 1;
+			}
+		}
+	}
 
 	const ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_ScrollY |
 		ImGuiTableFlags_Resizable | ImGuiTableFlags_SizingFixedFit;
@@ -1105,9 +1626,10 @@ void RenderGraphViewer::DrawLifetimeTab(const RenderGraph& graph)
 		const float cell = w / (float)passCount;
 		const float midY = p0.y + rowH * 0.5f;
 
-		if (selectedExec >= 0)
-			dl->AddRectFilled(ImVec2(p0.x + cell * selectedExec, p0.y), ImVec2(p0.x + cell * (selectedExec + 1), p0.y + rowH),
-				IM_COL32(255, 220, 90, 40));
+		for (int col = 0; col < passCount; ++col)
+			if (selectedExec[col])
+				dl->AddRectFilled(ImVec2(p0.x + cell * col, p0.y), ImVec2(p0.x + cell * (col + 1), p0.y + rowH),
+					IM_COL32(255, 220, 90, 40));
 
 		if (res.firstPass >= 0)
 		{

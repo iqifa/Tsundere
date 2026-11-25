@@ -133,6 +133,7 @@ namespace PostProcess
 		uint32_t width, uint32_t height, const Settings& settings,
 		bool deferred, const glm::mat4& projection, const char* source = nullptr)
 	{
+		RenderGraph::Scope postScope(graph, "PostProcess", true);
 		using Effect = FullscreenPass::Effect;
 		const glm::vec2 horizontal(1.0f, 0.0f);
 		const glm::vec2 vertical(0.0f, 1.0f);
@@ -160,6 +161,7 @@ namespace PostProcess
 
 		if (settings.bloom)
 		{
+			RenderGraph::Scope bloomScope(graph, "Bloom", true);
 			const uint32_t halfWidth = (width + 1) / 2;
 			const uint32_t halfHeight = (height + 1) / 2;
 			graph.AddPass(CreateRef<FullscreenPass>("BloomPrefilter", shader, Effect::Prefilter,
@@ -175,6 +177,7 @@ namespace PostProcess
 
 		if (settings.blur)
 		{
+			RenderGraph::Scope blurScope(graph, "Blur", true);
 			append("BlurHorizontal", Effect::Gaussian, nullptr, horizontal * settings.blurRadius);
 			append("Blur", Effect::Gaussian, nullptr, vertical * settings.blurRadius);
 		}

@@ -218,6 +218,17 @@ public:
         return false;
     }
 
+    // 获取 Pass 注册时的 Category（未注册返回空串）
+    std::string GetPassCategory(std::string_view passName) const
+    {
+        for (const auto& state : m_ActivePasses)
+        {
+            if (state.metadata && state.metadata->name == passName)
+                return state.metadata->category;
+        }
+        return {};
+    }
+
 private:
     struct PassState
     {

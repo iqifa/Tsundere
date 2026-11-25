@@ -4,6 +4,7 @@
 #include <array>
 #include <optional>
 #include <unordered_map>
+#include <unordered_set>
 #include<Platform/RenderAPI.h>
 #include<Debug/Debug.h>
 using ResourceId = uint32_t;
@@ -210,6 +211,7 @@ struct RGTextureCopyInfo
 struct T_API RGPass
 {
 	std::string name;
+	std::string group;   // Hierarchical scope path, e.g. "PostProcess/Bloom"
 	Ref<RenderGraphPass> instance;
 
 	std::vector<RGResourceAccess> reads;
@@ -272,8 +274,26 @@ public:
 	void ExportBuffer(RGBufferHandle handle);
 
 	// 注册一个 RenderGraphPass 实例。Pass 的 Setup() 会在 Compile() 时调用，
-	// Execute() 会在 Execute() 时调用。
-	void AddPass(Ref<RenderGraphPass> pass);
+	// Execute() 会在 Execute() 时调用。group 为空时使用当前 Scope 路径。
+	void AddPass(Ref<RenderGraphPass> pass, std::string_view group = {});
+
+	// 嵌套分组作用域（用于可视化折叠与归类，不影响实际执行）。
+	void PushScope(std::string_view name, bool collapsedByDefault = false);
+	void PopScope();
+	bool IsScopeCollapsedByDefault(const std::string& scopePath) const;
+
+	struct T_API Scope
+	{
+		RenderGraph& graph;
+		Scope(RenderGraph& g, std::string_view name, bool collapsedByDefault = false)
+			: graph(g)
+		{
+			graph.PushScope(name, collapsedByDefault);
+		}
+		~Scope() { graph.PopScope(); }
+		Scope(const Scope&) = delete;
+		Scope& operator=(const Scope&) = delete;
+	};
 
 	void Compile();
 	void Execute(RHIContext& context);
@@ -329,6 +349,12 @@ private:
 	// 资源名称 -> Handle 的映射，用于按名字查找资源
 	std::unordered_map<std::string, RGTextureHandle> namedTextures_;
 	std::unordered_map<std::string, RGBufferHandle> namedBuffers_;
+
+	// 当前分组作用域栈与默认折叠集合
+	std::vector<std::string> scopeStack_;
+	std::unordered_set<std::string> collapsedScopes_;
+
+	std::string CurrentScopePath() const;
 
 	void AllocateTransientResources();
 

@@ -728,19 +728,19 @@ void VulkanExampleLayer::BuildRenderGraph(uint32_t width, uint32_t height)
 		if (auto geometry = std::dynamic_pointer_cast<GeometryPass>(pass))
 			geometry->SetSampleCount(m_GeometryMSAAEnabled ? 4 : 1);
 		if (name == "Transparent") {
-			m_RenderGraph.AddPass(CreateRef<SkyboxPass>(m_GraphFrameData));
+			m_RenderGraph.AddPass(CreateRef<SkyboxPass>(m_GraphFrameData), "Base");
 			skyInserted = true;
 		}
-		m_RenderGraph.AddPass(pass);
+		m_RenderGraph.AddPass(pass, m_PassManager.GetPassCategory(name));
 		if (name == "DeferredLight")
 		{
 			auto forward = CreateRef<ForwardOpaquePass>(m_Context, m_GraphFrameData);
 			forward->SetViewportSize(width, height);
-			m_RenderGraph.AddPass(forward);
+			m_RenderGraph.AddPass(forward, "Base");
 		}
 	}
 
-	if (!skyInserted) m_RenderGraph.AddPass(CreateRef<SkyboxPass>(m_GraphFrameData));
+	if (!skyInserted) m_RenderGraph.AddPass(CreateRef<SkyboxPass>(m_GraphFrameData), "Base");
 
 	if (!m_PostProcessShader)
 		m_PostProcessShader = RHIShader::Create("res/shaders/PostProcess.shader");
@@ -763,15 +763,18 @@ void VulkanExampleLayer::BuildRenderGraph(uint32_t width, uint32_t height)
         deferred ? "ForwardOpaque.Velocity" : "Geometry.Velocity", "Gbuffer.Emissive",
         deferred ? "ForwardOpaque.Depth" : "Geometry.Depth"};
     m_ViewportRequestedSource = previewSources[m_ViewportOutput];
-    m_ViewportConvertPass = CreateRef<ViewportPreviewPass>("ViewportStorage", m_ViewportPreviewShader,
-        std::vector<std::string>{m_ViewportRequestedSource, postProcessColor,
-            pathTracing ? "PathTrace.SceneColor" : "", "Transparent.SceneColor",
-            "Skybox.SceneColor", "TAA.SceneColor", "ForwardOpaque.SceneColor", "Geometry.SceneColor"},
-        PreviewFormatValues[m_ViewportFormat], glm::vec4(-1, 0, 1, 0), width, height);
-    m_RenderGraph.AddPass(m_ViewportConvertPass);
-    m_RenderGraph.AddPass(CreateRef<ViewportPreviewPass>("ViewportDisplay", m_ViewportPreviewShader,
-        std::vector<std::string>{"ViewportStorage.Color"}, Format::RGBA16F,
-        glm::vec4(static_cast<float>(m_ViewportChannel), m_ViewportRange.x, m_ViewportRange.y, 0), width, height));
+    {
+        RenderGraph::Scope viewportScope(m_RenderGraph, "Viewport", false);
+        m_ViewportConvertPass = CreateRef<ViewportPreviewPass>("ViewportStorage", m_ViewportPreviewShader,
+            std::vector<std::string>{m_ViewportRequestedSource, postProcessColor,
+                pathTracing ? "PathTrace.SceneColor" : "", "Transparent.SceneColor",
+                "Skybox.SceneColor", "TAA.SceneColor", "ForwardOpaque.SceneColor", "Geometry.SceneColor"},
+            PreviewFormatValues[m_ViewportFormat], glm::vec4(-1, 0, 1, 0), width, height);
+        m_RenderGraph.AddPass(m_ViewportConvertPass);
+        m_RenderGraph.AddPass(CreateRef<ViewportPreviewPass>("ViewportDisplay", m_ViewportPreviewShader,
+            std::vector<std::string>{"ViewportStorage.Color"}, Format::RGBA16F,
+            glm::vec4(static_cast<float>(m_ViewportChannel), m_ViewportRange.x, m_ViewportRange.y, 0), width, height));
+    }
 
 	m_RenderGraph.Compile();
 

@@ -845,12 +845,47 @@ void RenderGraph::Reset()
     // 清空名称映射
     namedTextures_.clear();
     namedBuffers_.clear();
+    scopeStack_.clear();
+    collapsedScopes_.clear();
 
     // Invalidate handles issued before this point.
     ++generation_;
 }
 
-void RenderGraph::AddPass(Ref<RenderGraphPass> passInstance)
+std::string RenderGraph::CurrentScopePath() const
+{
+    std::string path;
+    for (size_t i = 0; i < scopeStack_.size(); ++i)
+    {
+        if (i > 0)
+            path += '/';
+        path += scopeStack_[i];
+    }
+    return path;
+}
+
+void RenderGraph::PushScope(std::string_view name, bool collapsedByDefault)
+{
+    if (name.empty())
+        return;
+
+    scopeStack_.emplace_back(name);
+    if (collapsedByDefault)
+        collapsedScopes_.insert(CurrentScopePath());
+}
+
+void RenderGraph::PopScope()
+{
+    if (!scopeStack_.empty())
+        scopeStack_.pop_back();
+}
+
+bool RenderGraph::IsScopeCollapsedByDefault(const std::string& scopePath) const
+{
+    return collapsedScopes_.find(scopePath) != collapsedScopes_.end();
+}
+
+void RenderGraph::AddPass(Ref<RenderGraphPass> passInstance, std::string_view group)
 {
     if (!passInstance)
     {
@@ -861,6 +896,13 @@ void RenderGraph::AddPass(Ref<RenderGraphPass> passInstance)
     // 占位：先创建空的 RGPass，稍后在 Compile() 时调用 Setup() 填充
     RGPass pass;
     pass.name = passInstance->GetName();
+    pass.group = CurrentScopePath();
+    if (!group.empty())
+    {
+        if (!pass.group.empty())
+            pass.group += '/';
+        pass.group.append(group.data(), group.size());
+    }
     pass.instance = std::move(passInstance);
 
     passes_.push_back(std::move(pass));

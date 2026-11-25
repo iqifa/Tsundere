@@ -216,4 +216,4 @@ public:
 
 };
 
-REGISTER_RENDER_PASS(TAAPass, "TAA", "PostProcessing", 20, true)
+REGISTER_RENDER_PASS(TAAPass, "TAA", "TAA", 20, true)
