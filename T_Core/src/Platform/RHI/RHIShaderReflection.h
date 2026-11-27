@@ -35,7 +35,12 @@ struct ShaderImageBinding
 };
 
 enum class MaterialRenderPass { Legacy, Forward, GBuffer };
-enum class DeferredShadingModel { DefaultLit = 0, Unlit = 1 };
+enum class DeferredShadingModel { DefaultLit = 0, Unlit = 1, ClearCoat = 2, Subsurface = 3 };
+
+inline bool IsComplexShadingModel(DeferredShadingModel model)
+{
+    return model == DeferredShadingModel::ClearCoat || model == DeferredShadingModel::Subsurface;
+}
 
 struct ShaderFragmentOutput
 {

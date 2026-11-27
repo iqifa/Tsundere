@@ -94,6 +94,7 @@ public:
 		builder.SetColorOutput(4, m_Emissive, RGLoadOp::Clear, { 0,0,0,0 });
 		builder.Export(m_Emissive);
 		builder.SetDepthOutput(m_Depth, RGLoadOp::Clear, 1.0f);
+		builder.SetStencilOps(RGLoadOp::Clear, 0);
 
 		builder.Export(m_SceneColor);
 		builder.Export(m_Normal);
@@ -186,6 +187,9 @@ public:
 		bool hadReadyMesh = false;
 		m_DefaultTex->Bind(0);
 
+		if (m_FrameData)
+			m_FrameData->HasComplexGBufferPixels = false;
+
 		m_MaterialRenderer.UploadFrame(*m_Scene, *m_FrameData, shadowTex);
 		for (auto [entityID, transform, meshrender] : m_Scene->m_Registry.view<Component::Transform, Component::MeshRender>().each())
 		{
@@ -216,6 +220,8 @@ public:
 						continue;
 					if (reflection.RenderPass == MaterialRenderPass::GBuffer)
 					{
+						if (m_FrameData && IsComplexShadingModel(reflection.ShadingModel))
+							m_FrameData->HasComplexGBufferPixels = true;
 						m_MaterialRenderer.Draw(cmd, *mesh.gpuMesh, mat, modelMat, prevModel, { shadowTex });
 						continue;
 					}
@@ -388,6 +394,10 @@ private:
 		pipeDesc.cullMode = CullMode::Back;
 		pipeDesc.depthTest = true;
 		pipeDesc.depthWrite = true;
+		// Tag built-in DefaultLit geometry with Stencil bit0 (Lit | Simple = 0x01).
+		pipeDesc.stencilTest = true;
+		pipeDesc.frontStencil = { StencilOp::Keep, StencilOp::Replace, StencilOp::Keep, CompareOp::Always, 0xFF, 0x03, 0x01 };
+		pipeDesc.backStencil = pipeDesc.frontStencil;
 		pipeDesc.srcBlend = BlendFactor::One;
 		pipeDesc.dstBlend = BlendFactor::Zero;
 		pipeDesc.pushConstantSize = sizeof(DrawPushConstants);

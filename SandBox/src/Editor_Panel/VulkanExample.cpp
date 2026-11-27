@@ -734,6 +734,11 @@ void VulkanExampleLayer::BuildRenderGraph(uint32_t width, uint32_t height)
 		m_RenderGraph.AddPass(pass, m_PassManager.GetPassCategory(name));
 		if (name == "DeferredLight")
 		{
+#if TS_DEFERRED_LIGHT_MODE == TS_DEFERRED_LIGHT_MODE_UE_TIERED
+			auto localLight = CreateRef<DeferredLocalLightPass>(m_Context, m_GraphFrameData);
+			localLight->SetViewportSize(width, height);
+			m_RenderGraph.AddPass(localLight, "Base");
+#endif
 			auto forward = CreateRef<ForwardOpaquePass>(m_Context, m_GraphFrameData);
 			forward->SetViewportSize(width, height);
 			m_RenderGraph.AddPass(forward, "Base");

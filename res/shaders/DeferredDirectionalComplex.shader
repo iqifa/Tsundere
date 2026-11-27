@@ -1,0 +1,69 @@
+#shader vertex
+#version 430 core
+
+layout(location = 0) in vec2 a_Position;
+layout(location = 1) in vec2 a_TexCoord;
+
+layout(location = 0) out vec2 v_TexCoord;
+
+void main()
+{
+    v_TexCoord = a_TexCoord;
+    gl_Position = vec4(a_Position, 0.0, 1.0);
+}
+
+#shader fragment
+#version 430 core
+
+#define TS_GBUFFER_READ
+#include "include/DeferredShading.glsl"
+
+layout(location = 0) in vec2 v_TexCoord;
+layout(location = 0) out vec4 o_Color;
+
+layout(binding = 13) uniform sampler2D u_Depth;
+
+layout(std140, binding = 0) uniform PerPass_DeferredLighting
+{
+    mat4  u_InvViewProjNoTrans;
+    mat4  u_View;
+    vec4  u_ViewPos;
+    vec2  u_ViewportSize;
+    vec2  u_ShadowMapSize;
+    float u_Near;
+    float u_Far;
+    float u_LightCounts;
+    vec4  u_Ambient;
+};
+
+layout(std430, binding = 1) readonly buffer LightBuffer
+{
+    Light lights[];
+};
+
+// Optional Fullscreen Complex Directional + Base pass (evaluates Unlit, Emissive,
+// Ambient, and Directional/Area lights; Point/Spot lights follow via Stencil Volume).
+void main()
+{
+    ivec2 pixel = ivec2(gl_FragCoord.xy);
+    float depth = texelFetch(u_Depth, pixel, 0).r;
+    if (depth >= 1.0)
+        discard;
+
+    vec3 worldPos = GBufferWorldPosition(v_TexCoord, depth, u_InvViewProjNoTrans);
+    GBufferSurface g = ReadGBuffer(pixel);
+    if (g.shadingModel == TS_UNLIT)
+    {
+        o_Color = vec4(g.baseColor + g.emissive, 1.0);
+        return;
+    }
+
+    Surface surf = MakePBRSurface(worldPos, g.normal, u_ViewPos.xyz - worldPos, g.baseColor, g.metallic);
+    vec3 result = g.emissive + EvaluateAmbient(surf, u_Ambient.rgb) * g.ao;
+    int count = min(int(u_LightCounts + 0.5), lights.length());
+    for (int i = 0; i < count; ++i)
+    {
+        result += EvaluateComplexLight(lights[i], g, surf);
+    }
+    o_Color = vec4(result, 1.0);
+}

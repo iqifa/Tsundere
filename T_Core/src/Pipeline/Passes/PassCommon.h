@@ -118,6 +118,7 @@ struct RGFrameData
 	void EndModelFrame() { m_PreviousModels.swap(m_CurrentModels); }
 
 	bool HasShadowMap = false;
+	bool HasComplexGBufferPixels = false;
 	std::vector<RGShadowSlot> ShadowSlots;
 	// Maps light entt::entity -> starting index in ShadowSlots (-1 if no shadow).
 	// Directional / Spot consume 1 slot; Point consumes 6 consecutive slots (+X,-X,+Y,-Y,+Z,-Z).

@@ -15,15 +15,12 @@ void main()
 #shader fragment
 #version 430 core
 
-#include "include/Lighting.glsl"
+#define TS_GBUFFER_READ
+#include "include/DeferredShading.glsl"
 
 layout(location = 0) in vec2 v_TexCoord;
-
 layout(location = 0) out vec4 o_Color;
 
-#define TS_GBUFFER_READ
-#include "include/GBuffer.glsl"
-#include "include/PBR.glsl"
 layout(binding = 13) uniform sampler2D u_Depth;
 
 layout(std140, binding = 0) uniform PerPass_DeferredLighting
@@ -44,23 +41,30 @@ layout(std430, binding = 1) readonly buffer LightBuffer
     Light lights[];
 };
 
-void main(){
-    float depth = texture(u_Depth, v_TexCoord).r;
+// Traditional single-pass Uber-shader: loops over all lights and switches on
+// shadingModel per pixel (baseline for comparison against UE tiered lighting).
+void main()
+{
+    ivec2 pixel = ivec2(gl_FragCoord.xy);
+    float depth = texelFetch(u_Depth, pixel, 0).r;
     if (depth >= 1.0)
         discard;
 
     vec3 worldPos = GBufferWorldPosition(v_TexCoord, depth, u_InvViewProjNoTrans);
 
-    GBufferSurface g = ReadGBuffer(ivec2(gl_FragCoord.xy));
-    if (g.shadingModel == TS_UNLIT) {
+    GBufferSurface g = ReadGBuffer(pixel);
+    if (g.shadingModel == TS_UNLIT)
+    {
         o_Color = vec4(g.baseColor + g.emissive, 1.0);
         return;
     }
-    Surface surf = MakePBRSurface(worldPos,g.normal,u_ViewPos.xyz-worldPos,g.baseColor,g.metallic);
+
+    Surface surf = MakePBRSurface(worldPos, g.normal, u_ViewPos.xyz - worldPos, g.baseColor, g.metallic);
     vec3 result = g.emissive + EvaluateAmbient(surf, u_Ambient.rgb) * g.ao;
     int count = min(int(u_LightCounts + 0.5), lights.length());
-    for (int i = 0; i < count; ++i) {
-        result += PBREvaluateLight(lights[i],surf,g.roughness);
+    for (int i = 0; i < count; ++i)
+    {
+        result += EvaluateComplexLight(lights[i], g, surf);
     }
     o_Color = vec4(result, 1.0);
 }

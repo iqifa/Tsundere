@@ -1,18 +1,26 @@
 #ifndef TS_GBUFFER_GLSL
 #define TS_GBUFFER_GLSL
 // ABI v1, linear attachments, no sRGB render targets:
-// 0 RGBA16F: signed world unit normal + integer shading ID (0 lit, 1 unlit).
+// 0 RGBA16F: signed world unit normal + integer shading ID (0 lit, 1 unlit, 2 clear_coat, 3 subsurface).
 // 1 RGBA8_UNORM: linear baseColor + AO. 2 RG16F: metallic + perceptual roughness.
 // 3 RG16F: (current - previous) unjittered NDC.xy * 0.5.
-// 4 RGBA16F: linear HDR emissive RGB + reserved zero alpha.
+// 4 RGBA16F: linear HDR emissive RGB + shading complexity tier (0 simple, 1 complex).
 // Depth D24S8: device [0,1], reconstruct using inverse jittered VP.
+// Stencil bits: bit0 = Lit (0x01), bit1 = Complex (0x02), bit7 = LocalLightVolume (0x80).
 const int TS_DEFAULT_LIT = 0;
 const int TS_UNLIT = 1;
+const int TS_CLEAR_COAT = 2;
+const int TS_SUBSURFACE = 3;
+
+const int TS_COMPLEXITY_SIMPLE = 0;
+const int TS_COMPLEXITY_COMPLEX = 1;
+
 struct GBufferSurface {
     vec3 normal; int shadingModel;
     vec3 baseColor; float ao;
     float metallic; float roughness;
     vec2 velocity; vec3 emissive;
+    int shadingComplexity;
 };
 vec3 GBufferWorldPosition(vec2 uv, float depth, mat4 inverseViewProjection) {
 #ifdef TS_VULKAN
@@ -25,7 +33,7 @@ vec3 GBufferWorldPosition(vec2 uv, float depth, mat4 inverseViewProjection) {
 }
 GBufferSurface DefaultGBufferSurface() {
     return GBufferSurface(vec3(0,0,1), TS_DEFAULT_LIT, vec3(1), 1.0,
-                          0.0, 0.5, vec2(0), vec3(0));
+                          0.0, 0.5, vec2(0), vec3(0), TS_COMPLEXITY_SIMPLE);
 }
 #ifdef TS_GBUFFER_WRITE
 layout(location=0) out vec4 o_Normal;
@@ -34,11 +42,13 @@ layout(location=2) out vec2 o_MetallicRoughness;
 layout(location=3) out vec2 o_Velocity;
 layout(location=4) out vec4 o_Emissive;
 void WriteGBuffer(GBufferSurface s) {
+    int complexity = (s.shadingModel >= TS_CLEAR_COAT || s.shadingComplexity >= TS_COMPLEXITY_COMPLEX)
+        ? TS_COMPLEXITY_COMPLEX : TS_COMPLEXITY_SIMPLE;
     o_Normal = vec4(normalize(s.normal), float(s.shadingModel));
     o_BaseColorAO = vec4(clamp(s.baseColor, 0.0, 1.0), clamp(s.ao, 0.0, 1.0));
     o_MetallicRoughness = clamp(vec2(s.metallic, s.roughness), 0.0, 1.0);
     o_Velocity = s.velocity;
-    o_Emissive = vec4(max(s.emissive, vec3(0)), 0);
+    o_Emissive = vec4(max(s.emissive, vec3(0)), float(complexity));
 }
 #endif
 #ifdef TS_GBUFFER_READ
@@ -52,10 +62,12 @@ GBufferSurface ReadGBuffer(ivec2 pixel) {
     vec4 n = texelFetch(u_GBufferNormal, pixel, 0);
     vec4 c = texelFetch(u_GBufferBaseColorAO, pixel, 0);
     vec2 mr = texelFetch(u_GBufferMetallicRoughness, pixel, 0).rg;
+    vec4 e = texelFetch(u_GBufferEmissive, pixel, 0);
     s.normal = normalize(n.xyz); s.shadingModel = int(round(n.w));
     s.baseColor = c.rgb; s.ao = c.a;
     s.metallic = mr.x; s.roughness = mr.y;
-    s.emissive = texelFetch(u_GBufferEmissive, pixel, 0).rgb;
+    s.emissive = e.rgb;
+    s.shadingComplexity = int(round(e.a));
     s.velocity = texelFetch(u_GBufferVelocity, pixel, 0).rg;
     return s;
 }

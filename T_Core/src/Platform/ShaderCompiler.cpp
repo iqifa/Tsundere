@@ -157,15 +157,25 @@ namespace
             }
             else if (directive.rfind("#shading_model", 0) == 0)
             {
-                if (out.HasShadingModel ||
-                    (directive != "#shading_model default_lit" && directive != "#shading_model unlit"))
+                if (out.HasShadingModel)
                 {
-                    Error_Core("Shader '{}': invalid or duplicate shading model: {}", filepath, directive);
+                    Error_Core("Shader '{}': duplicate shading model: {}", filepath, directive);
+                    return false;
+                }
+                if (directive == "#shading_model default_lit")
+                    out.ShadingModel = DeferredShadingModel::DefaultLit;
+                else if (directive == "#shading_model unlit")
+                    out.ShadingModel = DeferredShadingModel::Unlit;
+                else if (directive == "#shading_model clear_coat")
+                    out.ShadingModel = DeferredShadingModel::ClearCoat;
+                else if (directive == "#shading_model subsurface")
+                    out.ShadingModel = DeferredShadingModel::Subsurface;
+                else
+                {
+                    Error_Core("Shader '{}': invalid shading model: {}", filepath, directive);
                     return false;
                 }
                 out.HasShadingModel = true;
-                out.ShadingModel = directive == "#shading_model unlit"
-                    ? DeferredShadingModel::Unlit : DeferredShadingModel::DefaultLit;
             }
             else if (line.find("#shader") != std::string::npos)
             {
@@ -314,7 +324,7 @@ namespace
     {
         shaderc_compile_options_t options = shaderc_compile_options_initialize();
         constexpr char modelMacro[] = "TS_SHADING_MODEL";
-        const char model = shadingModel == DeferredShadingModel::Unlit ? '1' : '0';
+        const char model = static_cast<char>('0' + static_cast<int>(shadingModel));
         shaderc_compile_options_add_macro_definition(options, modelMacro, sizeof(modelMacro) - 1, &model, 1);
         if (target == ShaderTarget::OpenGL)
         {

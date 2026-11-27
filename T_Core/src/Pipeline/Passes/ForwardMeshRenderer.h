@@ -292,6 +292,19 @@ private:
 		PipelineDesc desc = m_PipelineDesc;
 		desc.shader = shader;
 		desc.pushConstantSize = reflection.PushConstants.empty() ? 0 : sizeof(DrawPushConstants);
+		if (m_GBuffer)
+		{
+			// Encode per-material shading complexity in low Stencil bits:
+			// 0x00 = Unlit/Sky, 0x01 = Simple Lit, 0x03 = Complex Lit.
+			uint32_t stencilRef = 0x01;
+			if (reflection.ShadingModel == DeferredShadingModel::Unlit)
+				stencilRef = 0x00;
+			else if (IsComplexShadingModel(reflection.ShadingModel))
+				stencilRef = 0x03;
+			desc.stencilTest = true;
+			desc.frontStencil = { StencilOp::Keep, StencilOp::Replace, StencilOp::Keep, CompareOp::Always, 0xFF, 0x03, stencilRef };
+			desc.backStencil = desc.frontStencil;
+		}
 		desc.descriptorSets.clear();
 		if (state.hasDescriptors) desc.descriptorSets.push_back(state.descriptors);
 		state.pipeline = RHIPipeline::Create(desc);

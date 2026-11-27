@@ -31,7 +31,10 @@ static GLuint Program(const char* path) {
     Require(c.Success, path);
     GLuint program = glCreateProgram();
     for (auto& [stage, source] : c.Glsl) {
-        GLuint shader = glCreateShader(stage == ShaderStage::Vertex ? GL_VERTEX_SHADER : GL_FRAGMENT_SHADER);
+        GLenum glStage = stage == ShaderStage::Vertex ? GL_VERTEX_SHADER
+                       : stage == ShaderStage::Compute ? GL_COMPUTE_SHADER
+                       : GL_FRAGMENT_SHADER;
+        GLuint shader = glCreateShader(glStage);
         const char* text = source.c_str(); glShaderSource(shader, 1, &text, nullptr); glCompileShader(shader);
         GLint ok; glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
         if (!ok) { char log[8192]; glGetShaderInfoLog(shader, sizeof(log), nullptr, log); throw std::runtime_error(log); }
@@ -52,9 +55,22 @@ int main() {
 try {
     Engine::Log::Init();
     for (auto target : {ShaderTarget::Vulkan, ShaderTarget::OpenGL})
-        for (const char* path : {"res/shaders/GBuffer.shader", "res/shaders/DeferredLight.shader",
+        for (const char* path : {
+             "res/shaders/GBuffer.shader",
+             "res/shaders/GBufferClearCoat.shader",
+             "res/shaders/GBufferSubsurface.shader",
+             "res/shaders/DeferredLight.shader",
+             "res/shaders/DeferredTileClassify.shader",
+             "res/shaders/DeferredTileLightUnlit.shader",
+             "res/shaders/DeferredTileLightSimple.shader",
+             "res/shaders/DeferredTileLightComplex.shader",
+             "res/shaders/DeferredDirectionalComplex.shader",
+             "res/shaders/DeferredLightVolumeStencil.shader",
+             "res/shaders/DeferredLocalLightSimple.shader",
+             "res/shaders/DeferredLocalLightComplex.shader",
              "res/shaders/SceneModelPreview.shader",
-             "tests/shaders/GBufferProcedural.shader", "tests/shaders/GBufferPackedInput.shader"})
+             "tests/shaders/GBufferProcedural.shader",
+             "tests/shaders/GBufferPackedInput.shader"})
             Require(CompileShaderFile(path,target).Success,path);
     // Reject the old four-target ABI, a wrong type, and an extra target.
     std::filesystem::create_directories("build/gbuffer-tests");
@@ -139,6 +155,112 @@ try {
         float v=(*pixels)[(y*W+x)*4+c]; unsigned char byte=(unsigned char)(255*std::pow(v/(1+v),1/2.2f));ppm.write((char*)&byte,1);
     }
     std::cout<<"PASS: both backends compile; GPU input equivalence max error="<<maxError<<"; metal/roughness/emissive/unlit\n";
+
+    // Test UE-style Compute Tile Classification + DispatchIndirect equivalence against Uber shader
+    // across Simple (DefaultLit), Complex (ClearCoat & Subsurface), Unlit, and Sky tiles.
+    {
+        const std::string complexShaderPath = "build/gbuffer-tests/complex_tiles.shader";
+        {
+            std::ofstream f(complexShaderPath);
+            f << "#render_pass gbuffer\n"
+              << "#shader vertex\n#version 430 core\nlayout(location=0) in vec2 position;\n"
+              << "void main(){ gl_Position = vec4(position, 0.0, 1.0); }\n"
+              << "#shader fragment\n#version 430 core\n#define TS_GBUFFER_WRITE\n"
+              << "#include \"../../res/shaders/include/GBuffer.glsl\"\n"
+              << "void main() {\n"
+              << "    int tile = int(gl_FragCoord.x) / 64;\n"
+              << "    if (tile == 5) discard;\n" // Pure sky column
+              << "    GBufferSurface s = DefaultGBufferSurface();\n"
+              << "    s.normal = normalize(vec3(0.2, 0.3, 0.93));\n"
+              << "    s.baseColor = vec3(0.75, 0.25, 0.15);\n"
+              << "    s.roughness = 0.5;\n"
+              << "    if (tile == 0) { s.shadingModel = TS_DEFAULT_LIT; }\n"
+              << "    else if (tile == 1) { s.shadingModel = TS_CLEAR_COAT; }\n"
+              << "    else if (tile == 2) { s.shadingModel = TS_SUBSURFACE; s.normal = normalize(vec3(0.96, 0.1, 0.15)); }\n"
+              << "    else if (tile == 3) { s.shadingModel = TS_UNLIT; s.emissive = vec3(0.2, 0.4, 0.6); }\n"
+              << "    else { s.shadingModel = TS_DEFAULT_LIT; s.normal = normalize(vec3(0.96, 0.1, 0.15)); }\n"
+              << "    WriteGBuffer(s);\n"
+              << "}\n";
+        }
+        GLuint complexGbuf = Program(complexShaderPath.c_str());
+        GLuint classifyProg = Program("res/shaders/DeferredTileClassify.shader");
+        GLuint tileUnlitProg = Program("res/shaders/DeferredTileLightUnlit.shader");
+        GLuint tileSimpleProg = Program("res/shaders/DeferredTileLightSimple.shader");
+        GLuint tileComplexProg = Program("res/shaders/DeferredTileLightComplex.shader");
+
+        auto uberPixels = render(complexGbuf, true);
+
+        // Now run Compute Tile Classification + DispatchIndirect on the same GBuffer.
+        GLuint tileOut = Texture(GL_RGBA16F, W, H);
+        const uint32_t tilesX = (W + 7) / 8, tilesY = (H + 7) / 8;
+        const uint32_t totalTiles = tilesX * tilesY;
+        uint32_t classifyUboData[4] = { (uint32_t)W, (uint32_t)H, tilesX, tilesY };
+        uint32_t initArgs[16] = { 0,1,1,0,  0,1,1,0,  0,1,1,0,  0,totalTiles,0,0 };
+        GLuint classifyUbo, argsBuf, simpleBuf, complexBuf, unlitBuf;
+        glGenBuffers(1, &classifyUbo); glBindBuffer(GL_UNIFORM_BUFFER, classifyUbo);
+        glBufferData(GL_UNIFORM_BUFFER, sizeof(classifyUboData), classifyUboData, GL_DYNAMIC_DRAW);
+        glGenBuffers(1, &argsBuf); glBindBuffer(GL_SHADER_STORAGE_BUFFER, argsBuf);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(initArgs), initArgs, GL_DYNAMIC_DRAW);
+        auto makeTileBuf = [&](GLuint& b) {
+            glGenBuffers(1, &b); glBindBuffer(GL_SHADER_STORAGE_BUFFER, b);
+            glBufferData(GL_SHADER_STORAGE_BUFFER, totalTiles * sizeof(uint32_t), nullptr, GL_DYNAMIC_COPY);
+        };
+        makeTileBuf(simpleBuf); makeTileBuf(complexBuf); makeTileBuf(unlitBuf);
+
+        const GLuint inputs[] = { textures[0], textures[1], textures[2], depth, textures[4], textures[3] };
+        for (int i = 0; i < 6; ++i) { glActiveTexture(GL_TEXTURE10 + i); glBindTexture(GL_TEXTURE_2D, inputs[i]); }
+        glBindImageTexture(5, tileOut, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA16F);
+        glBindBufferBase(GL_UNIFORM_BUFFER, 0, classifyUbo);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, argsBuf);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, simpleBuf);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, complexBuf);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, unlitBuf);
+        glUseProgram(classifyProg);
+        glDispatchCompute(tilesX, tilesY, 1);
+        glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_COMMAND_BARRIER_BIT | GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+
+        uint32_t readArgs[16] = {};
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, argsBuf);
+        glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(readArgs), readArgs);
+        Require(readArgs[0] > 0, "Expected non-zero Simple tiles");
+        Require(readArgs[4] > 0, "Expected non-zero Complex tiles");
+        Require(readArgs[8] > 0, "Expected non-zero Unlit tiles");
+        Require(readArgs[12] > 0, "Expected non-zero skipped Sky tiles");
+        Require(readArgs[0] + readArgs[4] + readArgs[8] + readArgs[12] == totalTiles, "Tile counts must sum to totalTiles");
+
+        ubo[42] = 1.0f;
+        glBindBuffer(GL_UNIFORM_BUFFER, ub);
+        glBufferData(GL_UNIFORM_BUFFER, sizeof(ubo), ubo.data(), GL_DYNAMIC_DRAW);
+        glBindBufferBase(GL_UNIFORM_BUFFER, 0, ub);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, ssbo);
+        glBindBuffer(GL_DISPATCH_INDIRECT_BUFFER, argsBuf);
+        glUseProgram(tileUnlitProg);   glDispatchComputeIndirect(32);
+        glUseProgram(tileSimpleProg);  glDispatchComputeIndirect(0);
+        glUseProgram(tileComplexProg); glDispatchComputeIndirect(16);
+        glBindBuffer(GL_DISPATCH_INDIRECT_BUFFER, 0);
+        glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL_TEXTURE_UPDATE_BARRIER_BIT | GL_FRAMEBUFFER_BARRIER_BIT);
+
+        GLuint readFbo; glGenFramebuffers(1, &readFbo); glBindFramebuffer(GL_FRAMEBUFFER, readFbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tileOut, 0);
+        std::vector<float> tieredPixels(W * H * 4);
+        glReadPixels(0, 0, W, H, GL_RGBA, GL_FLOAT, tieredPixels.data());
+        Require(glGetError() == GL_NO_ERROR, "GL compute tile dispatch error");
+
+        float tieredMaxErr = 0.0f;
+        for (size_t i = 0; i < uberPixels.size(); ++i)
+        {
+            Require(std::isfinite(tieredPixels[i]), "Non-finite tiered lighting");
+            tieredMaxErr = std::max(tieredMaxErr, std::abs(uberPixels[i] - tieredPixels[i]));
+        }
+        Require(tieredMaxErr < 0.001f, "Uber vs UE Tiered lighting mismatch");
+        // Verify ClearCoat (tile 1) differs from DefaultLit (tile 0), and grazing Subsurface (tile 2)
+        // differs from grazing DefaultLit (tile 4).
+        Require(std::abs(tieredPixels[at(1, 0)] - tieredPixels[at(0, 0)]) > 0.01f, "ClearCoat matches DefaultLit");
+        Require(std::abs(tieredPixels[at(2, 0)] - tieredPixels[at(4, 0)]) > 0.005f, "Subsurface matches DefaultLit");
+        std::cout << "PASS: Uber vs UE Compute Tile Classification max error=" << tieredMaxErr
+                  << " (simple=" << readArgs[0] << ", complex=" << readArgs[4]
+                  << ", unlit=" << readArgs[8] << ", skySkipped=" << readArgs[12] << ")\n";
+    }
     glfwDestroyWindow(window);glfwTerminate();return 0;
 } catch(const std::exception& e) {std::cerr<<e.what()<<"\n";return 1;}
 }
