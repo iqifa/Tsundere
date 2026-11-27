@@ -2,6 +2,7 @@
 #include "VulkanContext.h"
 #include "Platform/RenderAPI.h"
 #include "Platform/Vulkan/VulkanDeletionQueue.h"
+#include "Platform/Vulkan/VulkanMemoryPool.h"
 #include "Debug/Debug.h"
 
 #include <algorithm>
@@ -175,6 +176,7 @@ void VulkanContext::Shutdown()
             vkDestroyDescriptorPool(m_Device, m_DescriptorPool, nullptr);
 
         cleanupSwapchain();
+        VulkanMemoryPool::Shutdown(m_Device);
         vkDestroyDevice(m_Device, nullptr);
         VulkanDeletionQueue::Close();
     }

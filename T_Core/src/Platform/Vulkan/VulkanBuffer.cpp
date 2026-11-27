@@ -31,12 +31,11 @@ namespace
         return 0;
     }
 
-    void DestroyBuffer(VkDevice device, VkBuffer buffer, VkDeviceMemory memory)
+    void DestroyStagingBuffer(VkDevice device, VkBuffer buffer, VulkanMemoryAllocation& alloc)
     {
         if (buffer != VK_NULL_HANDLE)
             vkDestroyBuffer(device, buffer, nullptr);
-        if (memory != VK_NULL_HANDLE)
-            vkFreeMemory(device, memory, nullptr);
+        VulkanMemoryPool::Free(device, alloc);
     }
 }
 
@@ -83,20 +82,21 @@ void VulkanBuffer::Create(const BufferDesc& desc)
     VkMemoryPropertyFlags properties = m_HostVisible
         ? VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
         : VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-    VkMemoryAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    allocInfo.allocationSize = requirements.size;
-    allocInfo.memoryTypeIndex = FindMemoryType(requirements.memoryTypeBits, properties);
 
-    if (vkAllocateMemory(m_Device, &allocInfo, nullptr, &m_Memory) != VK_SUCCESS ||
-        vkBindBufferMemory(m_Device, m_Buffer, m_Memory, 0) != VK_SUCCESS)
+    try
+    {
+        m_Allocation = VulkanMemoryPool::Allocate(m_Device, m_PhysicalDevice, requirements, properties);
+        if (vkBindBufferMemory(m_Device, m_Buffer, m_Allocation.memory, m_Allocation.offset) != VK_SUCCESS)
+            throw std::runtime_error("Failed to bind Vulkan buffer memory");
+    }
+    catch (...)
     {
         Destroy();
-        throw std::runtime_error("Failed to allocate Vulkan buffer memory");
+        throw;
     }
 
     if (m_HostVisible)
-        vkMapMemory(m_Device, m_Memory, 0, m_Size, 0, &m_Mapped);
+        m_Mapped = m_Allocation.mapped;
 }
 
 void VulkanBuffer::Destroy()
@@ -107,37 +107,26 @@ void VulkanBuffer::Destroy()
     {
         m_Mapped = nullptr;
         m_Buffer = VK_NULL_HANDLE;
-        m_Memory = VK_NULL_HANDLE;
+        m_Allocation = {};
         m_Device = VK_NULL_HANDLE;
         return;
     }
-    if (m_Mapped)
-        vkUnmapMemory(m_Device, m_Memory);
 
     const VkDevice device = m_Device;
     const VkBuffer buffer = m_Buffer;
-    const VkDeviceMemory memory = m_Memory;
+    VulkanMemoryAllocation allocation = m_Allocation;
     m_Mapped = nullptr;
     m_Buffer = VK_NULL_HANDLE;
-    m_Memory = VK_NULL_HANDLE;
+    m_Allocation = {};
     m_Device = VK_NULL_HANDLE;
 
     // The frame command buffer may already contain vkCmdBind*Buffer for this
     // allocation (submesh delete runs after Execute, before submit).
-    VulkanDeletionQueue::EnqueueBuffer(device, buffer, memory);
-}
-
-uint32_t VulkanBuffer::FindMemoryType(uint32_t typeBits, VkMemoryPropertyFlags properties) const
-{
-    VkPhysicalDeviceMemoryProperties memoryProperties{};
-    vkGetPhysicalDeviceMemoryProperties(m_PhysicalDevice, &memoryProperties);
-    for (uint32_t i = 0; i < memoryProperties.memoryTypeCount; ++i)
-    {
-        if ((typeBits & (1u << i)) &&
-            (memoryProperties.memoryTypes[i].propertyFlags & properties) == properties)
-            return i;
-    }
-    throw std::runtime_error("No compatible Vulkan buffer memory type");
+    VulkanDeletionQueue::EnqueueCallback([device, buffer, allocation]() mutable {
+        if (buffer != VK_NULL_HANDLE)
+            vkDestroyBuffer(device, buffer, nullptr);
+        VulkanMemoryPool::Free(device, allocation);
+    });
 }
 
 void VulkanBuffer::Upload(const void* data, uint32_t size, uint32_t offset)
@@ -214,7 +203,7 @@ void VulkanBuffer::UploadRegions(const std::vector<BufferUploadRegion>& regions)
     // ---- 2. 一个暂存 buffer + 一个命令缓冲：所有拷贝一次提交、一次等待 ----
     const VkDevice device = first->m_Device;
     VkBuffer stagingBuffer = VK_NULL_HANDLE;
-    VkDeviceMemory stagingMemory = VK_NULL_HANDLE;
+    VulkanMemoryAllocation stagingAlloc{};
     VkCommandPool commandPool = VK_NULL_HANDLE;
     VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
 
@@ -230,23 +219,18 @@ void VulkanBuffer::UploadRegions(const std::vector<BufferUploadRegion>& regions)
 
         VkMemoryRequirements requirements{};
         vkGetBufferMemoryRequirements(device, stagingBuffer, &requirements);
-        VkMemoryAllocateInfo allocInfo{};
-        allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-        allocInfo.allocationSize = requirements.size;
-        allocInfo.memoryTypeIndex = first->FindMemoryType(
-            requirements.memoryTypeBits,
+        stagingAlloc = VulkanMemoryPool::Allocate(
+            device,
+            first->m_PhysicalDevice,
+            requirements,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-        if (vkAllocateMemory(device, &allocInfo, nullptr, &stagingMemory) != VK_SUCCESS)
-            throw std::runtime_error("Failed to allocate Vulkan buffer staging memory");
-        if (vkBindBufferMemory(device, stagingBuffer, stagingMemory, 0) != VK_SUCCESS)
+        if (vkBindBufferMemory(device, stagingBuffer, stagingAlloc.memory, stagingAlloc.offset) != VK_SUCCESS)
             throw std::runtime_error("Failed to bind Vulkan buffer staging memory");
 
-        void* mapped = nullptr;
-        if (vkMapMemory(device, stagingMemory, 0, stagingBytes, 0, &mapped) != VK_SUCCESS)
-            throw std::runtime_error("Failed to map Vulkan buffer staging memory");
+        if (!stagingAlloc.mapped)
+            throw std::runtime_error("Vulkan staging memory block is not mapped");
         for (const Copy& copy : copies)
-            std::memcpy(static_cast<char*>(mapped) + copy.stagingOffset, copy.region->data, copy.region->size);
-        vkUnmapMemory(device, stagingMemory);
+            std::memcpy(static_cast<char*>(stagingAlloc.mapped) + copy.stagingOffset, copy.region->data, copy.region->size);
 
         VkCommandPoolCreateInfo poolInfo{};
         poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -308,20 +292,18 @@ void VulkanBuffer::UploadRegions(const std::vector<BufferUploadRegion>& regions)
     {
         if (commandPool != VK_NULL_HANDLE)
             vkDestroyCommandPool(device, commandPool, nullptr);
-        DestroyBuffer(device, stagingBuffer, stagingMemory);
+        DestroyStagingBuffer(device, stagingBuffer, stagingAlloc);
         throw;
     }
 
     vkDestroyCommandPool(device, commandPool, nullptr);
-    DestroyBuffer(device, stagingBuffer, stagingMemory);
+    DestroyStagingBuffer(device, stagingBuffer, stagingAlloc);
 }
 
 void* VulkanBuffer::Map()
 {
     if (!m_HostVisible)
         return nullptr;
-    if (!m_Mapped)
-        vkMapMemory(m_Device, m_Memory, 0, m_Size, 0, &m_Mapped);
     return m_Mapped;
 }
 
