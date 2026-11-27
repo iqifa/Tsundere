@@ -154,6 +154,8 @@ void RenderGraphBuilder::SetDepthOutput(
     attachment.texture = texture;
     attachment.loadOp = loadOp;
     attachment.clearDepth = clearDepth;
+    attachment.stencilLoadOp = loadOp;
+    attachment.clearStencil = 0;
     attachment.readOnly = readOnly;
 
     m_Pass.depthAttachment = attachment;
@@ -163,6 +165,18 @@ void RenderGraphBuilder::SetDepthOutput(
         m_Pass.reads.push_back({ texture.id, RGAccess::DepthRead });
     else
         m_Pass.writes.push_back({ texture.id, RGAccess::DepthWrite });
+}
+
+void RenderGraphBuilder::SetStencilOps(RGLoadOp stencilLoadOp, uint32_t clearStencil, RGStoreOp stencilStoreOp)
+{
+    if (!m_Pass.depthAttachment.has_value())
+    {
+        Error_Core("RenderGraph: pass {} configures stencil ops before SetDepthOutput", m_PassName);
+        return;
+    }
+    m_Pass.depthAttachment->stencilLoadOp = stencilLoadOp;
+    m_Pass.depthAttachment->stencilStoreOp = stencilStoreOp;
+    m_Pass.depthAttachment->clearStencil = clearStencil;
 }
 
 void RenderGraphBuilder::SetColorResolve(uint32_t slot, RGTextureHandle target)

@@ -56,6 +56,17 @@ struct RenderingSignature
 // Kept as an alias while existing backend code migrates to RenderingSignature.
 using RenderPassAttachmentConfig = RenderingSignature;
 
+struct StencilFaceState
+{
+    StencilOp failOp = StencilOp::Keep;
+    StencilOp passOp = StencilOp::Keep;
+    StencilOp depthFailOp = StencilOp::Keep;
+    CompareOp compareOp = CompareOp::Always;
+    uint32_t compareMask = 0xFF;
+    uint32_t writeMask = 0xFF;
+    uint32_t reference = 0;
+};
+
 // Pipeline state object descriptor.
 // Bundles shader + vertex layout + raster/blend/depth state.
 // GL backend: creates a VAO from vertexLayout, applies state at Bind().
@@ -70,6 +81,10 @@ struct PipelineDesc
     CompareOp depthOp = CompareOp::Less;
     bool depthWrite = true;
     bool depthTest = true;
+    bool stencilTest = false;
+    StencilFaceState frontStencil{};
+    StencilFaceState backStencil{};
+    bool colorWriteEnable = true;
     BlendFactor srcBlend = BlendFactor::One;
     BlendFactor dstBlend = BlendFactor::Zero;
     bool isCompute = false;

@@ -409,6 +409,12 @@ void VulkanCommandBuffer::Dispatch(uint32_t x, uint32_t y, uint32_t z)
     if (Cmd() && m_CurrentPipeline && m_CurrentBindPoint == VK_PIPELINE_BIND_POINT_COMPUTE)
         vkCmdDispatch(Cmd(), x, y, z);
 }
+void VulkanCommandBuffer::DispatchIndirect(Ref<RHIBuffer> indirectBuffer, uint32_t offset)
+{
+    auto* b = indirectBuffer ? dynamic_cast<VulkanBuffer*>(indirectBuffer.get()) : nullptr;
+    if (b && Cmd() && m_CurrentPipeline && m_CurrentBindPoint == VK_PIPELINE_BIND_POINT_COMPUTE)
+        vkCmdDispatchIndirect(Cmd(), b->GetBuffer(), static_cast<VkDeviceSize>(offset));
+}
 
 void VulkanCommandBuffer::ResourceBarrier()
 {
@@ -446,6 +452,11 @@ void VulkanCommandBuffer::ResourceBarrier(BarrierFlags flags)
     {
         barrier.dstAccessMask |= VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
         dstStages |= VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    }
+    if (flags & BarrierFlags::IndirectCommand)
+    {
+        barrier.dstAccessMask |= VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+        dstStages |= VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT;
     }
     if (dstStages == 0)
         return;

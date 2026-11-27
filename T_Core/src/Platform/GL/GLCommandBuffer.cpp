@@ -107,6 +107,7 @@ void GLCommandBuffer::BeginRenderPass(Ref<RHIFramebuffer> fb, const RenderPassBe
     if (clearDepth && clearStencil)
     {
         GLCall(glDepthMask(GL_TRUE));
+        GLCall(glStencilMask(0xFF));
         GLCall(glClearBufferfi(GL_DEPTH_STENCIL, 0,
             depthClearValue, static_cast<GLint>(stencilClearValue)));
     }
@@ -118,6 +119,7 @@ void GLCommandBuffer::BeginRenderPass(Ref<RHIFramebuffer> fb, const RenderPassBe
     }
     else if (clearStencil)
     {
+        GLCall(glStencilMask(0xFF));
         const GLint stencil = static_cast<GLint>(stencilClearValue);
         GLCall(glClearBufferiv(GL_STENCIL, 0, &stencil));
     }
@@ -275,6 +277,18 @@ void GLCommandBuffer::Dispatch(uint32_t groupsX, uint32_t groupsY, uint32_t grou
     GLCall(glDispatchCompute(groupsX, groupsY, groupsZ));
 }
 
+void GLCommandBuffer::DispatchIndirect(Ref<RHIBuffer> indirectBuffer, uint32_t offset)
+{
+    if (!indirectBuffer)
+        return;
+    auto* glBuf = static_cast<GLBuffer*>(indirectBuffer.get());
+    if (!glBuf)
+        return;
+    GLCall(glBindBuffer(GL_DISPATCH_INDIRECT_BUFFER, glBuf->GetGLID()));
+    GLCall(glDispatchComputeIndirect(static_cast<GLintptr>(offset)));
+    GLCall(glBindBuffer(GL_DISPATCH_INDIRECT_BUFFER, 0));
+}
+
 void GLCommandBuffer::ResourceBarrier()
 {
     GLCall(glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL_TEXTURE_FETCH_BARRIER_BIT));
@@ -288,8 +302,9 @@ void GLCommandBuffer::ResourceBarrier(BarrierFlags flags)
     GLbitfield bits = 0;
     if (flags & BarrierFlags::ShaderImage)   bits |= GL_SHADER_IMAGE_ACCESS_BARRIER_BIT;
     if (flags & BarrierFlags::TextureFetch)  bits |= GL_TEXTURE_FETCH_BARRIER_BIT;
-    if (flags & BarrierFlags::StorageBuffer) bits |= GL_SHADER_STORAGE_BARRIER_BIT;
-    if (flags & BarrierFlags::Framebuffer)   bits |= GL_FRAMEBUFFER_BARRIER_BIT;
+    if (flags & BarrierFlags::StorageBuffer)   bits |= GL_SHADER_STORAGE_BARRIER_BIT;
+    if (flags & BarrierFlags::Framebuffer)     bits |= GL_FRAMEBUFFER_BARRIER_BIT;
+    if (flags & BarrierFlags::IndirectCommand) bits |= GL_COMMAND_BARRIER_BIT;
 
     if (bits)
         GLCall(glMemoryBarrier(bits));

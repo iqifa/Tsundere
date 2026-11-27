@@ -148,6 +148,33 @@ namespace VulkanPipelineUtil {
 
 		return VK_COMPARE_OP_LESS;
 	}
+	VkStencilOp ToVkStencilOp(StencilOp op)
+	{
+		switch (op)
+		{
+		case StencilOp::Keep:      return VK_STENCIL_OP_KEEP;
+		case StencilOp::Zero:      return VK_STENCIL_OP_ZERO;
+		case StencilOp::Replace:   return VK_STENCIL_OP_REPLACE;
+		case StencilOp::IncrClamp: return VK_STENCIL_OP_INCREMENT_AND_CLAMP;
+		case StencilOp::DecrClamp: return VK_STENCIL_OP_DECREMENT_AND_CLAMP;
+		case StencilOp::Invert:    return VK_STENCIL_OP_INVERT;
+		case StencilOp::IncrWrap:  return VK_STENCIL_OP_INCREMENT_AND_WRAP;
+		case StencilOp::DecrWrap:  return VK_STENCIL_OP_DECREMENT_AND_WRAP;
+		}
+		return VK_STENCIL_OP_KEEP;
+	}
+	VkStencilOpState ToVkStencilOpState(const StencilFaceState& state)
+	{
+		VkStencilOpState vk{};
+		vk.failOp = ToVkStencilOp(state.failOp);
+		vk.passOp = ToVkStencilOp(state.passOp);
+		vk.depthFailOp = ToVkStencilOp(state.depthFailOp);
+		vk.compareOp = ToVkCompareOp(state.compareOp);
+		vk.compareMask = state.compareMask;
+		vk.writeMask = state.writeMask;
+		vk.reference = state.reference;
+		return vk;
+	}
 	VkBlendFactor ToVkBlendFactor(BlendFactor factor)
 	{
 		switch (factor)
@@ -350,6 +377,10 @@ VulkanPipeline::VulkanPipeline(const PipelineDesc& desc) : m_Desc(desc)
 		desc.depthWrite ? VK_TRUE : VK_FALSE;
 	depthStencil.depthCompareOp =
 		(VkCompareOp)VulkanPipelineUtil::ToVkCompareOp(desc.depthOp);
+	depthStencil.stencilTestEnable =
+		desc.stencilTest ? VK_TRUE : VK_FALSE;
+	depthStencil.front = VulkanPipelineUtil::ToVkStencilOpState(desc.frontStencil);
+	depthStencil.back = VulkanPipelineUtil::ToVkStencilOpState(desc.backStencil);
 #pragma endregion
 
 #pragma region BlendState
@@ -386,11 +417,12 @@ VulkanPipeline::VulkanPipeline(const PipelineDesc& desc) : m_Desc(desc)
 		colorBlendAttachment.alphaBlendOp =
 			VK_BLEND_OP_ADD;
 
-		colorBlendAttachment.colorWriteMask =
-			VK_COLOR_COMPONENT_R_BIT |
-			VK_COLOR_COMPONENT_G_BIT |
-			VK_COLOR_COMPONENT_B_BIT |
-			VK_COLOR_COMPONENT_A_BIT;
+		colorBlendAttachment.colorWriteMask = desc.colorWriteEnable
+			? (VK_COLOR_COMPONENT_R_BIT |
+			   VK_COLOR_COMPONENT_G_BIT |
+			   VK_COLOR_COMPONENT_B_BIT |
+			   VK_COLOR_COMPONENT_A_BIT)
+			: 0;
 	}
 
 
@@ -442,8 +474,9 @@ VulkanPipeline::VulkanPipeline(const PipelineDesc& desc) : m_Desc(desc)
 		? nullptr
 		: descriptorSetLayouts.data();
 
+	m_PushConstantStages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 	VkPushConstantRange pushRange{};
-	pushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+	pushRange.stageFlags = m_PushConstantStages;
 	pushRange.offset = 0;
 	pushRange.size = desc.pushConstantSize;
 	layoutInfo.pushConstantRangeCount = desc.pushConstantSize > 0 ? 1u : 0u;

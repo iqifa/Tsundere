@@ -30,6 +30,7 @@ public:
     void DrawIndexed(uint32_t indexCount, uint32_t firstIndex = 0) override;
     void DrawFullscreenQuad() override;
     void Dispatch(uint32_t groupsX, uint32_t groupsY = 1, uint32_t groupsZ = 1) override;
+    void DispatchIndirect(Ref<RHIBuffer> indirectBuffer, uint32_t offset = 0) override;
 
     void ResourceBarrier() override;
     void ResourceBarrier(BarrierFlags flags) override;

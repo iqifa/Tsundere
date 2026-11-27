@@ -50,6 +50,7 @@ namespace GLPipelineUtil
     unsigned int ToGLPrimitive(PrimitiveTopology topo);
     unsigned int ToGLCullFace(CullMode mode);
     unsigned int ToGLCompareOp(CompareOp op);
+    unsigned int ToGLStencilOp(StencilOp op);
     unsigned int ToGLBlendFactor(BlendFactor f);
     unsigned int ToGLVertexType(VertexFormat fmt, int& count);
 

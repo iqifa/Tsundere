@@ -195,6 +195,10 @@ struct T_API RGDepthAttachment
 
 	float clearDepth = 1.0f;
 
+	RGLoadOp stencilLoadOp = RGLoadOp::Clear;
+	RGStoreOp stencilStoreOp = RGStoreOp::Store;
+	uint32_t clearStencil = 0;
+
 	// A depth attachment the pass only tests against, never writes.
 	bool readOnly = false;
 

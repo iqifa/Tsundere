@@ -25,7 +25,7 @@ namespace
         case BufferUsage::Vertex: return VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
         case BufferUsage::Index: return VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
         case BufferUsage::Uniform: return VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-        case BufferUsage::Storage: return VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+        case BufferUsage::Storage: return VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
         case BufferUsage::Staging: return VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
         }
         return 0;

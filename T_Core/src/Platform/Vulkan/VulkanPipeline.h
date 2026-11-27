@@ -37,5 +37,6 @@ namespace VulkanPipelineUtil
     VkPrimitiveTopology ToVkTopology(PrimitiveTopology topology);
     VkCullModeFlags ToVKCullMode(CullMode cullmode);
     VkCompareOp ToVkCompareOp(CompareOp op);
+    VkStencilOp ToVkStencilOp(StencilOp op);
     VkBlendFactor ToVkBlendFactor(BlendFactor factor);
 }

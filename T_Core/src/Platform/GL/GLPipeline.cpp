@@ -52,6 +52,22 @@ unsigned int GLPipelineUtil::ToGLCompareOp(CompareOp op)
     }
 }
 
+unsigned int GLPipelineUtil::ToGLStencilOp(StencilOp op)
+{
+    switch (op)
+    {
+    case StencilOp::Keep:      return GL_KEEP;
+    case StencilOp::Zero:      return GL_ZERO;
+    case StencilOp::Replace:   return GL_REPLACE;
+    case StencilOp::IncrClamp: return GL_INCR;
+    case StencilOp::DecrClamp: return GL_DECR;
+    case StencilOp::Invert:    return GL_INVERT;
+    case StencilOp::IncrWrap:  return GL_INCR_WRAP;
+    case StencilOp::DecrWrap:  return GL_DECR_WRAP;
+    default:                   return GL_KEEP;
+    }
+}
+
 unsigned int GLPipelineUtil::ToGLBlendFactor(BlendFactor f)
 {
     switch (f)
@@ -157,6 +173,43 @@ void GLPipeline::Bind()
     GLCall(glDepthMask(m_Desc.depthWrite ? GL_TRUE : GL_FALSE));
     GLCall(glDepthFunc(GLPipelineUtil::ToGLCompareOp(m_Desc.depthOp)));
 
+    // Stencil state
+    if (m_Desc.stencilTest)
+    {
+        GLCall(glEnable(GL_STENCIL_TEST));
+        GLCall(glStencilFuncSeparate(
+            GL_FRONT,
+            GLPipelineUtil::ToGLCompareOp(m_Desc.frontStencil.compareOp),
+            static_cast<GLint>(m_Desc.frontStencil.reference),
+            m_Desc.frontStencil.compareMask));
+        GLCall(glStencilOpSeparate(
+            GL_FRONT,
+            GLPipelineUtil::ToGLStencilOp(m_Desc.frontStencil.failOp),
+            GLPipelineUtil::ToGLStencilOp(m_Desc.frontStencil.depthFailOp),
+            GLPipelineUtil::ToGLStencilOp(m_Desc.frontStencil.passOp)));
+        GLCall(glStencilMaskSeparate(GL_FRONT, m_Desc.frontStencil.writeMask));
+
+        GLCall(glStencilFuncSeparate(
+            GL_BACK,
+            GLPipelineUtil::ToGLCompareOp(m_Desc.backStencil.compareOp),
+            static_cast<GLint>(m_Desc.backStencil.reference),
+            m_Desc.backStencil.compareMask));
+        GLCall(glStencilOpSeparate(
+            GL_BACK,
+            GLPipelineUtil::ToGLStencilOp(m_Desc.backStencil.failOp),
+            GLPipelineUtil::ToGLStencilOp(m_Desc.backStencil.depthFailOp),
+            GLPipelineUtil::ToGLStencilOp(m_Desc.backStencil.passOp)));
+        GLCall(glStencilMaskSeparate(GL_BACK, m_Desc.backStencil.writeMask));
+    }
+    else
+    {
+        GLCall(glDisable(GL_STENCIL_TEST));
+        GLCall(glStencilMask(0xFF));
+    }
+
+    const GLboolean colorMask = m_Desc.colorWriteEnable ? GL_TRUE : GL_FALSE;
+    GLCall(glColorMask(colorMask, colorMask, colorMask, colorMask));
+
     // Cull face
     if (m_Desc.cullMode == CullMode::None)
     {
@@ -190,6 +243,9 @@ void GLPipeline::Unbind()
 {
     GLCall(glBindVertexArray(0));
     glDisable(GL_CULL_FACE);
+    glDisable(GL_STENCIL_TEST);
+    glStencilMask(0xFF);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     GLCall(glPolygonMode(GL_FRONT_AND_BACK, GL_FILL));
     if (m_Desc.shader)
         m_Desc.shader->UnBind();

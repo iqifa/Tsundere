@@ -80,6 +80,18 @@ enum class CompareOp : uint8_t
     Always
 };
 
+enum class StencilOp : uint8_t
+{
+    Keep,
+    Zero,
+    Replace,
+    IncrClamp,
+    DecrClamp,
+    Invert,
+    IncrWrap,
+    DecrWrap
+};
+
 enum class BlendFactor : uint8_t
 {
     Zero,
@@ -124,11 +136,12 @@ enum class ImageAccess : uint8_t
 // barrier stage/access masks.
 enum class BarrierFlags : uint32_t
 {
-    None          = 0,
-    ShaderImage   = 1 << 0,   // image load/store writes (glBindImageTexture)
-    TextureFetch  = 1 << 1,   // texture() / sampler reads
-    StorageBuffer = 1 << 2,   // SSBO reads/writes
-    Framebuffer   = 1 << 3    // render target writes read back as texture
+    None            = 0,
+    ShaderImage     = 1 << 0,   // image load/store writes (glBindImageTexture)
+    TextureFetch    = 1 << 1,   // texture() / sampler reads
+    StorageBuffer   = 1 << 2,   // SSBO reads/writes
+    Framebuffer     = 1 << 3,   // render target writes read back as texture
+    IndirectCommand = 1 << 4    // indirect dispatch/draw argument buffers
 };
 
 inline BarrierFlags operator|(BarrierFlags a, BarrierFlags b)

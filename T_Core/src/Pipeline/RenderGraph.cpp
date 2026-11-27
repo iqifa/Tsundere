@@ -444,12 +444,17 @@ void RenderGraph::ExecutePass(RGPass& pass, RHICommandBuffer& commandBuffer)
         beginInfo.depth.loadOp = toLoadOp(attachment.loadOp);
         beginInfo.depth.storeOp = toStoreOp(attachment.storeOp);
         beginInfo.depth.clearDepth = attachment.clearDepth;
+        beginInfo.depth.stencilLoadOp = toLoadOp(attachment.stencilLoadOp);
+        beginInfo.depth.stencilStoreOp = toStoreOp(attachment.stencilStoreOp);
+        beginInfo.depth.clearStencil = attachment.clearStencil;
         beginInfo.depth.readOnly = attachment.readOnly;
         if (attachment.resolveTarget.id != InvalidResourceId)
             beginInfo.depth.resolveTarget = GetTexture(attachment.resolveTarget);
 
         beginInfo.clearDepth = (attachment.loadOp == RGLoadOp::Clear);
         beginInfo.depthClearValue = attachment.clearDepth;
+        beginInfo.clearStencil = (attachment.stencilLoadOp == RGLoadOp::Clear);
+        beginInfo.stencilClearValue = attachment.clearStencil;
     }
 
     commandBuffer.BeginRenderPass(framebuffer, beginInfo);

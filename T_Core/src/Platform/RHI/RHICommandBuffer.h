@@ -95,6 +95,7 @@ public:
     virtual void DrawIndexed(uint32_t indexCount, uint32_t firstIndex = 0) = 0;
     virtual void DrawFullscreenQuad() = 0;
     virtual void Dispatch(uint32_t groupsX, uint32_t groupsY = 1, uint32_t groupsZ = 1) = 0;
+    virtual void DispatchIndirect(Ref<RHIBuffer> indirectBuffer, uint32_t offset = 0) = 0;
     virtual void ResourceBarrier() = 0;
     virtual void ResourceBarrier(BarrierFlags flags) = 0;
     virtual void SetViewport(const Viewport& vp) = 0;
